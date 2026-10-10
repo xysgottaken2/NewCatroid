@@ -74,15 +74,19 @@ jobs:
             echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
             if [ -f "${RUNNER_TEMP}/test-output.log" ]; then
-              echo "### Unit test output (tail)"
+              echo "### Unit test output (errors first, then tail)"
               echo '```'
-              tail -n 250 "${RUNNER_TEMP}/test-output.log"
+              grep -E "^e: |error:|FAILED|Execution failed|What went wrong|tests? (completed|failed)|There were failing tests" "${RUNNER_TEMP}/test-output.log" | head -n 100
+              echo "----- tail -----"
+              tail -n 60 "${RUNNER_TEMP}/test-output.log"
               echo '```'
             fi
             if [ -f "${RUNNER_TEMP}/build-output.log" ]; then
-              echo "### APK build output (tail)"
+              echo "### APK build output (errors first, then tail)"
               echo '```'
-              tail -n 250 "${RUNNER_TEMP}/build-output.log"
+              grep -E "^e: |error:|FAILED|Execution failed|What went wrong" "${RUNNER_TEMP}/build-output.log" | head -n 100
+              echo "----- tail -----"
+              tail -n 60 "${RUNNER_TEMP}/build-output.log"
               echo '```'
             fi
           } > "$BODY_FILE"
