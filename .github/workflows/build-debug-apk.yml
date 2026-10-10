@@ -3,14 +3,15 @@ name: Build Debug APK
 on:
   workflow_dispatch:
     inputs:
-      report_issue:
-        description: 'Issue number to post build/test failure details to (optional, workflow_dispatch only)'
+      report_failures:
+        description: 'Post build/test failure details as a comment on the run commit (optional)'
         required: false
-        default: ''
+        type: boolean
+        default: false
   push:
 
 permissions:
-  issues: write
+  contents: write
 
 jobs:
   build:
@@ -59,10 +60,9 @@ jobs:
           set -o pipefail
           ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
 
-      - name: Report failure details to issue (optional)
-        if: failure() && github.event_name == 'workflow_dispatch' && github.event.inputs.report_issue != ''
+      - name: Report failure details as a commit comment (optional)
+        if: failure() && github.event_name == 'workflow_dispatch' && github.event.inputs.report_failures == 'true'
         env:
-          ISSUE_NUMBER: ${{ github.event.inputs.report_issue }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BODY_FILE="${RUNNER_TEMP}/failure.md"
@@ -74,13 +74,13 @@ jobs:
             if [ -f "${RUNNER_TEMP}/test-output.log" ]; then
               echo "### Unit test output (tail)"
               echo '```'
-              tail -n 200 "${RUNNER_TEMP}/test-output.log"
+              tail -n 250 "${RUNNER_TEMP}/test-output.log"
               echo '```'
             fi
             if [ -f "${RUNNER_TEMP}/build-output.log" ]; then
               echo "### APK build output (tail)"
               echo '```'
-              tail -n 200 "${RUNNER_TEMP}/build-output.log"
+              tail -n 250 "${RUNNER_TEMP}/build-output.log"
               echo '```'
             fi
           } > "$BODY_FILE"
@@ -88,13 +88,13 @@ jobs:
           import json, os, sys, urllib.request
           body = open(sys.argv[1]).read()
           req = urllib.request.Request(
-              "https://api.github.com/repos/%s/issues/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["ISSUE_NUMBER"]),
+              "https://api.github.com/repos/%s/commits/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"]),
               data=json.dumps({"body": body}).encode(),
               headers={"Authorization": "token " + os.environ["GH_TOKEN"],
                        "Accept": "application/vnd.github+json"},
               method="POST")
           with urllib.request.urlopen(req) as resp:
-              print("Posted failure details to issue #%s (HTTP %s)" % (os.environ["ISSUE_NUMBER"], resp.status))
+              print("Posted failure details as a commit comment (HTTP %s)" % resp.status)
           PY
 
       - name: Upload debug APK
