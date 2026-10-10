@@ -163,11 +163,11 @@ class LocalWebBricksTest {
 
     @Test
     fun `new brick fields expect string values`() {
-        assertTrue(Brick.isExpectingStringValue(Brick.BrickField.DIRECTORY_URI))
-        assertTrue(Brick.isExpectingStringValue(Brick.BrickField.URL_PREFIX))
-        assertTrue(Brick.isExpectingStringValue(Brick.BrickField.MIME_TYPE))
-        assertTrue(Brick.isExpectingStringValue(Brick.BrickField.INITIAL_DIRECTORY))
-        assertTrue(Brick.isExpectingStringValue(Brick.BrickField.WEB_PAGE_URL))
-        assertTrue(Brick.isExpectingStringValue(Brick.BrickField.NAV_TARGET))
+        assertTrue(Brick.BrickField.isExpectingStringValue(Brick.BrickField.DIRECTORY_URI))
+        assertTrue(Brick.BrickField.isExpectingStringValue(Brick.BrickField.URL_PREFIX))
+        assertTrue(Brick.BrickField.isExpectingStringValue(Brick.BrickField.MIME_TYPE))
+        assertTrue(Brick.BrickField.isExpectingStringValue(Brick.BrickField.INITIAL_DIRECTORY))
+        assertTrue(Brick.BrickField.isExpectingStringValue(Brick.BrickField.WEB_PAGE_URL))
+        assertTrue(Brick.BrickField.isExpectingStringValue(Brick.BrickField.NAV_TARGET))
     }
 }
