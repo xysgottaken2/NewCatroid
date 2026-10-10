@@ -141,9 +141,10 @@ class LocalHttpServerManagerTest {
         val port = freePort()
         assertTrue(LocalHttpServer.start(port))
 
-        // Occupy the port from "outside" to simulate another app.
+        // Stop the manager's server, then occupy the port from "outside"
+        // to simulate another app.
+        LocalHttpServer.stop()
         ServerSocket(port).use { blocker ->
-            LocalHttpServer.stop()
             val success = LocalHttpServer.start(port)
             assertFalse(success)
             assertFalse(LocalHttpServer.isRunning)

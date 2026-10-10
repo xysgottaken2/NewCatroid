@@ -28,6 +28,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -39,6 +40,12 @@ import org.robolectric.RuntimeEnvironment
  */
 @RunWith(RobolectricTestRunner::class)
 class EmbeddedWebViewManagerTest {
+
+    @Before
+    fun resetManagerState() {
+        // The manager is a singleton: clear the error recorded by earlier tests.
+        EmbeddedWebViewManager.lastError = null
+    }
 
     @Test
     fun `loopback origins are allowed on any port`() {

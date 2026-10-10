@@ -205,7 +205,10 @@ object SafSelectionManager {
 
     /** Fallback display name: last path segment, or the full URI string. */
     private fun fallbackDisplayName(uri: Uri): String {
-        val lastSegment = uri.lastPathSegment
+        // SAF document ids often contain the relative path with encoded
+        // slashes (e.g. "primary:Documents/my folder"); the decoded last path
+        // segment then still contains '/', so cut it down to the file name.
+        val lastSegment = uri.lastPathSegment?.substringAfterLast('/')
         if (!lastSegment.isNullOrBlank()) return lastSegment
         return uri.toString()
     }
