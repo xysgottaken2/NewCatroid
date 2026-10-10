@@ -44,11 +44,11 @@ class StartHttpServerBrick : FormulaBrick {
     constructor() : super() {
         addAllowedBrickField(BrickField.PORT, R.id.brick_start_http_server_edit_port)
         addAllowedBrickField(BrickField.IP, R.id.brick_start_http_server_edit_bind)
-        setFormulaWithBrickField(BrickField.PORT, Formula(8080))
-        setFormulaWithBrickField(BrickField.IP, Formula("127.0.0.1"))
+        setFormulaWithBrickField(BrickField.PORT, Formula(DEFAULT_PORT.toDouble()))
+        setFormulaWithBrickField(BrickField.IP, Formula(DEFAULT_BIND_ADDRESS))
     }
 
-    constructor(port: String) : this(Formula(port))
+    constructor(port: String) : this(Formula(port.toDoubleOrNull() ?: DEFAULT_PORT.toDouble()))
 
     constructor(port: Formula) : this() {
         setFormulaWithBrickField(BrickField.PORT, port)
@@ -69,5 +69,10 @@ class StartHttpServerBrick : FormulaBrick {
                 getFormulaWithBrickField(BrickField.IP)
             )
         )
+    }
+
+    companion object {
+        const val DEFAULT_PORT = 8080
+        const val DEFAULT_BIND_ADDRESS = "127.0.0.1"
     }
 }
