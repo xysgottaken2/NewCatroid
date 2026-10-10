@@ -3164,7 +3164,7 @@ public class ActionFactory extends Actions {
 		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
 		action.setScope(scope);
 		action.setUrl(url);
-		action.setTarget(target);
+		action.setNavTarget(target);
 		return action;
 	}
 

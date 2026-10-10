@@ -82,7 +82,7 @@ class SafDocumentStore(
         var currentId = rootDocumentId
         for (segment in relativePath.split('/')) {
             if (segment.isEmpty()) continue
-            val childUri = DocumentsContract.buildChildDocumentUriUsingTree(treeUri, currentId)
+            val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, currentId)
             val match = queryChildren(childUri) { cursor ->
                 val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
                 val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
@@ -108,7 +108,7 @@ class SafDocumentStore(
 
     override fun listChildren(directory: DocumentEntry): List<DocumentEntry> {
         if (!directory.isDirectory || !isInsideTree(directory.id)) return emptyList()
-        val childrenUri = DocumentsContract.buildChildDocumentUriUsingTree(treeUri, directory.id)
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directory.id)
         return queryChildren(childrenUri) { cursor ->
             val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
             val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))

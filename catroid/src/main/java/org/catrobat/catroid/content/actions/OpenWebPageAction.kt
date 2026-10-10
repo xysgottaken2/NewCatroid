@@ -44,7 +44,7 @@ import org.catrobat.catroid.stage.StageActivity
 class OpenWebPageAction : TemporalAction() {
     var scope: Scope? = null
     var url: Formula? = null
-    var target: Formula? = null
+    var navTarget: Formula? = null
 
     override fun update(percent: Float) {
         val activity = StageActivity.activeStageActivity?.get()
@@ -65,7 +65,7 @@ class OpenWebPageAction : TemporalAction() {
         }
 
         val targetValue = try {
-            target?.interpretString(scope)?.trim().orEmpty()
+            navTarget?.interpretString(scope)?.trim().orEmpty()
         } catch (e: Exception) {
             ""
         }
