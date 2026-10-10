@@ -61,7 +61,9 @@ jobs:
           ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
 
       - name: Report failure details as a commit comment (optional)
-        if: failure() && github.event_name == 'workflow_dispatch' && github.event.inputs.report_failures == 'true'
+        # Reports on workflow_dispatch runs with report_failures=true and on
+        # every failed push run of the local-web feature branch.
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
