@@ -79,7 +79,7 @@ class SelectDirectoryAction : Action() {
                 try {
                     val initial = initialDirectory?.interpretString(scope)?.trim().orEmpty()
                     if (initial.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(initial))
+                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(initial))
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Unable to apply EXTRA_INITIAL_URI", e)

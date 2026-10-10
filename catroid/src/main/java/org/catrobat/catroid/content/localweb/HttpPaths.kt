@@ -58,6 +58,10 @@ object HttpPaths {
         }
         if (decoded.contains('\u0000')) return null
         if (decoded.contains('\\')) return null
+        // A leading "//" followed by a segment is an absolute-form /
+        // scheme-relative target ("//host/path"), not a plain path - reject it
+        // as an injection attempt. A bare "//" (or "///") still means the root.
+        if (decoded.startsWith("//") && decoded.trimStart('/').isNotEmpty()) return null
 
         val segments = ArrayList<String>()
         for (segment in decoded.split('/')) {
@@ -82,6 +86,7 @@ object HttpPaths {
     fun normalizePrefix(prefix: String?): String {
         if (prefix.isNullOrBlank()) return "/"
         var p = prefix.trim()
+        while (p.contains("//")) p = p.replace("//", "/")
         if (!p.startsWith("/")) p = "/$p"
         while (p.length > 1 && p.endsWith("/")) p = p.dropLast(1)
         return p
@@ -94,9 +99,10 @@ object HttpPaths {
      */
     fun stripPrefix(path: String, prefix: String): String? {
         val normalizedPrefix = normalizePrefix(prefix)
-        if (normalizedPrefix == "/") return path
-        if (path == normalizedPrefix) return ""
-        if (path.startsWith("$normalizedPrefix/")) return path.removePrefix("$normalizedPrefix/")
+        val withSlash = if (path.startsWith("/")) path else "/$path"
+        if (normalizedPrefix == "/") return withSlash.removePrefix("/")
+        if (withSlash == normalizedPrefix) return ""
+        if (withSlash.startsWith("$normalizedPrefix/")) return withSlash.removePrefix("$normalizedPrefix/")
         return null
     }
 }

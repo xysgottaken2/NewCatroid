@@ -196,7 +196,9 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     webWorker: typeof Worker === 'function',
                     crossOriginIsolated: typeof crossOriginIsolated === 'boolean' ? crossOriginIsolated : false,
                     sharedArrayBuffer: typeof SharedArrayBuffer === 'function',
-                    webgpu: typeof navigator !== 'undefined' && navigator.gpu !== undefined && navigator.gpu !== null
+                    webgpu: typeof navigator !== 'undefined' && navigator.gpu !== undefined && navigator.gpu !== null,
+                    webgl: (function () { try { var c = document.createElement('canvas'); return !!(c.getContext('webgl') || c.getContext('experimental-webgl')); } catch (e) { return false; } })(),
+                    webgl2: (function () { try { var c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; } })()
                 };
                 console.log('NewCatroid WebView capabilities: ' + JSON.stringify(report));
             })();

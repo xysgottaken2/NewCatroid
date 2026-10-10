@@ -60,7 +60,7 @@ class HttpEngine(
             handleInternal(method, rawTarget, headers, out)
         } catch (e: Exception) {
             try {
-                writeSimpleResponse(out, 500, "Internal Server Error", "500 Internal Server Error")
+                out.writeSimpleError(500, "Internal Server Error", "500 Internal Server Error")
             } catch (ignored: Exception) {
             }
         } finally {
@@ -85,16 +85,18 @@ class HttpEngine(
 
         val rawPath = rawTarget.substringBefore('?').ifEmpty { "/" }
 
-        val relativeToPrefix = HttpPaths.stripPrefix(rawPath, urlPrefixProvider())
-        if (relativeToPrefix == null) {
-            out.writeSimpleError(404, "Not Found", "404 Not Found (path is outside the served prefix)")
+        // Normalize the full request path first: invalid paths and traversal
+        // attempts escaping the served root are rejected before anything else.
+        val normalized = HttpPaths.normalize(rawPath)
+        if (normalized == null) {
+            out.writeSimpleError(403, "Forbidden", "403 Forbidden (invalid path)")
             return
         }
 
-        val normalized = HttpPaths.normalize(relativeToPrefix)
-        if (normalized == null) {
-            // Invalid path or traversal attempt escaping the served root.
-            out.writeSimpleError(403, "Forbidden", "403 Forbidden (invalid path)")
+        // Then confine the normalized path to the configured URL prefix.
+        val relativeToPrefix = HttpPaths.stripPrefix(normalized, urlPrefixProvider())
+        if (relativeToPrefix == null) {
+            out.writeSimpleError(404, "Not Found", "404 Not Found (path is outside the served prefix)")
             return
         }
 
@@ -104,14 +106,14 @@ class HttpEngine(
             return
         }
 
-        val entry = store.resolve(normalized)
+        val entry = store.resolve(relativeToPrefix)
         if (entry == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found")
             return
         }
 
         if (entry.isDirectory) {
-            handleDirectory(store, entry, rawPath, normalized, isHead, out)
+            handleDirectory(store, entry, rawPath, relativeToPrefix, isHead, out)
         } else {
             handleFile(store, entry, headers, isHead, out)
         }
@@ -181,7 +183,7 @@ class HttpEngine(
         isHead: Boolean,
         out: OutputStream
     ) {
-        val contentType = entry.mimeType?.takeIf { it != DocumentsContractDirMime } ?: MimeTypes.forPath(entry.name)
+        val contentType = resolveContentType(entry)
         val size = entry.size
 
         val rangeResult = if (size >= 0) HttpRanges.parse(headers["range"], size) else HttpRanges.Result.Ignore
@@ -326,7 +328,7 @@ class HttpEngine(
         const val STREAM_BUFFER_SIZE = 64 * 1024
         const val MAX_LISTING_ENTRIES = 1000
         val INDEX_FILE_NAMES = listOf("index.html", "index.htm")
-        const val DocumentsContractDirMime = "vnd.android.document/directory"
+        const val DIRECTORY_MIME = "vnd.android.document/directory"
         val CRLF = "\r\n".toByteArray(StandardCharsets.US_ASCII)
 
         fun escapeHtml(text: String): String {
