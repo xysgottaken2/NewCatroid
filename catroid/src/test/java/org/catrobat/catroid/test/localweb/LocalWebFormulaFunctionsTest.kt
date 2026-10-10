@@ -25,12 +25,14 @@ package org.catrobat.catroid.test.localweb
 
 import org.catrobat.catroid.content.Scope
 import org.catrobat.catroid.content.Sprite
+import org.catrobat.catroid.content.localweb.LocalHttpServer
 import org.catrobat.catroid.formulaeditor.Formula
 import org.catrobat.catroid.formulaeditor.FormulaElement
 import org.catrobat.catroid.formulaeditor.Functions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -44,6 +46,15 @@ import org.robolectric.RobolectricTestRunner
 class LocalWebFormulaFunctionsTest {
 
     private val scope: Scope = Scope(null, Sprite(), null)
+
+    @Before
+    fun resetServerState() {
+        // LocalHttpServer is a singleton shared with other test classes:
+        // stop any server and clear any recorded error so the reporter
+        // assertions below are independent of test execution order.
+        LocalHttpServer.stop()
+        LocalHttpServer.clearError()
+    }
 
     private fun functionFormula(name: String, vararg args: String): Formula {
         val element = FormulaElement(FormulaElement.ElementType.FUNCTION, name, null)
