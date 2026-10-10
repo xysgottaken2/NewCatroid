@@ -228,7 +228,13 @@ android {
         unitTests.returnDefaultValues = true
         unitTests.includeAndroidResources = true
         unitTests.all {
-            jvmArgs '-Xmx2g'
+            jvmArgs '-Xmx2g',
+                    '--add-opens', 'java.base/java.util=ALL-UNNAMED',
+                    '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+                    '--add-opens', 'java.base/java.lang.reflect=ALL-UNNAMED',
+                    '--add-opens', 'java.base/java.text=ALL-UNNAMED',
+                    '--add-opens', 'java.base/java.util.concurrent=ALL-UNNAMED',
+                    '--add-opens', 'java.desktop/java.awt.font=ALL-UNNAMED'
         }
         animationsDisabled = true
     }
