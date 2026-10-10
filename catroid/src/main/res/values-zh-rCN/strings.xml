@@ -2762,6 +2762,24 @@
     <string formatted="false" name="brick_connect_server">连接到本地服务器</string>
     <string formatted="false" name="brick_stop_server">停止本地服务器</string>
     <string formatted="false" name="brick_start_server">启动端口为的本地服务器</string>
+    <string formatted="false" name="brick_select_directory">选择目录并存入</string>
+    <string formatted="false" name="brick_select_directory2">初始目录（可选）</string>
+    <string formatted="false" name="brick_select_file">选择文件并存入</string>
+    <string formatted="false" name="brick_select_file2">MIME 类型（例如 image/*）</string>
+    <string formatted="false" name="brick_start_http_server">启动本地 HTTP 服务器，端口为</string>
+    <string formatted="false" name="brick_start_http_server2">绑定地址（默认 127.0.0.1）</string>
+    <string formatted="false" name="brick_stop_http_server">停止本地 HTTP 服务器</string>
+    <string formatted="false" name="brick_host_directory">托管目录</string>
+    <string formatted="false" name="brick_host_directory2">URL 前缀（可选）</string>
+    <string formatted="false" name="brick_open_web_page">打开网页</string>
+    <string formatted="false" name="brick_open_web_page2">目标（可选）</string>
+    <string formatted="false" name="formula_editor_function_http_server_running">本地 HTTP 服务器运行中？</string>
+    <string formatted="false" name="formula_editor_function_http_server_url">本地 HTTP 服务器 URL</string>
+    <string formatted="false" name="formula_editor_function_http_server_error">本地 HTTP 服务器错误</string>
+    <string formatted="false" name="formula_editor_function_saf_display_name">所选项的显示名称</string>
+    <string formatted="false" name="formula_editor_function_saf_display_name_parameter">(\'uri\')</string>
+    <string formatted="false" name="formula_editor_function_saf_item_uri">所选项的 URI</string>
+    <string formatted="false" name="formula_editor_function_saf_item_uri_parameter">(\'uri\')</string>
     <string formatted="false" name="brick_screenshot">截图并存储为外观</string>
     <string formatted="false" name="formula_editor_function_distance">莱文斯坦距离</string>
     <string formatted="false" name="formula_editor_function_distance_parameter">(\'panda\', \'lavanda\')</string>

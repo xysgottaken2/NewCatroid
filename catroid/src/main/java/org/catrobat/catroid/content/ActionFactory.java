@@ -3111,6 +3111,63 @@ public class ActionFactory extends Actions {
 		return action;
 	}
 
+	public Action createSelectDirectoryAction(Sprite sprite, SequenceAction sequence,
+												Formula initialDirectory, UserVariable variable) {
+		SelectDirectoryAction action = action(SelectDirectoryAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setInitialDirectory(initialDirectory);
+		action.setVariable(variable);
+		return action;
+	}
+
+	public Action createSelectFileAction(Sprite sprite, SequenceAction sequence,
+											Formula mimeType, UserVariable variable) {
+		SelectFileAction action = action(SelectFileAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setMimeType(mimeType);
+		action.setVariable(variable);
+		return action;
+	}
+
+	public Action createStartHttpServerAction(Sprite sprite, SequenceAction sequence,
+											  Formula port, Formula bindAddress) {
+		StartHttpServerAction action = action(StartHttpServerAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setPort(port);
+		action.setBindAddress(bindAddress);
+		return action;
+	}
+
+	public Action createStopHttpServerAction(Sprite sprite, SequenceAction sequence) {
+		StopHttpServerAction action = action(StopHttpServerAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		return action;
+	}
+
+	public Action createHostDirectoryAction(Sprite sprite, SequenceAction sequence,
+											Formula directory, Formula urlPrefix) {
+		HostDirectoryAction action = action(HostDirectoryAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setDirectory(directory);
+		action.setUrlPrefix(urlPrefix);
+		return action;
+	}
+
+	public Action createOpenWebPageAction(Sprite sprite, SequenceAction sequence,
+										  Formula url, Formula target) {
+		OpenWebPageAction action = action(OpenWebPageAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setUrl(url);
+		action.setTarget(target);
+		return action;
+	}
+
 	public Action createSetBackCameraAction() {
 		ChooseCameraAction action = action(ChooseCameraAction.class);
 		action.setBackCamera();

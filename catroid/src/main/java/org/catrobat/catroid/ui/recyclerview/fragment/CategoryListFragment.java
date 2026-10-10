@@ -258,13 +258,19 @@ public class CategoryListFragment extends Fragment implements CategoryListRVAdap
             R.string.formula_http_response_text,
             R.string.formula_http_response_code,
             R.string.formula_http_response_header,
-            R.string.formula_mqtt_message
+            R.string.formula_mqtt_message,
+            R.string.formula_editor_function_http_server_running,
+            R.string.formula_editor_function_http_server_url,
+            R.string.formula_editor_function_http_server_error
     );
     private static final List<Integer> HTTP_PARAMS = asList(
             R.string.formula_http_response_text_param,
             R.string.formula_http_response_code_param,
             R.string.formula_http_response_header_param,
-            R.string.formula_mqtt_message_param
+            R.string.formula_mqtt_message_param,
+            R.string.formula_no_param,
+            R.string.formula_no_param,
+            R.string.formula_no_param
     );
 	private static final List<Integer> LOGIC_BOOL = asList(R.string.formula_editor_logic_and,
 			R.string.formula_editor_logic_or, R.string.formula_editor_logic_not,
@@ -603,7 +609,9 @@ public class CategoryListFragment extends Fragment implements CategoryListRVAdap
             R.string.formula_file_last_modified,
             R.string.formula_file_to_base64,
             R.string.formula_file_md5,
-            R.string.formula_file_sha256
+            R.string.formula_file_sha256,
+            R.string.formula_editor_function_saf_display_name,
+            R.string.formula_editor_function_saf_item_uri
     );
 
     private static final List<Integer> FILE_PARAMS = asList(
@@ -618,7 +626,9 @@ public class CategoryListFragment extends Fragment implements CategoryListRVAdap
             R.string.formula_file_last_modified_param,
             R.string.formula_file_to_base64_param,
             R.string.formula_file_md5_param,
-            R.string.formula_file_sha256_param
+            R.string.formula_file_sha256_param,
+            R.string.formula_editor_function_saf_display_name_parameter,
+            R.string.formula_editor_function_saf_item_uri_parameter
     );
 
     private static final List<Integer> TABLE_AND_VARS_FUNCTIONS = asList(
