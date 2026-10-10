@@ -24,6 +24,7 @@
 package org.catrobat.catroid.test.localweb
 
 import org.catrobat.catroid.content.Scope
+import org.catrobat.catroid.content.Sprite
 import org.catrobat.catroid.formulaeditor.Formula
 import org.catrobat.catroid.formulaeditor.FormulaElement
 import org.catrobat.catroid.formulaeditor.Functions
@@ -32,7 +33,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mockito.Mockito
 import org.robolectric.RobolectricTestRunner
 
 /**
@@ -43,7 +43,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class LocalWebFormulaFunctionsTest {
 
-    private val scope: Scope = Mockito.mock(Scope::class.java)
+    private val scope: Scope = Scope(null, Sprite(), null)
 
     private fun functionFormula(name: String, vararg args: String): Formula {
         val element = FormulaElement(FormulaElement.ElementType.FUNCTION, name, null)

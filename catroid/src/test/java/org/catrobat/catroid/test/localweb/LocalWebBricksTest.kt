@@ -24,6 +24,7 @@
 package org.catrobat.catroid.test.localweb
 
 import org.catrobat.catroid.content.Scope
+import org.catrobat.catroid.content.Sprite
 import org.catrobat.catroid.content.bricks.Brick
 import org.catrobat.catroid.content.bricks.HostDirectoryBrick
 import org.catrobat.catroid.content.bricks.OpenWebPageBrick
@@ -37,7 +38,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mockito.Mockito
 
 /**
  * Tests for the new local-web blocks: default formula values, variable
@@ -46,7 +46,7 @@ import org.mockito.Mockito
  */
 class LocalWebBricksTest {
 
-    private val scope: Scope = Mockito.mock(Scope::class.java)
+    private val scope: Scope = Scope(null, Sprite(), null)
 
     @Test
     fun `start http server brick has port and bind address defaults`() {

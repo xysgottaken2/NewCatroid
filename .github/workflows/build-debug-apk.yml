@@ -2,7 +2,15 @@ name: Build Debug APK
 
 on:
   workflow_dispatch:
+    inputs:
+      report_issue:
+        description: 'Issue number to post build/test failure details to (optional, workflow_dispatch only)'
+        required: false
+        default: ''
   push:
+
+permissions:
+  issues: write
 
 jobs:
   build:
@@ -42,10 +50,52 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run unit tests (danvex debug)
-        run: ./gradlew :catroid:testDanvexDebugUnitTest --build-cache --parallel --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :catroid:testDanvexDebugUnitTest --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/test-output.log"
 
       - name: Build debug APK (danvex)
-        run: ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
+
+      - name: Report failure details to issue (optional)
+        if: failure() && github.event_name == 'workflow_dispatch' && github.event.inputs.report_issue != ''
+        env:
+          ISSUE_NUMBER: ${{ github.event.inputs.report_issue }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY_FILE="${RUNNER_TEMP}/failure.md"
+          {
+            echo "## :x: Build/test failure - run ${{ github.run_number }} @ ${{ github.sha }}"
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            if [ -f "${RUNNER_TEMP}/test-output.log" ]; then
+              echo "### Unit test output (tail)"
+              echo '```'
+              tail -n 200 "${RUNNER_TEMP}/test-output.log"
+              echo '```'
+            fi
+            if [ -f "${RUNNER_TEMP}/build-output.log" ]; then
+              echo "### APK build output (tail)"
+              echo '```'
+              tail -n 200 "${RUNNER_TEMP}/build-output.log"
+              echo '```'
+            fi
+          } > "$BODY_FILE"
+          python3 - "$BODY_FILE" <<'PY'
+          import json, os, sys, urllib.request
+          body = open(sys.argv[1]).read()
+          req = urllib.request.Request(
+              "https://api.github.com/repos/%s/issues/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["ISSUE_NUMBER"]),
+              data=json.dumps({"body": body}).encode(),
+              headers={"Authorization": "token " + os.environ["GH_TOKEN"],
+                       "Accept": "application/vnd.github+json"},
+              method="POST")
+          with urllib.request.urlopen(req) as resp:
+              print("Posted failure details to issue #%s (HTTP %s)" % (os.environ["ISSUE_NUMBER"], resp.status))
+          PY
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -55,7 +105,7 @@ jobs:
           path: 'catroid/build/outputs/apk/danvex/debug/*.apk'
           retention-days: 30
 
-      - name: Upload test reports and results on failure
+      - name: Upload test reports, results and logs on failure
         uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -63,4 +113,7 @@ jobs:
           path: |
             catroid/build/test-results/testDanvexDebugUnitTest/*.xml
             catroid/build/reports/tests/testDanvexDebugUnitTest/**
+            ${{ runner.temp }}/test-output.log
+            ${{ runner.temp }}/build-output.log
           retention-days: 30
+          if-no-files-found: warn
