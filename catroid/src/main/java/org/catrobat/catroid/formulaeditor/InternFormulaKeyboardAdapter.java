@@ -194,8 +194,6 @@ public class InternFormulaKeyboardAdapter {
 				return buildFunctionWithoutParametersAndBrackets(Functions.ALL_FILES);
 			case R.string.formula_editor_function_file_size:
 				return buildSingleParameterFunction(Functions.FILE_SIZE, STRING, "variable.txt");
-			case R.string.formula_editor_function_file_size:
-				return buildSingleParameterFunction(Functions.FILE_SIZE, STRING, "variable.txt");
 			case R.string.formula_editor_function_http_server_running:
 				return buildFunctionWithoutParametersAndBrackets(Functions.HTTP_SERVER_RUNNING);
 			case R.string.formula_editor_function_http_server_url:
