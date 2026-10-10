@@ -154,14 +154,27 @@ class HttpServerEngine(
 
     private fun stopInternal() {
         isRunning = false
-        serverSocket?.let { socket ->
+        val socket = serverSocket
+        val thread = acceptThread
+        serverSocket = null
+        acceptThread = null
+        socket?.let { s ->
             try {
-                socket.close()
+                s.close()
             } catch (ignored: IOException) {
             }
         }
-        serverSocket = null
-        acceptThread = null
+        // Closing the socket makes a blocked accept() throw, but the JDK may
+        // release the underlying port only once the accept loop has actually
+        // exited. Wait for it so stop() deterministically frees the listening
+        // port and an immediate restart on the same port cannot race the close.
+        thread?.let { t ->
+            try {
+                t.join(ACCEPT_THREAD_JOIN_TIMEOUT_MS)
+            } catch (ignored: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
         executor?.let { pool ->
             pool.shutdown()
             try {
@@ -289,6 +302,7 @@ class HttpServerEngine(
         const val MAX_QUEUED_CONNECTIONS = 64
         const val SOCKET_BACKLOG = 64
         const val SOCKET_TIMEOUT_MS = 15000
+        const val ACCEPT_THREAD_JOIN_TIMEOUT_MS = 2000L
         const val MAX_REQUEST_LINE_BYTES = 8192
         const val MAX_HEADER_LINE_BYTES = 8192
         const val MAX_HEADER_BYTES = 16384
