@@ -128,7 +128,7 @@ class SafDocumentStoreTest {
 
     @Test
     fun `open input streams the document content`() {
-        val entry = store.resolve("index.html") ?: fail("index.html must resolve")
+        val entry = store.resolve("index.html") ?: throw AssertionError("index.html must resolve")
         val streamed = store.openInput(entry)?.readBytes()
         assertNotNull(streamed)
         assertEquals(
@@ -139,7 +139,7 @@ class SafDocumentStoreTest {
 
     @Test
     fun `list children exposes the folder hierarchy`() {
-        val root = store.resolve("") ?: fail("root must resolve")
+        val root = store.resolve("") ?: throw AssertionError("root must resolve")
         val children = store.listChildren(root)
         val names = children.map { it.name }
         assertTrue(names.contains("index.html"))
@@ -150,7 +150,7 @@ class SafDocumentStoreTest {
         assertTrue(names.contains("assets"))
         assertTrue(children.first { it.name == "nested" }.isDirectory)
 
-        val nested = store.resolve("nested") ?: fail("nested must resolve")
+        val nested = store.resolve("nested") ?: throw AssertionError("nested must resolve")
         val nestedNames = store.listChildren(nested).map { it.name }
         assertEquals(listOf("asset.js", "texture.png"), nestedNames)
     }
