@@ -371,6 +371,7 @@ public final class BrickInfo {
         add(SendServerBrick.class, "Отправляет значение на локальный сервер ВАЖНО: оно так же придет и вам");
         add(StopServerBrick.class, "Останавливает локальный сервер ВАЖНО: только для хоста");
         add(SelectDirectoryBrick.class, "Открывает системный выбор папки (каталога) и сохраняет URI выбранной папки в переменную. При отмене переменная не меняется");
+        add(SelectFolderAndHostBrick.class, "Открывает выбор папки, сохраняет URI выбранной папки в переменную и сразу назначает её корнем HTTP-сервера (префикс URL «/»). Отмена не меняет прежние значения");
         add(SelectFileBrick.class, "Открывает системный выбор файла и сохраняет URI выбранного файла в переменную. Файл не копируется в память приложения");
         add(StartHttpServerBrick.class, "Запускает встроенный локальный HTTP-сервер на указанном порту (по умолчанию только 127.0.0.1). Блок завершается после запуска или ошибки");
         add(StopHttpServerBrick.class, "Останавливает встроенный локальный HTTP-сервер и освобождает ресурсы. Можно вызывать повторно");
@@ -809,6 +810,7 @@ public final class BrickInfo {
         add(SendServerBrick.class, "Sends a value to the local server. IMPORTANT: you will also receive it.");
         add(StopServerBrick.class, "Stops the local server. IMPORTANT: host only.");
         add(SelectDirectoryBrick.class, "Opens the system directory picker and stores the selected directory URI in a variable. Cancelling keeps the previous value");
+        add(SelectFolderAndHostBrick.class, "Opens the folder picker, stores the selected folder URI in a variable and immediately hosts that folder as the HTTP document root (URL prefix \"/\"). Cancelling keeps the previous values");
         add(SelectFileBrick.class, "Opens the system file picker and stores the selected file URI in a variable. The file is not copied into app storage");
         add(StartHttpServerBrick.class, "Starts the embedded local HTTP server on the given port (loopback only by default). The block finishes once startup completed or failed");
         add(StopHttpServerBrick.class, "Stops the embedded local HTTP server and releases its resources. Safe to run repeatedly");
@@ -1243,6 +1245,7 @@ public final class BrickInfo {
         add(SendServerBrick.class, "Envia o valor para o servidor local. IMPORTANTE: você também o receberá.");
         add(StopServerBrick.class, "Interrompe o servidor local. IMPORTANTE: apenas para o host.");
         add(SelectDirectoryBrick.class, "Abre o seletor de pastas do sistema e salva o URI da pasta escolhida em uma variável. Cancelar mantém o valor anterior");
+        add(SelectFolderAndHostBrick.class, "Abre o seletor de pastas, salva o URI da pasta escolhida em uma variável e já a hospeda como raiz do servidor HTTP (prefixo de URL \"/\"). Cancelar mantém os valores anteriores");
         add(SelectFileBrick.class, "Abre o seletor de arquivos do sistema e salva o URI do arquivo escolhido em uma variável. O arquivo não é copiado para o app");
         add(StartHttpServerBrick.class, "Inicia o servidor HTTP local incorporado na porta indicada (apenas 127.0.0.1 por padrão). O bloco termina após iniciar ou falhar");
         add(StopHttpServerBrick.class, "Para o servidor HTTP local incorporado e libera seus recursos. Seguro para executar repetidamente");
@@ -1661,6 +1664,7 @@ public final class BrickInfo {
         add(SendServerBrick.class, "将值发送到本地服务器。重要提示：您也会收到它。");
         add(StopServerBrick.class, "停止本地服务器。重要提示：仅主机。");
         add(SelectDirectoryBrick.class, "打开系统目录选择器，并将所选目录的 URI 存入变量。取消选择不会改变变量");
+        add(SelectFolderAndHostBrick.class, "打开文件夹选择器，将所选文件夹的 URI 存入变量，并立即将其设为 HTTP 服务器的文档根（URL 前缀 \"/\"）。取消不会改变原有值");
         add(SelectFileBrick.class, "打开系统文件选择器，并将所选文件的 URI 存入变量。文件不会被复制到应用存储中");
         add(StartHttpServerBrick.class, "在指定端口启动内嵌本地 HTTP 服务器（默认仅 127.0.0.1）。启动成功或失败后块才结束");
         add(StopHttpServerBrick.class, "停止内嵌本地 HTTP 服务器并释放资源。可重复执行");

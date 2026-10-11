@@ -49,14 +49,29 @@ class HostDirectoryAction : TemporalAction() {
             Log.w(TAG, "Unable to interpret directory formula", e)
             null
         }
+        if (directoryValue.isNullOrBlank()) {
+            // An empty or failed evaluation is a configuration error. It must
+            // NOT clear a previously configured document root - report it so
+            // the "local HTTP server error" reporter shows the reason.
+            LocalHttpServer.reportError(
+                "No directory to host: the directory field is empty (select a folder first)"
+            )
+            return
+        }
         LocalHttpServer.setDocumentRoot(directoryValue)
+        if (LocalHttpServer.documentRoot != directoryValue.trim()) {
+            LocalHttpServer.reportError(
+                LocalHttpServer.lastError ?: "The hosting manager did not accept directory: $directoryValue"
+            )
+            return
+        }
 
         val prefixValue = try {
             urlPrefix?.interpretString(scope)
         } catch (e: Exception) {
             null
         }
-        if (prefixValue != null) {
+        if (!prefixValue.isNullOrBlank()) {
             LocalHttpServer.setUrlPrefix(prefixValue)
         }
     }

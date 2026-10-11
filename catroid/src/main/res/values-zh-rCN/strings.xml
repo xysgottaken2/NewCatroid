@@ -2763,6 +2763,7 @@
     <string formatted="false" name="brick_stop_server">停止本地服务器</string>
     <string formatted="false" name="brick_start_server">启动端口为的本地服务器</string>
     <string formatted="false" name="brick_select_directory">选择目录并存入</string>
+    <string formatted="false" name="brick_select_folder_and_host">选择文件夹，保存到变量并托管</string>
     <string formatted="false" name="brick_select_directory2">初始目录（可选）</string>
     <string formatted="false" name="brick_select_file">选择文件并存入</string>
     <string formatted="false" name="brick_select_file2">MIME 类型（例如 image/*）</string>

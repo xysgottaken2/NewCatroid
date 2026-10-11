@@ -2952,6 +2952,7 @@
     <string name="brick_stop_server" formatted="false">Parar servidor local</string>
     <string name="brick_start_server" formatted="false">Iniciar servidor local na porta</string>
     <string name="brick_select_directory" formatted="false">Selecionar pasta e salvar em</string>
+    <string name="brick_select_folder_and_host" formatted="false">Selecionar pasta, salvar em variável e hospedar</string>
     <string name="brick_select_directory2" formatted="false">pasta inicial (opcional)</string>
     <string name="brick_select_file" formatted="false">Selecionar arquivo e salvar em</string>
     <string name="brick_select_file2" formatted="false">tipo MIME (ex. image/*)</string>

@@ -3023,6 +3023,7 @@
     <string formatted="false" name="brick_stop_server">Остановить локальный сервер</string>
     <string formatted="false" name="brick_start_server">Запустить локальный сервер с портом</string>
     <string formatted="false" name="brick_select_directory">Выбрать папку и сохранить в</string>
+    <string formatted="false" name="brick_select_folder_and_host">Выбрать папку, сохранить в переменную и разместить</string>
     <string formatted="false" name="brick_select_directory2">начальная папка (необязательно)</string>
     <string formatted="false" name="brick_select_file">Выбрать файл и сохранить в</string>
     <string formatted="false" name="brick_select_file2">MIME-тип (например image/*)</string>

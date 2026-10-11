@@ -8,6 +8,23 @@ in-app WebView — all from visual programming blocks.
 
 All blocks live in the **Internet** category of the block list.
 
+### 0. Select folder, save to variable and host *(recommended for hosting a game)*
+
+Combined block: opens the system folder picker, waits for the user, stores
+the selected SAF tree URI in the chosen variable **and** configures the
+embedded HTTP server to serve that same folder at the `/` URL prefix —
+atomically. The URI object returned by the picker is passed directly to the
+hosting manager, so the block does not depend on a separate "Host directory"
+block or on formula evaluation carrying the value between blocks.
+
+- On **cancel** nothing changes: the variable keeps its previous value and
+  the server configuration is untouched.
+- The two operations (save to variable, configure hosting) are independent;
+  a failure of either is reported through the *local HTTP server error*
+  reporter (and a toast) without undoing the other.
+- Success is confirmed by checking that the manager accepted the document
+  root; the *local HTTP server error* reporter stays empty.
+
 ### 1. Select directory and store in [variable] *(optional: initial directory)*
 
 Opens the system directory picker (Storage Access Framework,
@@ -102,19 +119,24 @@ can be stored, concatenated and compared like any other value.
 
 The blocks are designed to be used in this order:
 
-1. **Select directory** (or **Select file**) → fills a variable with a
-   `content://` URI.
-2. **Host directory** → point the server at that variable's value.
-3. **Start local HTTP server** → starts serving; use the *running?* / *URL* /
+1. **Select folder, save to variable and host** → one atomic block: picks the
+   folder, stores its URI in a variable and configures it as the HTTP document
+   root at `/` (default URL `http://127.0.0.1:8080/`). The separate
+   **Select directory** + **Host directory** blocks remain available and are
+   still the way to host a fixed directory without a picker.
+2. **Start local HTTP server** → starts serving; use the *running?* / *URL* /
    *error* reporters to react to the result (e.g. show the URL or an error
    message).
-4. **Open web page** → open the server URL (from the *local HTTP server URL*
-   reporter) in the embedded WebView.
-5. **Stop local HTTP server** → when the project/scene ends (the server is
+3. **Open web page** → open the server URL (from the *local HTTP server URL*
+   reporter, or `http://127.0.0.1:8080/` for an `index.html` entry, or the
+   entry file's own URL like `http://127.0.0.1:8080/game.html`) in the
+   embedded WebView.
+4. **Stop local HTTP server** → when the project/scene ends (the server is
    also stopped automatically when the stage activity is destroyed).
 
-Steps 1–2 can be skipped when hosting a fixed directory; step 4 can target any
-loopback URL, not only the embedded server.
+Steps 1 can be replaced by **Select directory** + **Host directory** when
+hosting a fixed directory; step 3 can target any loopback URL, not only the
+embedded server.
 
 ## What the server does
 

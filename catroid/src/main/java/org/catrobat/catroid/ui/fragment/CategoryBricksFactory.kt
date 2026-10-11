@@ -582,6 +582,7 @@ import org.catrobat.catroid.content.bricks.StopRunningStitchBrick
 import org.catrobat.catroid.content.bricks.StopScriptBrick
 import org.catrobat.catroid.content.bricks.StopServerBrick
 import org.catrobat.catroid.content.bricks.SelectDirectoryBrick
+import org.catrobat.catroid.content.bricks.SelectFolderAndHostBrick
 import org.catrobat.catroid.content.bricks.SelectFileBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerBrick
 import org.catrobat.catroid.content.bricks.StopHttpServerBrick
@@ -2022,6 +2023,7 @@ print("Bot has stopped.")""", "myVar"))
                 deviceBrickList.add(HideStatusBarBrick())
                 deviceBrickList.add(ChooseFileBrick())
                 deviceBrickList.add(SelectDirectoryBrick())
+                deviceBrickList.add(SelectFolderAndHostBrick())
                 deviceBrickList.add(SelectFileBrick())
                 deviceBrickList.add(ExportProjectFileBrick("file.txt"))
                 deviceBrickList.add(ShareBrick("Привет из NewCatroid!"));
@@ -2256,6 +2258,7 @@ bot.polling()""", "myVar"))
         deviceBrickList.add(OpenFileBrick("fileFromUrl.txt"))
         deviceBrickList.add(ChooseFileBrick())
                 deviceBrickList.add(SelectDirectoryBrick())
+                deviceBrickList.add(SelectFolderAndHostBrick())
                 deviceBrickList.add(SelectFileBrick())
         deviceBrickList.add(MoveFilesBrick("variable.txt"))
         deviceBrickList.add(MoveDownloadsBrick("variable.txt"))
@@ -3041,6 +3044,7 @@ void main() {
         internetBrickList.add(SendServerBrick("Hi"))
         internetBrickList.add(StopServerBrick())
         internetBrickList.add(SelectDirectoryBrick())
+        internetBrickList.add(SelectFolderAndHostBrick())
         internetBrickList.add(SelectFileBrick())
         internetBrickList.add(HostDirectoryBrick("content://"))
         internetBrickList.add(StartHttpServerBrick("8080"))

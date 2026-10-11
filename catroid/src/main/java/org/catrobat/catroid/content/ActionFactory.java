@@ -3121,6 +3121,13 @@ public class ActionFactory extends Actions {
 		return action;
 	}
 
+	public Action createSelectFolderAndHostAction(Sprite sprite, SequenceAction sequence,
+											UserVariable variable) {
+		SelectFolderAndHostAction action = action(SelectFolderAndHostAction.class);
+		action.setVariable(variable);
+		return action;
+	}
+
 	public Action createSelectFileAction(Sprite sprite, SequenceAction sequence,
 											Formula mimeType, UserVariable variable) {
 		SelectFileAction action = action(SelectFileAction.class);

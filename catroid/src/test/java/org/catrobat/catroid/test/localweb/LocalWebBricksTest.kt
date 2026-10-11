@@ -30,6 +30,7 @@ import org.catrobat.catroid.content.bricks.HostDirectoryBrick
 import org.catrobat.catroid.content.bricks.OpenWebPageBrick
 import org.catrobat.catroid.content.bricks.SelectDirectoryBrick
 import org.catrobat.catroid.content.bricks.SelectFileBrick
+import org.catrobat.catroid.content.bricks.SelectFolderAndHostBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerBrick
 import org.catrobat.catroid.content.bricks.StopHttpServerBrick
 import org.catrobat.catroid.formulaeditor.UserVariable
@@ -104,6 +105,20 @@ class LocalWebBricksTest {
     }
 
     @Test
+    fun `combined select folder and host brick has no formula fields`() {
+        val brick = SelectFolderAndHostBrick()
+        assertTrue(brick.allFormulaFieldsWithFormulas.isEmpty())
+    }
+
+    @Test
+    fun `combined select folder and host brick accepts a destination user variable`() {
+        val variable = UserVariable("gameFolder")
+        val brick = SelectFolderAndHostBrick()
+        brick.userVariable = variable
+        assertEquals(variable, brick.userVariable)
+    }
+
+    @Test
     fun `stop http server brick has no formula fields`() {
         val brick = StopHttpServerBrick()
         assertTrue(brick.allFormulaFieldsWithFormulas.isEmpty())
@@ -115,6 +130,7 @@ class LocalWebBricksTest {
 
         val bricks = listOf(
             SelectDirectoryBrick(),
+            SelectFolderAndHostBrick(),
             SelectFileBrick(),
             StartHttpServerBrick(),
             StopHttpServerBrick(),
@@ -158,6 +174,12 @@ class LocalWebBricksTest {
         val brick = SelectDirectoryBrick(org.catrobat.catroid.formulaeditor.Formula(""), variable)
         val restored = xstream.fromXML(xstream.toXML(brick)) as SelectDirectoryBrick
         assertNotNull(restored.userVariable)
+
+        val combined = SelectFolderAndHostBrick()
+        combined.userVariable = variable
+        val restoredCombined = xstream.fromXML(xstream.toXML(combined)) as SelectFolderAndHostBrick
+        assertNotNull(restoredCombined.userVariable)
+        assertEquals("gameFolder", restoredCombined.userVariable!!.name)
         assertEquals("selectedFolder", restored.userVariable.name)
     }
 

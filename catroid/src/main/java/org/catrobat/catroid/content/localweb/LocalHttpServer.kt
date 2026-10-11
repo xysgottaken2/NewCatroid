@@ -224,6 +224,16 @@ object LocalHttpServer {
         lastError = null
     }
 
+    /**
+     * Records a user-facing error (readable through the "local HTTP server
+     * error" reporter). Used by blocks that configure the server so failures
+     * are never silently swallowed.
+     */
+    fun reportError(message: String) {
+        lastError = message
+        Log.w(TAG, message)
+    }
+
     private fun currentStore(): DocumentStore? {
         synchronized(lock) {
             return cachedStore

@@ -3113,6 +3113,7 @@
     <string formatted="false" name="brick_stop_server">Stop local server</string>
     <string formatted="false" name="brick_start_server">Start local lerver with port</string>
     <string formatted="false" name="brick_select_directory">Select directory and store in</string>
+    <string formatted="false" name="brick_select_folder_and_host">Select folder, save to variable and host</string>
     <string formatted="false" name="brick_select_directory2">initial directory (optional)</string>
     <string formatted="false" name="brick_select_file">Select file and store in</string>
     <string formatted="false" name="brick_select_file2">MIME type (e.g. image/*)</string>
