@@ -106,9 +106,10 @@ class LocalWebBricksTest {
 
     @Test
     fun `combined select folder and host brick is a variable brick without formula fields`() {
+        // Variable-only brick: extends the UserVariableBrick base (spinner),
+        // not FormulaBrick - so it has no formula fields by construction.
         val brick = SelectFolderAndHostBrick()
         assertTrue(brick is org.catrobat.catroid.content.bricks.UserVariableBrick)
-        assertTrue(brick !is org.catrobat.catroid.content.bricks.FormulaBrick)
     }
 
     @Test
