@@ -23,6 +23,7 @@
 
 package org.catrobat.catroid.test.localweb
 
+import android.content.pm.ProviderInfo
 import android.net.Uri
 import android.provider.DocumentsContract
 import org.catrobat.catroid.content.localweb.SafDocumentStore
@@ -61,13 +62,25 @@ class SafDocumentStoreTest {
 
     @Before
     fun setUp() {
-        ShadowContentResolver.registerProviderInternal(
-            FakeGameDocumentsProvider.AUTHORITY,
-            FakeGameDocumentsProvider()
-        )
-        registerDocumentStreams()
+        registerFakeProvider()
         treeUri = Uri.parse(FakeGameDocumentsProvider.TREE_URI)
+        registerDocumentStreams()
         store = SafDocumentStore(RuntimeEnvironment.getApplication(), treeUri)
+    }
+
+    /**
+     * Registers the fake provider with Robolectric's content resolver. The
+     * provider must be attached (attachInfo) before use: DocumentsProvider
+     * builds its URI matcher in attachInfo, and querying an unattached
+     * provider would NPE instead of exercising the matcher.
+     */
+    private fun registerFakeProvider() {
+        val provider = FakeGameDocumentsProvider()
+        val info = ProviderInfo()
+        info.authority = FakeGameDocumentsProvider.AUTHORITY
+        info.name = FakeGameDocumentsProvider::class.java.name
+        provider.attachInfo(RuntimeEnvironment.getApplication(), info)
+        ShadowContentResolver.registerProviderInternal(FakeGameDocumentsProvider.AUTHORITY, provider)
     }
 
     private fun registerDocumentStreams() {
