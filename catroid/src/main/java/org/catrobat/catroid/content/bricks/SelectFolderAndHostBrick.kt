@@ -40,7 +40,7 @@ import org.catrobat.catroid.content.actions.ScriptSequenceAction
  * server configuration. Starting the server and opening the game remain
  * separate blocks.
  */
-class SelectFolderAndHostBrick : UserVariableBrick() {
+class SelectFolderAndHostBrick : UserVariableBrick {
 
     constructor() : super()
 
