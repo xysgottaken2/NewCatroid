@@ -205,7 +205,7 @@ class SelectFolderAndHostActionTest {
         val hostAction = HostDirectoryAction()
         hostAction.directory = Formula("")
 
-        hostAction.update(0f)
+        hostAction.act(0f)
 
         assertEquals("empty input must not clear the configured root", treeUri.toString(), LocalHttpServer.documentRoot)
         assertNotNull("empty input must report a meaningful error", LocalHttpServer.lastError)
@@ -216,7 +216,7 @@ class SelectFolderAndHostActionTest {
         LocalHttpServer.setDocumentRoot(treeUri.toString())
         val hostAction = HostDirectoryAction()
 
-        hostAction.update(0f)
+        hostAction.act(0f)
 
         assertEquals(treeUri.toString(), LocalHttpServer.documentRoot)
         assertNotNull(LocalHttpServer.lastError)
@@ -227,7 +227,7 @@ class SelectFolderAndHostActionTest {
         val hostAction = HostDirectoryAction()
         hostAction.directory = Formula(treeUri.toString())
 
-        hostAction.update(0f)
+        hostAction.act(0f)
 
         assertEquals(treeUri.toString(), LocalHttpServer.documentRoot)
         assertNull(LocalHttpServer.lastError)
@@ -241,7 +241,7 @@ class SelectFolderAndHostActionTest {
             "content://${FakeGameDocumentsProvider.AUTHORITY}/document/primary%3ADocuments%2Fgame%2FGame%2Findex.html"
         )
 
-        hostAction.update(0f)
+        hostAction.act(0f)
 
         assertEquals(treeUri.toString(), LocalHttpServer.documentRoot)
         assertNotNull(LocalHttpServer.lastError)
