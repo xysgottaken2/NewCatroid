@@ -227,8 +227,13 @@ jobs:
   full-unit-tests:
     name: Full unit test suite (informational, does not block the APK)
     runs-on: ubuntu-latest
+    # NOTE: no job-level timeout-minutes here. A job that exceeds its timeout
+    # is cancelled, and a cancelled job cancels the whole run even with
+    # continue-on-error (continue-on-error only absorbs step failures).
+    # The suite budget is enforced inside the step with the shell `timeout`
+    # command instead: when it fires, the step fails, continue-on-error keeps
+    # the run green, and the failure-report steps still run.
     continue-on-error: true
-    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -257,10 +262,10 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run full unit test suite
+      - name: Run full unit test suite (110m budget; failure is informational)
         run: |
           set -o pipefail
-          ./gradlew :catroid:testDanvexDebugUnitTest --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/full-test-output.log"
+          timeout 110m ./gradlew :catroid:testDanvexDebugUnitTest --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/full-test-output.log"
 
       - name: Extract test failure details
         if: failure()
