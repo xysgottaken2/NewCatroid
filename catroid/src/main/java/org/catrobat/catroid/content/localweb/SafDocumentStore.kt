@@ -27,6 +27,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Bundle
 import android.provider.DocumentsContract
 import java.io.InputStream
 
@@ -44,11 +45,28 @@ class SafDocumentStore(
     private val treeUri: Uri
 ) : DocumentStore {
 
+    init {
+        // Only document tree URIs (as returned by ACTION_OPEN_DOCUMENT_TREE) can
+        // be served; anything else is rejected with a clear error.
+        require(DocumentsContract.isTreeUri(treeUri)) {
+            "Not a document tree URI (expected a folder picked with the directory picker): $treeUri"
+        }
+    }
+
     private val resolver: ContentResolver = context.contentResolver
     private val rootDocumentId: String = DocumentsContract.getTreeDocumentId(treeUri)
 
+    /**
+     * Document URI of the tree root. Providers do not accept the bare tree
+     * URI for document queries: DocumentsProvider only matches document URIs
+     * and tree-scoped document URIs (there is no pattern for a bare tree URI
+     * and DocumentsContract.getDocumentId rejects it), so every metadata
+     * query about the root must go through this URI.
+     */
+    private val rootDocumentUri: Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocumentId)
+
     override val rootDisplayName: String by lazy {
-        querySingle(treeUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)) { cursor ->
+        querySingle(rootDocumentUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)) { cursor ->
             cursor.getString(0)
         }?.takeIf { it.isNotBlank() } ?: FALLBACK_ROOT_NAME
     }
@@ -67,7 +85,7 @@ class SafDocumentStore(
      */
     override fun resolve(relativePath: String): DocumentEntry? {
         if (relativePath.isEmpty()) {
-            return queryEntry(treeUri, rootDocumentId, FALLBACK_ROOT_NAME)?.copy(isDirectory = true)
+            return queryEntry(rootDocumentUri, rootDocumentId, FALLBACK_ROOT_NAME)?.copy(isDirectory = true)
         }
 
         // Fast path: treeDocumentId + "/" + relativePath
@@ -155,7 +173,7 @@ class SafDocumentStore(
 
     private fun <T> querySingle(uri: Uri, projection: Array<String>, map: (Cursor) -> T): T? {
         return try {
-            resolver.query(uri, projection, null, null, null)?.use { cursor ->
+            resolver.query(uri, projection, Bundle.EMPTY, null)?.use { cursor ->
                 if (cursor.moveToFirst()) map(cursor) else null
             }
         } catch (e: Exception) {
@@ -174,7 +192,7 @@ class SafDocumentStore(
                     DocumentsContract.Document.COLUMN_MIME_TYPE,
                     DocumentsContract.Document.COLUMN_SIZE
                 ),
-                null, null, null
+                Bundle.EMPTY, null
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
                     result.add(map(cursor))

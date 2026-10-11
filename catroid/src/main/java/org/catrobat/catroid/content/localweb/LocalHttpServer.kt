@@ -111,8 +111,12 @@ object LocalHttpServer {
                 val uri = Uri.parse(root.trim())
                 when (uri.scheme?.lowercase()) {
                     "content" -> {
+                        // Construct first: when the URI is not a servable
+                        // document tree the previous root stays untouched and
+                        // lastError explains the problem.
+                        val store = SafDocumentStore(CatroidApplication.getAppContext(), uri)
                         documentRootUri = uri
-                        cachedStore = SafDocumentStore(CatroidApplication.getAppContext(), uri)
+                        cachedStore = store
                     }
                     "file" -> {
                         val file = File(uri.path ?: "")

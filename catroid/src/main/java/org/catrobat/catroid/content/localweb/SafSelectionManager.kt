@@ -25,6 +25,8 @@ package org.catrobat.catroid.content.localweb
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
 import org.catrobat.catroid.CatroidApplication
@@ -136,7 +138,7 @@ object SafSelectionManager {
         if (uri.scheme == "content") {
             try {
                 CatroidApplication.getAppContext().contentResolver
-                    .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    .query(queryableDocumentUri(uri), arrayOf(OpenableColumns.DISPLAY_NAME), Bundle.EMPTY, null)
                     ?.use { cursor ->
                         if (cursor.moveToFirst() && !cursor.isNull(0)) {
                             val name = cursor.getString(0)
@@ -195,11 +197,30 @@ object SafSelectionManager {
         if (uri.scheme != "content") return true
         return try {
             CatroidApplication.getAppContext().contentResolver
-                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                .query(queryableDocumentUri(uri), arrayOf(OpenableColumns.DISPLAY_NAME), Bundle.EMPTY, null)
                 ?.use { true } ?: false
         } catch (e: Exception) {
             Log.w(TAG, "URI not accessible: $uri (${e.message})")
             false
+        }
+    }
+
+    /**
+     * Returns the URI to use for metadata queries about [uri]. A bare document
+     * tree URI is not accepted by providers for document queries
+     * (DocumentsProvider only matches document URIs and tree-scoped document
+     * URIs; there is no pattern for a bare tree URI), so a tree selection is
+     * queried through the tree root's document URI instead.
+     */
+    private fun queryableDocumentUri(uri: Uri): Uri {
+        return try {
+            if (DocumentsContract.isTreeUri(uri)) {
+                DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
+            } else {
+                uri
+            }
+        } catch (e: Exception) {
+            uri
         }
     }
 
