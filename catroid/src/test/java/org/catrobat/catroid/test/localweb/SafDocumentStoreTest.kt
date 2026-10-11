@@ -23,6 +23,7 @@
 
 package org.catrobat.catroid.test.localweb
 
+import android.Manifest
 import android.content.pm.ProviderInfo
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -79,6 +80,12 @@ class SafDocumentStoreTest {
         val info = ProviderInfo()
         info.authority = FakeGameDocumentsProvider.AUTHORITY
         info.name = FakeGameDocumentsProvider::class.java.name
+        // DocumentsProvider.attachInfo enforces the same manifest rules a
+        // real documents provider must satisfy.
+        info.exported = true
+        info.grantUriPermissions = true
+        info.readPermission = Manifest.permission.MANAGE_DOCUMENTS
+        info.writePermission = Manifest.permission.MANAGE_DOCUMENTS
         provider.attachInfo(RuntimeEnvironment.getApplication(), info)
         ShadowContentResolver.registerProviderInternal(FakeGameDocumentsProvider.AUTHORITY, provider)
     }
