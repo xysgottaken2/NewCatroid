@@ -315,4 +315,18 @@ class SafHostingEndToEndTest {
         assertTrue(LocalHttpServer.lastError!!.contains("tree"))
         assertEquals("", LocalHttpServer.documentRoot)
     }
+
+    @Test
+    fun `an invalid document root does not erase a previously configured root`() {
+        LocalHttpServer.setDocumentRoot(FakeGameDocumentsProvider.TREE_URI)
+        assertEquals(FakeGameDocumentsProvider.TREE_URI, LocalHttpServer.documentRoot)
+
+        LocalHttpServer.setDocumentRoot(
+            "content://${FakeGameDocumentsProvider.AUTHORITY}/document/primary%3ADocuments%2Fgame%2FGame%2Findex.html"
+        )
+
+        assertEquals("the previous valid root must survive", FakeGameDocumentsProvider.TREE_URI, LocalHttpServer.documentRoot)
+        assertNotNull(LocalHttpServer.lastError)
+        assertTrue(LocalHttpServer.lastError!!.contains("tree"))
+    }
 }

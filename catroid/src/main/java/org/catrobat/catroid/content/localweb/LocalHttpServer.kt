@@ -102,30 +102,37 @@ object LocalHttpServer {
      */
     fun setDocumentRoot(root: String?) {
         synchronized(lock) {
-            documentRootUri = null
-            documentRootFile = null
-            cachedStore = null
-            if (root.isNullOrBlank()) return
+            if (root.isNullOrBlank()) {
+                // Explicit clear.
+                documentRootUri = null
+                documentRootFile = null
+                cachedStore = null
+                return
+            }
 
             try {
-                val uri = Uri.parse(root.trim())
+                val trimmed = root.trim()
+                val uri = Uri.parse(trimmed)
                 when (uri.scheme?.lowercase()) {
                     "content" -> {
-                        // Construct first: when the URI is not a servable
-                        // document tree the previous root stays untouched and
-                        // lastError explains the problem.
+                        // Construct first and commit only on success: when the
+                        // URI is not a servable document tree the previous root
+                        // stays untouched and lastError explains the problem.
                         val store = SafDocumentStore(CatroidApplication.getAppContext(), uri)
                         documentRootUri = uri
+                        documentRootFile = null
                         cachedStore = store
                     }
                     "file" -> {
                         val file = File(uri.path ?: "")
+                        documentRootUri = null
                         documentRootFile = file
                         cachedStore = FileDocumentStore(file)
                     }
                     null -> {
                         // Plain filesystem path (no scheme).
-                        val file = File(root.trim())
+                        val file = File(trimmed)
+                        documentRootUri = null
                         documentRootFile = file
                         cachedStore = FileDocumentStore(file)
                     }
@@ -135,6 +142,7 @@ object LocalHttpServer {
                     }
                 }
             } catch (e: Exception) {
+                // Invalid root: keep the previous configuration, report why.
                 lastError = "Invalid document root: ${e.message}"
                 Log.w(TAG, "Invalid document root", e)
             }

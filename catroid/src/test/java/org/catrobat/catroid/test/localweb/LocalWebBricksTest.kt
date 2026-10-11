@@ -181,7 +181,7 @@ class LocalWebBricksTest {
         combined.userVariable = variable
         val restoredCombined = xstream.fromXML(xstream.toXML(combined)) as SelectFolderAndHostBrick
         assertNotNull(restoredCombined.userVariable)
-        assertEquals("gameFolder", restoredCombined.userVariable!!.name)
+        assertEquals(variable.name, restoredCombined.userVariable!!.name)
         assertEquals("selectedFolder", restored.userVariable.name)
     }
 
