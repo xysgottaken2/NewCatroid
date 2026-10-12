@@ -76,43 +76,61 @@ class SafDocumentStore(
     /**
      * Resolves a normalized relative path inside the tree.
      *
-     * Two strategies are used:
-     *  1. Fast path: most providers (including the primary external storage
-     *     provider) build child document ids by appending the relative path to
-     *     the tree document id. This is tried first.
-     *  2. Fallback: walk the tree level by level matching display names, which
-     *     works for providers with opaque document ids.
+     * Two strategies are used, in this order:
      *
-     * The result is verified to be the tree root or a descendant of it.
+     *  1. Fast path (optimization): most filesystem-backed providers (including
+     *     the primary external storage provider) build child document ids by
+     *     appending the relative path to the tree document id, so the document
+     *     can be queried directly with one round trip. The result is only
+     *     accepted when it stays inside the tree AND the provider's own display
+     *     name matches the requested last segment, so a provider whose document
+     *     ids are not path-like can never yield a wrong document here.
+     *  2. Contract path (SAF): walk the tree segment by segment. Each step
+     *     lists the children of the current directory through its tree-scoped
+     *     children URI and matches the display name; the matched row's
+     *     document id - the provider's own id, never a constructed one - is
+     *     used for the next step. The final entry is taken from the last
+     *     listing row itself, so resolution never depends on a document query
+     *     with a constructed URI. This is the resolution pattern androidx
+     *     DocumentFile uses and the one that works for providers with opaque
+     *     document ids.
+     *
+     * Every result is verified to be the tree root or a descendant of it.
      */
     override fun resolve(relativePath: String): DocumentEntry? {
         if (relativePath.isEmpty()) {
             return queryEntry(rootDocumentUri, rootDocumentId, FALLBACK_ROOT_NAME)?.copy(isDirectory = true)
         }
 
-        // Fast path: treeDocumentId + "/" + relativePath
+        val segments = relativePath.split('/').filter { it.isNotEmpty() }
+        if (segments.isEmpty()) return null
+        val lastSegment = segments.last()
+
+        // Fast path: treeDocumentId + "/" + relativePath, verified by name.
         val directId = rootDocumentId + "/" + relativePath
         val directUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, directId)
-        queryEntry(directUri, directId, relativePath.substringAfterLast('/'))?.let { entry ->
-            if (isInsideTree(entry.id)) return entry
+        queryEntry(directUri, directId, lastSegment)?.let { entry ->
+            if (isInsideTree(entry.id) && displayNameMatches(entry.name, lastSegment)) return entry
         }
 
-        // Fallback: walk segment by segment using display names.
-        var currentUri = treeUri
+        // Contract path: walk segment by segment using the provider's own ids.
         var currentId = rootDocumentId
-        for (segment in relativePath.split('/')) {
-            if (segment.isEmpty()) continue
-            val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, currentId)
-            val match = queryChildren(childUri) { cursor ->
-                val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
-                val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
-                name to id
-            }.firstOrNull { (name, _) -> displayNameMatches(name, segment) } ?: return null
-            currentId = match.second
-            if (!isInsideTree(currentId)) return null
-            currentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, currentId)
+        var match: DocumentEntry? = null
+        for (segment in segments) {
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, currentId)
+            match = queryChildren(childrenUri)
+                .firstOrNull { displayNameMatches(it.name, segment) }
+            if (match == null) {
+                Log.i(TAG, "resolve: no child named '$segment' under document $currentId (path: $relativePath)")
+                return null
+            }
+            if (!isInsideTree(match.id)) {
+                Log.w(TAG, "resolve: provider returned a document outside the selected tree: ${match.id}")
+                return null
+            }
+            currentId = match.id
         }
-        return queryEntry(currentUri, currentId, relativePath.substringAfterLast('/'))
+        return match
     }
 
     override fun openInput(entry: DocumentEntry): InputStream? {
@@ -129,24 +147,32 @@ class SafDocumentStore(
     override fun listChildren(directory: DocumentEntry): List<DocumentEntry> {
         if (!directory.isDirectory || !isInsideTree(directory.id)) return emptyList()
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directory.id)
-        return queryChildren(childrenUri) { cursor ->
-            val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
-            val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
-            val mime = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE))
-            val size = cursor.getLong(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE))
-            DocumentEntry(
-                id = id,
-                name = name ?: id.substringAfterLast('/'),
-                isDirectory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
-                size = if (size >= 0) size else -1L,
-                mimeType = mime
-            )
-        }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+        return queryChildren(childrenUri)
+            .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
     }
 
-    /** True when [documentId] is the tree root itself or a descendant of it. */
+    /**
+     * True when [documentId] is the tree root itself or a descendant of it.
+     *
+     * For path-like providers (the common case, e.g. the external storage
+     * provider) a string check is enough. Providers with opaque document ids
+     * are checked against the provider itself: a tree-scoped document query
+     * succeeds only for descendants of the granted tree
+     * (`DocumentsProvider.enforceTree` consults the provider's
+     * `isChildDocument`), so a returned row is the provider's own verdict.
+     */
     private fun isInsideTree(documentId: String): Boolean {
-        return documentId == rootDocumentId || documentId.startsWith("$rootDocumentId/")
+        if (documentId == rootDocumentId || documentId.startsWith("$rootDocumentId/")) return true
+        return try {
+            resolver.query(
+                DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId),
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                Bundle.EMPTY, null
+            )?.use { cursor -> cursor.moveToFirst() } ?: false
+        } catch (e: Exception) {
+            Log.w(TAG, "isInsideTree: could not verify document $documentId against the tree", e)
+            false
+        }
     }
 
     /**
@@ -198,8 +224,8 @@ class SafDocumentStore(
         }
     }
 
-    private fun <T> queryChildren(childrenUri: Uri, map: (Cursor) -> T): List<T> {
-        val result = ArrayList<T>()
+    private fun queryChildren(childrenUri: Uri): List<DocumentEntry> {
+        val result = ArrayList<DocumentEntry>()
         try {
             resolver.query(
                 childrenUri,
@@ -212,15 +238,30 @@ class SafDocumentStore(
                 Bundle.EMPTY, null
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
-                    result.add(map(cursor))
+                    result.add(mapChildRow(cursor))
                 }
             }
         } catch (e: Exception) {
             // Provider does not support listing or access was revoked: treat as
-            // empty, but leave a trace for on-device diagnosis.
+            // empty, but leave a trace for on-device diagnosis instead of
+            // silently presenting the directory as empty.
             Log.w(TAG, "SAF children query failed for $childrenUri", e)
         }
         return result
+    }
+
+    private fun mapChildRow(cursor: Cursor): DocumentEntry {
+        val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+        val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
+        val mime = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE))
+        val size = cursor.getLong(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE))
+        return DocumentEntry(
+            id = id,
+            name = name ?: id.substringAfterLast('/'),
+            isDirectory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
+            size = if (size >= 0) size else -1L,
+            mimeType = mime
+        )
     }
 
     companion object {

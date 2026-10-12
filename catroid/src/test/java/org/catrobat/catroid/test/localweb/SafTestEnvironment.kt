@@ -27,6 +27,7 @@ import android.Manifest
 import android.content.pm.ProviderInfo
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.DocumentsProvider
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowContentResolver
@@ -49,11 +50,19 @@ object SafTestEnvironment {
         authority: String = FakeGameDocumentsProvider.AUTHORITY,
         provider: FakeGameDocumentsProvider = FakeGameDocumentsProvider()
     ) {
+        registerProvider(authority, provider)
+    }
+
+    /**
+     * Registers any [DocumentsProvider] with Robolectric's content resolver.
+     * The provider must be attached (attachInfo) before use: DocumentsProvider
+     * builds its URI matcher in attachInfo, and attachInfo enforces the same
+     * manifest rules a real documents provider must satisfy.
+     */
+    fun registerProvider(authority: String, provider: DocumentsProvider) {
         val info = ProviderInfo()
         info.authority = authority
-        info.name = FakeGameDocumentsProvider::class.java.name
-        // DocumentsProvider.attachInfo enforces the same manifest rules a
-        // real documents provider must satisfy.
+        info.name = provider.javaClass.name
         info.exported = true
         info.grantUriPermissions = true
         info.readPermission = Manifest.permission.MANAGE_DOCUMENTS

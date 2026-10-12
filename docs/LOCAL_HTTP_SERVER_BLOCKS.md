@@ -167,16 +167,53 @@ Game/
 `- ícones/häupt.js, café(résumé).js   (Unicode, incl. NFD on-disk names)
 ```
 
-**Testing limitation:** the SAF tests run under Robolectric against a fake
-that extends the *real* `android.provider.DocumentsProvider`, so the genuine
-AOSP URI matcher and tree-descendant enforcement execute, but the storage
-backend is in-memory. A physical-device (instrumented) SAF traversal test is
-not feasible in this environment; the on-device verification steps are: pick
-a folder containing the structure above with the combined block, start the
-server, and request `/assets/nested/deep/config.json` (expect 200), browse
-`/assets/nested/` (expect `module.js` and `deep/`), and check `logcat` for
-`SafDocumentStore` warnings if any nested path 404s — those warnings name the
-exact document URI whose query failed.
+**How nested paths are resolved (SAF contract, not assumptions):** a
+requested path is resolved in two steps. First a fast path queries the
+document directly through one tree-scoped document URI
+(`DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId + "/" +
+relativePath)`) — an optimization that is only valid for providers whose
+document ids are path-like; the result is accepted only when it stays inside
+the selected tree AND the provider's own display name matches the requested
+last segment. Second, the contract path walks the tree segment by segment:
+each step lists the children of the current directory through its tree-scoped
+children URI (`buildChildDocumentsUriUsingTree`) and matches the display
+name, using the matched row's own document id for the next step, and the
+final entry is taken from the last listing row itself — so resolution never
+depends on a document query with a constructed URI, and works for providers
+with opaque (non-path-like) document ids. Tree confinement is verified
+against the provider (a tree-scoped query only succeeds for descendants of
+the granted tree), with a string check as the fast path for path-like ids.
+Query failures are logged with the exact document URI (`SafDocumentStore`
+tag) instead of being silently turned into empty listings.
+
+**Research basis (external):** androidx `DocumentFile`/`TreeDocumentFile`
+resolve children exactly this way (children URI + display-name match +
+row's document id); a real project serving SAF trees over HTTP, verified on
+a Samsung device (tophatch/swift-pwa#252), states a path under the mount
+"has to become a document URI, which is a DocumentsContract walk rather than
+string concatenation — a provider's document ids are its own business"; the
+AOSP android-14 `ExternalStorageProvider` uses `rootId:path` document ids
+(concatenation happens to hold there) and its `queryDocument`,
+`queryChildDocuments`, `enforceTree` and `isChildDocument` are all
+depth-agnostic, hiding only `Android/data|obb|sandbox` from listings.
+
+**Testing limitation:** the SAF tests run under Robolectric against fakes
+that extend the *real* `android.provider.DocumentsProvider`, so the genuine
+AOSP URI matcher and tree-descendant enforcement execute. Two fixture
+styles model the storage backend: an in-memory tree, and
+`FakeFileSystemDocumentsProvider`, which models the real
+`ExternalStorageProvider` on an actual on-disk directory tree (document ids
+derived from file paths, canonical file resolution, real listings,
+scoped-storage `Android/data` hiding, canonical-containment
+`isChildDocument`, real file streams). `FakeOpaqueIdDocumentsProvider`
+models providers with opaque document ids to prove the contract walk. A
+physical-device (instrumented) SAF traversal test is not feasible in this
+environment; the on-device verification steps are: pick a folder containing
+the structure above with the combined block, start the server, and request
+`/assets/nested/deep/config.json` (expect 200), browse `/assets/nested/`
+(expect `module.js` and `deep/`), and check `logcat` for `SafDocumentStore`
+tagged lines if any nested path 404s — they name the exact document URI or
+document id whose query failed (`adb logcat -s SafDocumentStore`).
 
 ## What the server does
 
