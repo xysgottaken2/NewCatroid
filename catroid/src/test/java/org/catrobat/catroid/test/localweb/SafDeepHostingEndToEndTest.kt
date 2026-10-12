@@ -215,6 +215,18 @@ class SafDeepHostingEndToEndTest {
         )
     }
 
+    @Test
+    fun `composed unicode request paths serve decomposed on-disk names`() {
+        // NFC request path (é = U+00E9 -> %C3%A9) against the NFD name stored
+        // by the fixture (e + U+0301 combining acute).
+        val response = rawHttpRequest(port, "GET", "/caf%C3%A9/r%C3%A9sum%C3%A9.js")
+        assertEquals(200, response.statusCode)
+        assertEquals(
+            String(FakeGameDocumentsProvider.NFD_JS, Charsets.UTF_8),
+            bodyText(response)
+        )
+    }
+
     // ---------- errors ----------
 
     @Test
@@ -228,9 +240,23 @@ class SafDeepHostingEndToEndTest {
     @Test
     fun `traversal attempts escaping the root are rejected`() {
         assertEquals(403, rawHttpRequest(port, "GET", "/assets/../..").statusCode)
-        assertEquals(403, rawHttpRequest(port, "GET", "/assets/%2e%2e/").statusCode)
         assertEquals(403, rawHttpRequest(port, "GET", "/assets/nested/../../../etc/passwd").statusCode)
         assertEquals(403, rawHttpRequest(port, "GET", "/%2e%2e/%2e%2e/").statusCode)
+        assertEquals(403, rawHttpRequest(port, "GET", "/%2e%2e/").statusCode)
+        assertEquals(403, rawHttpRequest(port, "GET", "/../secret.txt").statusCode)
+    }
+
+    @Test
+    fun `dot segments that stay inside the root normalize to the served root`() {
+        // "/assets/../" pops back onto the root (established HttpPaths contract:
+        // in-root '..' segments pop, only escapes above the root are rejected),
+        // so the root index is served - this is normalization, not an escape.
+        val response = rawHttpRequest(port, "GET", "/assets/%2e%2e/")
+        assertEquals(200, response.statusCode)
+        assertEquals(
+            String(FakeGameDocumentsProvider.INDEX_HTML, Charsets.UTF_8),
+            bodyText(response)
+        )
     }
 
     // ---------- HEAD, ranges, streaming ----------

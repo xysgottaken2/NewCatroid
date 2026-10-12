@@ -166,6 +166,19 @@ class SafDeepTreeTest {
         assertEquals("häupt.js", file!!.name)
     }
 
+    @Test
+    fun `decomposed unicode names on disk match composed request segments`() {
+        // The fixture stores the name in NFD (decomposed) form like a real
+        // filesystem may hold it; the request path arrives in NFC (composed)
+        // form and must still resolve through the display-name walk.
+        val file = store.resolve("café/résumé.js")
+        assertNotNull(file)
+        assertEquals("re\u0301sume\u0301.js", file!!.name)
+        val content = store.openInput(file)?.readBytes()
+        assertNotNull(content)
+        assertTrue(FakeGameDocumentsProvider.NFD_JS.contentEquals(content!!))
+    }
+
     // ---------- listings ----------
 
     @Test

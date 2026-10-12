@@ -203,6 +203,9 @@ class FakeGameDocumentsProvider(private val rootNode: Node = defaultRoot) : Docu
         val DATA_CONFIG_JSON = "{\"name\":\"data-config\"}".toByteArray(StandardCharsets.UTF_8)
         val SPACED_JS = "console.log('spaced');".toByteArray(StandardCharsets.UTF_8)
         val UNICODE_JS = "console.log('unicode');".toByteArray(StandardCharsets.UTF_8)
+        // Stored in NFD (decomposed) form like a real filesystem may hold it;
+        // requests arrive in NFC (composed) form and must still resolve.
+        val NFD_JS = "console.log('nfd');".toByteArray(StandardCharsets.UTF_8)
 
         val deepRoot = Node(
             id = ROOT_ID,
@@ -249,6 +252,15 @@ class FakeGameDocumentsProvider(private val rootNode: Node = defaultRoot) : Docu
                     children = listOf(
                         Node("$ROOT_ID/ícones/häupt.js", "häupt.js", false, UNICODE_JS)
                     )
+                ),
+                Node(
+                    "$ROOT_ID/cafe\u0301", "cafe\u0301", true,
+                    children = listOf(
+                        Node(
+                            "$ROOT_ID/cafe\u0301/re\u0301sume\u0301.js",
+                            "re\u0301sume\u0301.js", false, NFD_JS
+                        )
+                    )
                 )
             )
         )
@@ -262,7 +274,8 @@ class FakeGameDocumentsProvider(private val rootNode: Node = defaultRoot) : Docu
             "$ROOT_ID/assets/nested/deep/config.json" to CONFIG_JSON,
             "$ROOT_ID/data/config.json" to DATA_CONFIG_JSON,
             "$ROOT_ID/my folder/spaced file.js" to SPACED_JS,
-            "$ROOT_ID/ícones/häupt.js" to UNICODE_JS
+            "$ROOT_ID/ícones/häupt.js" to UNICODE_JS,
+            "$ROOT_ID/cafe\u0301/re\u0301sume\u0301.js" to NFD_JS
         )
 
         /** All file documents (document id to content), used to register stream suppliers in tests. */

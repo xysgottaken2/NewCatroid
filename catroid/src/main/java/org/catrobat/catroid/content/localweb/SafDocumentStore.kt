@@ -29,7 +29,9 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
+import android.util.Log
 import java.io.InputStream
+import java.text.Normalizer
 
 /**
  * Serves the contents of a Storage Access Framework document tree
@@ -105,7 +107,7 @@ class SafDocumentStore(
                 val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
                 val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
                 name to id
-            }.firstOrNull { (name, _) -> name == segment } ?: return null
+            }.firstOrNull { (name, _) -> displayNameMatches(name, segment) } ?: return null
             currentId = match.second
             if (!isInsideTree(currentId)) return null
             currentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, currentId)
@@ -147,6 +149,18 @@ class SafDocumentStore(
         return documentId == rootDocumentId || documentId.startsWith("$rootDocumentId/")
     }
 
+    /**
+     * Matches a provider display name against a request path segment. Real
+     * filesystems may store names in a different Unicode normalization form
+     * than the request path (NFC vs NFD), so besides the exact comparison the
+     * NFC-normalized forms are compared as well.
+     */
+    private fun displayNameMatches(displayName: String, segment: String): Boolean {
+        if (displayName == segment) return true
+        return Normalizer.normalize(displayName, Normalizer.Form.NFC) ==
+            Normalizer.normalize(segment, Normalizer.Form.NFC)
+    }
+
     private fun queryEntry(uri: Uri, expectedId: String, fallbackName: String): DocumentEntry? {
         return querySingle(
             uri,
@@ -177,6 +191,9 @@ class SafDocumentStore(
                 if (cursor.moveToFirst()) map(cursor) else null
             }
         } catch (e: Exception) {
+            // Real failures (revoked permission, unsupported URI, ...) must be
+            // visible on device; a missing document simply yields a null cursor.
+            Log.w(TAG, "SAF document query failed for $uri", e)
             null
         }
     }
@@ -199,12 +216,15 @@ class SafDocumentStore(
                 }
             }
         } catch (e: Exception) {
-            // Provider does not support listing or access was revoked: treat as empty.
+            // Provider does not support listing or access was revoked: treat as
+            // empty, but leave a trace for on-device diagnosis.
+            Log.w(TAG, "SAF children query failed for $childrenUri", e)
         }
         return result
     }
 
     companion object {
         const val FALLBACK_ROOT_NAME = "root"
+        private const val TAG = "SafDocumentStore"
     }
 }

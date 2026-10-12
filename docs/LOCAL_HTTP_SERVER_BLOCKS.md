@@ -138,6 +138,46 @@ Steps 1 can be replaced by **Select directory** + **Host directory** when
 hosting a fixed directory; step 3 can target any loopback URL, not only the
 embedded server.
 
+## Nested directories
+
+The selected folder is served as the root of a complete directory tree:
+files at the root and at arbitrary nesting depth are resolved directly
+through the document provider (each requested path is addressed as one
+tree-scoped document URI; a display-name walk is the fallback for providers
+with opaque document ids). There is no depth limit and no full-tree scan per
+request. Nested paths with spaces, Unicode characters (including names stored
+in a different Unicode normalization form than the request, e.g. NFD on disk
+vs NFC in the URL) and URL-encoded characters are handled, directory listings
+include subdirectories at every level, and path traversal above the selected
+root is rejected (in-root `..` segments normalize per RFC 3986 dot-segment
+removal, exactly like `/assets/../` serving the root index).
+
+Regression coverage lives in `SafDeepTreeTest` (document resolution) and
+`SafDeepHostingEndToEndTest` (full HTTP pipeline) using a fixture that models
+the reported device structure:
+
+```
+Game/
+|- index.html, root.js
+|- assets/app.js
+|- assets/nested/module.js
+|- assets/nested/deep/config.json      (three directory levels deep)
+|- data/config.json                    (independent second branch)
+|- my folder/spaced file.js            (spaces)
+`- ícones/häupt.js, café(résumé).js   (Unicode, incl. NFD on-disk names)
+```
+
+**Testing limitation:** the SAF tests run under Robolectric against a fake
+that extends the *real* `android.provider.DocumentsProvider`, so the genuine
+AOSP URI matcher and tree-descendant enforcement execute, but the storage
+backend is in-memory. A physical-device (instrumented) SAF traversal test is
+not feasible in this environment; the on-device verification steps are: pick
+a folder containing the structure above with the combined block, start the
+server, and request `/assets/nested/deep/config.json` (expect 200), browse
+`/assets/nested/` (expect `module.js` and `deep/`), and check `logcat` for
+`SafDocumentStore` warnings if any nested path 404s — those warnings name the
+exact document URI whose query failed.
+
 ## What the server does
 
 - Serves the hosted SAF directory (or a single selected file) via
