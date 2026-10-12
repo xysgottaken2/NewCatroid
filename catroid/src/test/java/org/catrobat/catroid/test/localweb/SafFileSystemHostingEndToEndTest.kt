@@ -134,10 +134,17 @@ class SafFileSystemHostingEndToEndTest {
     }
 
     @Test
-    fun `android data folder is hidden from http listings`() {
+    fun `android data folder inside the selected tree is served like the real provider`() {
+        // The real provider only hides Android/data directly under the storage
+        // root; a nested Android/data inside the selected tree is listed and
+        // directly accessible, exactly like on a device.
         val android = rawHttpRequest(port, "GET", "/Android/")
         assertEquals(200, android.statusCode)
-        assertTrue("hidden Android/data must not appear in the listing", !bodyText(android).contains("hidden.txt"))
+        assertTrue(bodyText(android).contains("data/"))
+
+        val hidden = rawHttpRequest(port, "GET", "/Android/data/hidden.txt")
+        assertEquals(200, hidden.statusCode)
+        assertEquals("secret", bodyText(hidden))
     }
 
     @Test

@@ -24,6 +24,7 @@
 package org.catrobat.catroid.test.localweb
 
 import android.net.Uri
+import android.os.Bundle
 import android.provider.DocumentsContract
 import org.catrobat.catroid.content.localweb.SafDocumentStore
 import org.junit.After
@@ -194,14 +195,30 @@ class SafFileSystemProviderTest {
     }
 
     @Test
-    fun `android data style folders are hidden from listings like the real provider`() {
-        // The real ExternalStorageProvider hides Android/data|obb|sandbox from
-        // queryChildDocuments (scoped-storage privacy); direct document access
-        // still works, exactly like on a device.
+    fun `scoped storage hiding matches the real provider`() {
+        // The real ExternalStorageProvider hides Android/data|obb|sandbox that
+        // sit DIRECTLY under the storage root (scoped-storage privacy) from
+        // queryChildDocuments, while direct document access still works.
+        val androidTreeUri = Uri.parse(FakeFileSystemDocumentsProvider.treeUriFor("Android"))
+        val resolver = RuntimeEnvironment.getApplication().contentResolver
+
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(androidTreeUri, "primary:Android")
+        resolver.query(childrenUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), Bundle.EMPTY, null)?.use { cursor ->
+            assertEquals("root-level Android/data must be hidden from listings", 0, cursor.count)
+        }
+
+        val docUri = DocumentsContract.buildDocumentUriUsingTree(androidTreeUri, "primary:Android/data/hidden.txt")
+        resolver.query(docUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), Bundle.EMPTY, null)?.use { cursor ->
+            assertTrue("direct access to a hidden document still resolves", cursor.moveToFirst())
+            assertEquals("hidden.txt", cursor.getString(0))
+        }
+
+        // An Android/data folder NESTED inside the selected tree is NOT hidden
+        // by the real provider (the pattern only matches at the storage root).
         val android = store.resolve("Android")
         assertNotNull(android)
-        assertTrue(store.listChildren(android!!).isEmpty())
-        assertNotNull("direct access to a hidden document still resolves", store.resolve("Android/data/hidden.txt"))
+        assertEquals(listOf("data"), store.listChildren(android!!).map { it.name })
+        assertNotNull(store.resolve("Android/data/hidden.txt"))
     }
 
     // ---------- spaces, unicode, missing, traversal ----------
