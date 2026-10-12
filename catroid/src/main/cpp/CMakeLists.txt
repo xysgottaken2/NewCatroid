@@ -58,7 +58,13 @@ add_library(
 add_library(${CMAKE_PROJECT_NAME} SHARED
         catroid.cpp
         mesh_lod_generator.cpp
+        pcruntime_native.cpp
 )
+
+# The PC runtime probes Vulkan through dlopen("libvulkan.so") rather than a
+# link-time dependency. This keeps a device without a Vulkan loader from
+# breaking libcatroid.so at load time: the probe simply reports "unavailable".
+# dlopen/dlsym come from the ${dl-lib} that is already located above.
 
 target_link_libraries(
         ${CMAKE_PROJECT_NAME}
