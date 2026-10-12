@@ -276,6 +276,14 @@ public final class BrickInfo {
         add(CreateGLViewBrick.class, "Создает GL сцену, позволяя создавать высокооптимизированные сцены");
         add(DeleteWebBrick.class, "Удаляет любой View: WebView, VideoPlayer, TextField, GL сцену и др.");
         add(RunVMBrick.class, "Запускает виртуальную машину с помощью QEMU на архитектуре x86_64 (позволяет запускать Windows, Linux и др) ВАЖНО: обязательно выключайте VM, когда она не нужна");
+        // PC runtime
+        add(PcInitRuntimeBrick.class, "Инициализирует PC-рантайм: определяет архитектуру устройства, опрашивает драйвер Vulkan и проверяет наличие установленных компонентов совместимости. ВАЖНО: не выполняет Windows-программы, пока не установлены Wine и Box64.");
+        add(PcShutdownRuntimeBrick.class, "Останавливает PC-рантайм и освобождает измерения и процессы. Файлы компонентов и префиксы на диске не удаляются.");
+        add(PcQueryBrick.class, "Записывает выбранную информацию о PC-рантайме в переменную: состояние, последнюю ошибку, архитектуру, ABI, поддержку Vulkan, готовность Direct3D, компоненты, префиксы или журнал.");
+        add(PcNativeProbeBrick.class, "Запускает встроенный ARM64-тест как отдельный процесс и записывает его вывод и код возврата. Это реальная проверка того, что устройство позволяет запускать нативные исполняемые файлы.");
+        add(PcPreparePrefixBrick.class, "Создает структуру каталогов префикса Wine в приватном хранилище приложения. ВАЖНО: это не готовый Windows-префикс - реестр и диск C: создает только wineboot.");
+        add(PcGraphicsBackendBrick.class, "Выбирает графический бэкенд (DXVK для Direct3D 8-11, VKD3D-Proton для Direct3D 12) и проверяет требования драйвера Vulkan. ВАЖНО: выбор бэкенда не означает, что он работает - смотрите результат проверки.");
+        add(PcInspectBinaryBrick.class, "Определяет формат и архитектуру файла (ELF/PE) и сообщает, можно ли запустить его на этом устройстве. Файл при этом НЕ запускается.");
         add(RunVm2Brick.class, "Запускает виртуальную машину с помощью QEMU на архитектуре x86_64, при помощи аргументов (позволяет запускать Windows, Linux и др) ВАЖНО: обязательно выключайте VM, когда она не нужна");
         add(CreateDiskBrick.class, "Создает виртуальный жесткий диск для VM");
         add(VmSetMonitorSizeBrick.class, "Задает размер монитора VM (VNC)");
@@ -721,6 +729,14 @@ public final class BrickInfo {
         add(CreateGLViewBrick.class, "Creates a GL scene, allowing the creation of highly optimized scenes.");
         add(DeleteWebBrick.class, "Deletes any View: WebView, VideoPlayer, TextField, GL scene, etc.");
         add(RunVMBrick.class, "Launches a virtual machine using QEMU on x86_64 architecture (allows running Windows, Linux, etc.). IMPORTANT: always turn off the VM when no longer needed.");
+        // PC runtime
+        add(PcInitRuntimeBrick.class, "Initialises the PC runtime: detects the device architecture, queries the Vulkan driver and verifies which compatibility components are installed. IMPORTANT: it does not run Windows programs until Wine and Box64 are installed.");
+        add(PcShutdownRuntimeBrick.class, "Stops the PC runtime and releases its measurements and processes. Component files and prefixes on disk are kept.");
+        add(PcQueryBrick.class, "Stores selected PC runtime information in a variable: status, last error, architecture, ABIs, Vulkan support, Direct3D readiness, components, prefixes or the runtime log.");
+        add(PcNativeProbeBrick.class, "Runs the bundled ARM64 helper as a separate process and stores its output and exit code. This is a real check that the device permits launching native executables.");
+        add(PcPreparePrefixBrick.class, "Creates the Wine prefix directory skeleton in the app's private storage. IMPORTANT: this is not a working Windows prefix - only wineboot creates the registry and the C: drive.");
+        add(PcGraphicsBackendBrick.class, "Selects a graphics backend (DXVK for Direct3D 8-11, VKD3D-Proton for Direct3D 12) and checks the Vulkan driver requirements. IMPORTANT: selecting a backend does not make it work - read the check result.");
+        add(PcInspectBinaryBrick.class, "Reports the format and architecture of a file (ELF/PE) and whether this device could run it. The file is NOT executed.");
         add(RunVm2Brick.class, "Launches a virtual machine using QEMU on x86_64 architecture using custom arguments (allows running Windows, Linux, etc.). IMPORTANT: always turn off the VM when no longer needed.");
         add(CreateDiskBrick.class, "Creates a virtual hard drive for the VM.");
         add(VmSetMonitorSizeBrick.class, "Sets the VM's monitor size (VNC).");
@@ -1149,6 +1165,14 @@ public final class BrickInfo {
         add(CreateGLViewBrick.class, "Cria uma cena GL, permitindo a criação de cenas altamente otimizadas.");
         add(DeleteWebBrick.class, "Exclui qualquer View: WebView, VideoPlayer, TextField, cena GL, etc.");
         add(RunVMBrick.class, "Inicia uma máquina virtual usando o QEMU na arquitetura x86_64 (permite rodar Windows, Linux, etc.). IMPORTANTE: sempre desligue a VM quando não for mais necessária.");
+        // PC runtime
+        add(PcInitRuntimeBrick.class, "Inicializa o runtime de PC: detecta a arquitetura do dispositivo, consulta o driver Vulkan e verifica quais componentes de compatibilidade estão instalados. IMPORTANTE: não executa programas Windows enquanto Wine e Box64 não estiverem instalados.");
+        add(PcShutdownRuntimeBrick.class, "Encerra o runtime de PC e libera suas medições e processos. Os arquivos de componentes e prefixos no disco são mantidos.");
+        add(PcQueryBrick.class, "Grava informações selecionadas do runtime de PC em uma variável: estado, último erro, arquitetura, ABIs, suporte a Vulkan, prontidão Direct3D, componentes, prefixos ou o log.");
+        add(PcNativeProbeBrick.class, "Executa o auxiliar ARM64 incluído como um processo separado e grava sua saída e código de saída. É uma verificação real de que o dispositivo permite iniciar executáveis nativos.");
+        add(PcPreparePrefixBrick.class, "Cria a estrutura de diretórios do prefixo Wine no armazenamento privado do app. IMPORTANTE: não é um prefixo Windows funcional - apenas o wineboot cria o registro e a unidade C:.");
+        add(PcGraphicsBackendBrick.class, "Seleciona um backend gráfico (DXVK para Direct3D 8-11, VKD3D-Proton para Direct3D 12) e verifica os requisitos do driver Vulkan. IMPORTANTE: selecionar o backend não o torna funcional - leia o resultado da verificação.");
+        add(PcInspectBinaryBrick.class, "Informa o formato e a arquitetura de um arquivo (ELF/PE) e se este dispositivo poderia executá-lo. O arquivo NÃO é executado.");
         add(RunVm2Brick.class, "Inicia uma máquina virtual usando o QEMU na arquitetura x86_64 usando argumentos personalizados (permite rodar Windows, Linux, etc.). IMPORTANTE: sempre desligue a VM quando não for mais necessária.");
         add(CreateDiskBrick.class, "Cria um disco rígido virtual para a VM.");
         add(VmSetMonitorSizeBrick.class, "Define o tamanho do monitor da VM (VNC).");
@@ -1561,6 +1585,14 @@ public final class BrickInfo {
         add(CreateGLViewBrick.class, "创建一个 GL 场景，允许创建高度优化的场景。");
         add(DeleteWebBrick.class, "删除任何视图：WebView、VideoPlayer、TextField、GL 场景等。");
         add(RunVMBrick.class, "使用 QEMU 在 x86_64 架构上启动虚拟机（允许运行 Windows、Linux 等）。重要提示：不再需要时，务必关闭虚拟机。");
+        // PC runtime
+        add(PcInitRuntimeBrick.class, "初始化 PC 运行时：检测设备架构、查询 Vulkan 驱动并检查已安装的兼容组件。注意：在安装 Wine 和 Box64 之前不会运行 Windows 程序。");
+        add(PcShutdownRuntimeBrick.class, "关闭 PC 运行时并释放其测量数据和进程。磁盘上的组件文件和前缀会保留。");
+        add(PcQueryBrick.class, "将选定的 PC 运行时信息写入变量：状态、最后的错误、架构、ABI、Vulkan 支持、Direct3D 就绪度、组件、前缀或日志。");
+        add(PcNativeProbeBrick.class, "将内置的 ARM64 辅助程序作为独立进程运行，并写入其输出和退出码。这是对设备是否允许启动原生可执行文件的真实检查。");
+        add(PcPreparePrefixBrick.class, "在应用的私有存储中创建 Wine 前缀目录结构。注意：这不是可用的 Windows 前缀——只有 wineboot 才能创建注册表和 C: 盘。");
+        add(PcGraphicsBackendBrick.class, "选择图形后端（DXVK 用于 Direct3D 8-11，VKD3D-Proton 用于 Direct3D 12）并检查 Vulkan 驱动要求。注意：选择后端并不代表它可用——请阅读检查结果。");
+        add(PcInspectBinaryBrick.class, "报告文件的格式和架构（ELF/PE），以及此设备是否可以运行它。该文件不会被运行。");
         add(RunVm2Brick.class, "使用 QEMU 在 x86_64 架构上使用自定义参数启动虚拟机（允许运行 Windows、Linux 等）。重要提示：不再需要时，务必关闭虚拟机。");
         add(CreateDiskBrick.class, "为虚拟机创建一个虚拟硬盘。");
         add(VmSetMonitorSizeBrick.class, "设置虚拟机的显示器大小（VNC）。");

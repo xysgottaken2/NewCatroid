@@ -5292,4 +5292,38 @@
     <string formatted="false" name="undo_sort">Отменить сортировку</string>
     <string formatted="false" name="sort">Сортировка</string>
     <string formatted="false" name="checkbox">флажок</string>
+
+    <!-- PC runtime -->
+    <string formatted="false" name="brick_pc_init_runtime">Запустить PC-рантайм</string>
+    <string formatted="false" name="brick_pc_shutdown_runtime">Остановить PC-рантайм</string>
+    <string formatted="false" name="brick_pc_query">Инфо PC-рантайма</string>
+    <string formatted="false" name="brick_pc_native_probe">Проверка ARM64 в</string>
+    <string formatted="false" name="brick_pc_prepare_prefix">Создать префикс Wine</string>
+    <string formatted="false" name="brick_pc_graphics_backend">Графический бэкенд</string>
+    <string formatted="false" name="brick_pc_inspect_binary">Проверить нативный файл</string>
+    <string formatted="false" name="brick_pc_into_variable">в</string>
+
+    <string-array name="pc_query_options">
+        <item>Состояние</item>
+        <item>Последняя ошибка</item>
+        <item>Архитектура</item>
+        <item>ABI устройства</item>
+        <item>Поддержка Vulkan</item>
+        <item>Расширения Vulkan</item>
+        <item>Готовность Direct3D</item>
+        <item>Установленные компоненты</item>
+        <item>Созданные префиксы</item>
+        <item>Журнал рантайма</item>
+    </string-array>
+
+    <string-array name="pc_graphics_backends">
+        <item>Нет (wined3d)</item>
+        <item>DXVK D3D8</item>
+        <item>DXVK D3D9</item>
+        <item>DXVK D3D10</item>
+        <item>DXVK D3D11</item>
+        <item>VKD3D-Proton D3D12</item>
+    </string-array>
+
+    <string name="subcategory_device_pcruntime">PC-рантайм</string>
 </resources>

@@ -1329,6 +1329,7 @@
     <string name="subcategory_device_scripting">脚本与代码</string>
     <string name="subcategory_device_vm">虚拟机</string>
     <string name="subcategory_device_views">自定义视图与用户界面</string>
+    <string name="subcategory_device_pcruntime">PC 运行时</string>
     <string name="subcategory_device_storage">文件与存储</string>
     <string name="subcategory_device_hardware">硬件与相机</string>
     <string name="subcategory_device_speech">语音与交互</string>
@@ -5026,4 +5027,36 @@
     <string formatted="false" name="undo_sort">取消排序</string>
     <string formatted="false" name="sort">排序</string>
     <string formatted="false" name="checkbox">复选框</string>
+
+    <!-- PC runtime -->
+    <string formatted="false" name="brick_pc_init_runtime">启动 PC 运行时</string>
+    <string formatted="false" name="brick_pc_shutdown_runtime">关闭 PC 运行时</string>
+    <string formatted="false" name="brick_pc_query">PC 运行时信息</string>
+    <string formatted="false" name="brick_pc_native_probe">运行 ARM64 检测到</string>
+    <string formatted="false" name="brick_pc_prepare_prefix">准备 Wine 前缀</string>
+    <string formatted="false" name="brick_pc_graphics_backend">使用图形后端</string>
+    <string formatted="false" name="brick_pc_inspect_binary">检查原生文件</string>
+    <string formatted="false" name="brick_pc_into_variable">到</string>
+
+    <string-array name="pc_query_options">
+        <item>状态</item>
+        <item>最后错误</item>
+        <item>设备架构</item>
+        <item>设备 ABI</item>
+        <item>Vulkan 支持</item>
+        <item>Vulkan 扩展</item>
+        <item>Direct3D 就绪度</item>
+        <item>已安装组件</item>
+        <item>已准备前缀</item>
+        <item>运行时日志</item>
+    </string-array>
+
+    <string-array name="pc_graphics_backends">
+        <item>无 (wined3d)</item>
+        <item>DXVK D3D8</item>
+        <item>DXVK D3D9</item>
+        <item>DXVK D3D10</item>
+        <item>DXVK D3D11</item>
+        <item>VKD3D-Proton D3D12</item>
+    </string-array>
 </resources>

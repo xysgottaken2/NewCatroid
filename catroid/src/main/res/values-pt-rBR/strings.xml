@@ -1600,6 +1600,7 @@
     <string name="subcategory_device_scripting">Scripts e código</string>
     <string name="subcategory_device_vm">Máquinas virtuais</string>
     <string name="subcategory_device_views">Interfaces de usuário</string>
+    <string name="subcategory_device_pcruntime">Tempo de execução para PC</string>
     <string name="subcategory_device_storage">Arquivos e armazenamento</string>
     <string name="subcategory_device_hardware">Hardware e câmera</string>
     <string name="subcategory_device_speech">Fala e interação</string>
@@ -5071,4 +5072,36 @@ precisa de acesso de leitura e escrita a ele. Você sempre pode alterar as permi
     <string formatted="false" name="undo_sort">Desfazer ordenação</string>
     <string formatted="false" name="sort">Ordenar</string>
     <string formatted="false" name="checkbox">checkbox</string>
+
+    <!-- PC runtime -->
+    <string formatted="false" name="brick_pc_init_runtime">Iniciar runtime de PC</string>
+    <string formatted="false" name="brick_pc_shutdown_runtime">Encerrar runtime de PC</string>
+    <string formatted="false" name="brick_pc_query">Info do runtime de PC</string>
+    <string formatted="false" name="brick_pc_native_probe">Executar teste ARM64 em</string>
+    <string formatted="false" name="brick_pc_prepare_prefix">Preparar prefixo Wine</string>
+    <string formatted="false" name="brick_pc_graphics_backend">Usar backend grafico</string>
+    <string formatted="false" name="brick_pc_inspect_binary">Inspecionar arquivo nativo</string>
+    <string formatted="false" name="brick_pc_into_variable">em</string>
+
+    <string-array name="pc_query_options">
+        <item>Estado</item>
+        <item>Ultimo erro</item>
+        <item>Arquitetura</item>
+        <item>ABIs do dispositivo</item>
+        <item>Suporte a Vulkan</item>
+        <item>Extensoes Vulkan</item>
+        <item>Prontidao Direct3D</item>
+        <item>Componentes instalados</item>
+        <item>Prefixos preparados</item>
+        <item>Log do runtime</item>
+    </string-array>
+
+    <string-array name="pc_graphics_backends">
+        <item>Nenhum (wined3d)</item>
+        <item>DXVK D3D8</item>
+        <item>DXVK D3D9</item>
+        <item>DXVK D3D10</item>
+        <item>DXVK D3D11</item>
+        <item>VKD3D-Proton D3D12</item>
+    </string-array>
 </resources>

@@ -3501,6 +3501,72 @@ public class ActionFactory extends Actions {
 		return action;
 	}
 
+	// --- PC runtime (block-based PC game compatibility) ---
+	// Actions live in org.catrobat.catroid.content.actions.PcRuntimeActions.kt and
+	// are picked up by the existing wildcard import of that package.
+
+	public Action createPcInitRuntimeAction(Sprite sprite, SequenceAction sequence) {
+		PcInitRuntimeAction action = action(PcInitRuntimeAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		return action;
+	}
+
+	public Action createPcShutdownRuntimeAction(Sprite sprite, SequenceAction sequence) {
+		PcShutdownRuntimeAction action = action(PcShutdownRuntimeAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		return action;
+	}
+
+	public Action createPcQueryAction(Sprite sprite, SequenceAction sequence, int querySelection,
+			UserVariable userVariable) {
+		PcQueryAction action = action(PcQueryAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setQuerySelection(querySelection);
+		action.setUserVariable(userVariable);
+		return action;
+	}
+
+	public Action createPcNativeProbeAction(Sprite sprite, SequenceAction sequence, UserVariable userVariable) {
+		PcNativeProbeAction action = action(PcNativeProbeAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setUserVariable(userVariable);
+		return action;
+	}
+
+	public Action createPcPreparePrefixAction(Sprite sprite, SequenceAction sequence, Formula prefixName,
+			UserVariable userVariable) {
+		PcPreparePrefixAction action = action(PcPreparePrefixAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setPrefixName(prefixName);
+		action.setUserVariable(userVariable);
+		return action;
+	}
+
+	public Action createPcGraphicsBackendAction(Sprite sprite, SequenceAction sequence, int backendSelection,
+			UserVariable userVariable) {
+		PcGraphicsBackendAction action = action(PcGraphicsBackendAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setBackendSelection(backendSelection);
+		action.setUserVariable(userVariable);
+		return action;
+	}
+
+	public Action createPcInspectBinaryAction(Sprite sprite, SequenceAction sequence, Formula path,
+			UserVariable userVariable) {
+		PcInspectBinaryAction action = action(PcInspectBinaryAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setPathFormula(path);
+		action.setUserVariable(userVariable);
+		return action;
+	}
+
 	public Action createStopVMAction(Sprite sprite, SequenceAction sequence) {
 		StopVMAction action = action(StopVMAction.class);
 		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);

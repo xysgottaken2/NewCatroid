@@ -410,6 +410,15 @@ public final class XstreamSerializer {
 		xstream.alias("brick", BindVmOutputBrick.class);
 		xstream.alias("brick", SendVmInputBrick.class);
 		xstream.alias("brick", RunVMBrick.class);
+		// PC runtime bricks. Aliases must be registered before any project that
+		// uses them is deserialised, otherwise XStream cannot resolve the class.
+		xstream.alias("brick", PcInitRuntimeBrick.class);
+		xstream.alias("brick", PcShutdownRuntimeBrick.class);
+		xstream.alias("brick", PcQueryBrick.class);
+		xstream.alias("brick", PcNativeProbeBrick.class);
+		xstream.alias("brick", PcPreparePrefixBrick.class);
+		xstream.alias("brick", PcGraphicsBackendBrick.class);
+		xstream.alias("brick", PcInspectBinaryBrick.class);
 		xstream.alias("brick", RunVm2Brick.class);
 		xstream.alias("brick", CreateDiskBrick.class);
 		xstream.alias("brick", CreateGLViewBrick.class);
