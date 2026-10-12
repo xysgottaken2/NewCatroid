@@ -279,6 +279,62 @@ class NativeProbeContractTest {
         assertNull(VulkanProbe.cpuCapabilities())
     }
 
+
+    @Test
+    fun testFeatureQueriesUseTheStructureThatOwnsTheFeature() {
+        // Regression test for the defect that broke the debug APK build: three
+        // features were read from VkPhysicalDeviceFeatures, which has no such
+        // members, so the native target did not compile at all.
+        //   * samplerMirrorClampToEdge  -> VkPhysicalDeviceVulkan12Features
+        //   * graphicsPipelineLibrary   -> VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT
+        //   * robustImageAccess2        -> VkPhysicalDeviceRobustness2FeaturesEXT
+        val source = locateNativeSource().readText()
+
+        assertFalse(
+            "VkPhysicalDeviceFeatures has no 'samplerMirrorClampToEdge' member",
+            source.contains("core.features.samplerMirrorClampToEdge")
+        )
+        assertFalse(
+            "VkPhysicalDeviceFeatures has no 'robustImageAccess2' member",
+            source.contains("core.features.robustImageAccess2")
+        )
+
+        listOf(
+            "VkPhysicalDeviceVulkan12Features",
+            "VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT",
+            "VkPhysicalDeviceRobustness2FeaturesEXT"
+        ).forEach { structure ->
+            assertTrue("the probe no longer queries $structure", source.contains(structure))
+        }
+
+        // The extension features may only be asked for when the extension is
+        // advertised; asking anyway is a validation error waiting to happen.
+        assertTrue(
+            "graphicsPipelineLibrary must be gated on VK_EXT_graphics_pipeline_library",
+            source.contains("hasExtension(\"VK_EXT_graphics_pipeline_library\")")
+        )
+        assertTrue(
+            "robustImageAccess2 must be gated on VK_EXT_robustness2",
+            source.contains("hasExtension(\"VK_EXT_robustness2\")")
+        )
+    }
+
+    @Test
+    fun testProbeLogsItsDecisionPointsForDeviceDiagnosis() {
+        // A probe that fails on a physical device has to leave a trace in
+        // logcat; the block's return value alone is not enough to debug it.
+        val source = locateNativeSource().readText()
+        assertTrue(source.contains("PCRUN_LOG("))
+        assertFalse(
+            "the logging macro must actually be used, not just defined",
+            Regex("""PCRUN_LOG\(""").findAll(source).count() < 2
+        )
+        assertTrue(
+            "a build without Vulkan headers must say so in the log",
+            source.contains("built without Vulkan headers")
+        )
+    }
+
     companion object {
         /**
          * Shape-exact sample of the native probe output, produced by running the

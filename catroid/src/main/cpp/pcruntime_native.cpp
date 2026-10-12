@@ -143,6 +143,10 @@ public:
         entries.emplace_back(name, value);
     }
 
+    size_t size() const {
+        return entries.size();
+    }
+
     std::string toJson() const {
         std::string out = "{";
         for (size_t i = 0; i < entries.size(); ++i) {
@@ -167,13 +171,16 @@ std::string probeVulkan() {
         loader = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
     }
     if (loader == nullptr) {
+        PCRUN_LOG("no Vulkan loader: libvulkan.so and libvulkan.so.1 are both absent");
         return jsonError("libvulkan.so could not be loaded on this device");
     }
+    PCRUN_LOG("Vulkan loader opened via dlopen");
 
     auto getInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr_t>(
             dlsym(loader, "vkGetInstanceProcAddr"));
     if (getInstanceProcAddr == nullptr) {
         dlclose(loader);
+        PCRUN_LOG("Vulkan loader does not export vkGetInstanceProcAddr");
         return jsonError("libvulkan.so does not export vkGetInstanceProcAddr");
     }
 
@@ -193,6 +200,8 @@ std::string probeVulkan() {
     if (enumerateInstanceVersion != nullptr) {
         enumerateInstanceVersion(&loaderApiVersion);
     }
+    PCRUN_LOG("Vulkan loader reports API %u.%u", apiVersionMajor(loaderApiVersion),
+              apiVersionMinor(loaderApiVersion));
 
     // Querying driver properties requires VK_KHR_get_physical_device_properties2
     // on a 1.0 loader and is core from 1.1 on.
@@ -250,6 +259,7 @@ std::string probeVulkan() {
     }
     if (createResult != VK_SUCCESS) {
         dlclose(loader);
+        PCRUN_LOG("vkCreateInstance failed with VkResult %d", static_cast<int>(createResult));
         char buf[128];
         snprintf(buf, sizeof(buf), "vkCreateInstance failed with VkResult %d", createResult);
         return jsonError(buf);
@@ -285,6 +295,7 @@ std::string probeVulkan() {
     if (enumeratePhysicalDevices != nullptr &&
         enumeratePhysicalDevices(instance, &deviceCount, nullptr) == VK_SUCCESS &&
         deviceCount > 0) {
+        PCRUN_LOG("Vulkan reports %u physical device(s)", deviceCount);
 
         VkPhysicalDevice* devices = new VkPhysicalDevice[deviceCount];
         if (enumeratePhysicalDevices(instance, &deviceCount, devices) != VK_SUCCESS) {
@@ -448,6 +459,10 @@ std::string probeVulkan() {
             }
             extensions += "]";
 
+            PCRUN_LOG("device[%u]: %s api=%u.%u features=%u", i, props.deviceName,
+                      apiVersionMajor(props.apiVersion), apiVersionMinor(props.apiVersion),
+                      static_cast<unsigned>(features.size()));
+
             if (wroteDevice) {
                 result += ",";
             }
@@ -575,10 +590,13 @@ Java_org_catrobat_catroid_pcruntime_VulkanProbe_nativeProbeVulkan(JNIEnv* env, j
         json = probeVulkan();
     } catch (...) {
         json = jsonError("unhandled native exception during the Vulkan probe");
+        PCRUN_LOG("the Vulkan probe threw an unhandled C++ exception");
     }
+    PCRUN_LOG("Vulkan probe finished (%u bytes)", static_cast<unsigned>(json.size()));
     return env->NewStringUTF(json.c_str());
 #else
     (void)env;
+    PCRUN_LOG("Vulkan probe unavailable: this library was built without Vulkan headers");
     return env->NewStringUTF(
             jsonError("libcatroid.so was built without Vulkan headers; the native probe is unavailable")
                     .c_str());
