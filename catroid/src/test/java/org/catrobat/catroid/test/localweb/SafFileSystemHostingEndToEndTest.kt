@@ -62,7 +62,7 @@ class SafFileSystemHostingEndToEndTest {
 
     @Before
     fun setUp() {
-        storageRoot = createTempDirectory(prefix = "saf-storage-e2e")
+        storageRoot = java.nio.file.Files.createTempDirectory("saf-storage-e2e").toFile()
         val game = File(storageRoot, "Game")
         game.mkdirs()
         write(File(game, "index.html"), "<html><body>fs index</body></html>")

@@ -81,7 +81,7 @@ class SafFileSystemProviderTest {
 
     @Before
     fun setUp() {
-        storageRoot = createTempDirectory(prefix = "saf-storage")
+        storageRoot = java.nio.file.Files.createTempDirectory("saf-storage").toFile()
         buildGameTree(File(storageRoot, "Game"))
         SafTestEnvironment.registerProvider(
             FakeFileSystemDocumentsProvider.AUTHORITY,
