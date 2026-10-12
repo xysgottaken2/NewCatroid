@@ -47,6 +47,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <string>
+#include <utility>
+#include <vector>
+#include <sys/auxv.h>
 
 #define PCRUNTAG "PcRuntimeNative"
 
@@ -92,6 +95,17 @@ std::string quote(const std::string& input) {
     return "\"" + jsonEscape(input) + "\"";
 }
 
+// VK_API_VERSION_MAJOR/VK_API_VERSION_MINOR are missing from some of the
+// header generations the Android NDK has shipped, so the two fields are
+// extracted locally (identical layout to the Vulkan specification).
+static inline uint32_t apiVersionMajor(uint32_t apiVersion) {
+    return (apiVersion >> 22) & 0x7FU;
+}
+
+static inline uint32_t apiVersionMinor(uint32_t apiVersion) {
+    return (apiVersion >> 12) & 0x3FFU;
+}
+
 std::string jsonError(const std::string& message) {
     return "{\"available\":false,\"error\":" + quote(message) + "}";
 }
@@ -111,59 +125,41 @@ const char* deviceTypeName(VkPhysicalDeviceType type) {
 }
 
 /**
- * Collects the device features that the documented upstream requirements for
- * DXVK/VKD3D-Proton actually depend on, and the descriptor-indexing limits
- * VKD3D-Proton needs (>= 1,000,000 UpdateAfterBind descriptors).
+ * Ordered name -> number map that is serialised as a JSON *object*.
+ *
+ * The Kotlin side reads this with JSONObject.optJSONObject("features"), so an
+ * object (not an array) is the contract, and a boolean feature has to be the
+ * number 1 to be counted as enabled. Numeric limits are emitted as their real
+ * count; a limit entry only exists when the structure it came from was really
+ * filled in, so "not queried" and "driver answered zero" stay distinguishable.
  */
-std::string collectFeatures(const VkPhysicalDeviceFeatures2& core,
-                            const VkPhysicalDeviceVulkan11Features& vk11,
-                            const VkPhysicalDeviceVulkan12Features& vk12,
-                            const VkPhysicalDeviceDescriptorIndexingProperties& indexingProps) {
-    // Emits a flat "name":value map so the Kotlin side can look capabilities up
-    // by name without a schema. Booleans are emitted as 0/1, limits as counts.
-    std::string out = "[";
-    bool first = true;
-    auto add = [&](const char* name, bool value) {
-        if (!first) out += ",";
-        first = false;
-        out += quote(name);
-        if (value) {
-            out += ",1";
-        } else {
-            out += ",0";
+class FeatureBag {
+public:
+    void flag(const char* name, unsigned int value) {
+        entries.emplace_back(name, value ? 1ULL : 0ULL);
+    }
+
+    void limit(const char* name, unsigned long long value) {
+        entries.emplace_back(name, value);
+    }
+
+    std::string toJson() const {
+        std::string out = "{";
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (i > 0) {
+                out += ",";
+            }
+            out += quote(entries[i].first);
+            out += ":";
+            out += std::to_string(entries[i].second);
         }
-    };
-    auto addValue = [&](const char* name, unsigned long long value) {
-        if (!first) out += ",";
-        first = false;
-        out += quote(name);
-        out += ",";
-        out += std::to_string(value);
-    };
+        out += "}";
+        return out;
+    }
 
-    add("shaderDrawParameters", vk11.shaderDrawParameters == VK_TRUE);
-    add("samplerMirrorClampToEdge", core.features.samplerMirrorClampToEdge == VK_TRUE);
-    add("descriptorIndexing", vk12.descriptorIndexing == VK_TRUE);
-    add("runtimeDescriptorArray", vk12.runtimeDescriptorArray == VK_TRUE);
-    add("descriptorBindingSampledImageUpdateAfterBind",
-        vk12.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE);
-    add("descriptorBindingStorageImageUpdateAfterBind",
-        vk12.descriptorBindingStorageImageUpdateAfterBind == VK_TRUE);
-    add("robustImageAccess2", core.features.robustImageAccess2 == VK_TRUE);
-    add("timelineSemaphore", vk12.timelineSemaphore == VK_TRUE);
-
-    addValue("sampledImageUpdateAfterBind",
-             indexingProps.maxDescriptorSetUpdateAfterBindSampledImages);
-    addValue("storageImageUpdateAfterBind",
-             indexingProps.maxDescriptorSetUpdateAfterBindStorageImages);
-    addValue("samplerUpdateAfterBind",
-             indexingProps.maxDescriptorSetUpdateAfterBindSamplers);
-    addValue("uniformBufferUpdateAfterBind",
-             indexingProps.maxDescriptorSetUpdateAfterBindUniformBuffers);
-
-    out += "]";
-    return out;
-}
+private:
+    std::vector<std::pair<std::string, unsigned long long>> entries;
+};
 
 std::string probeVulkan() {
     void* loader = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
@@ -224,7 +220,7 @@ std::string probeVulkan() {
     // VK_KHR_get_physical_device_properties2 instance extension instead.
     const char* enabledExtensions[1];
     uint32_t enabledExtensionCount = 0;
-    if (VK_API_VERSION_MAJOR(loaderApiVersion) == 1 && VK_API_VERSION_MINOR(loaderApiVersion) == 0 &&
+    if (apiVersionMajor(loaderApiVersion) == 1 && apiVersionMinor(loaderApiVersion) == 0 &&
         instanceExtensions.find(props2Extension) != std::string::npos) {
         enabledExtensions[0] = props2Extension;
         enabledExtensionCount = 1;
@@ -261,10 +257,21 @@ std::string probeVulkan() {
 
     auto enumeratePhysicalDevices = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
             getInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"));
+    // vkGetPhysicalDeviceProperties2 / Features2 are core from Vulkan 1.1. On a
+    // 1.0 loader they only exist under their VK_KHR_get_physical_device_properties2
+    // names, so both spellings are tried.
     auto getPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
             getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
+    if (getPhysicalDeviceProperties2 == nullptr) {
+        getPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+                getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2KHR"));
+    }
     auto getPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
             getInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
+    if (getPhysicalDeviceFeatures2 == nullptr) {
+        getPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+                getInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR"));
+    }
     auto enumerateDeviceExtensionProperties = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(
             getInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties"));
 
@@ -286,54 +293,16 @@ std::string probeVulkan() {
 
         for (uint32_t i = 0; i < deviceCount; ++i) {
             VkPhysicalDeviceProperties props{};
-            VkPhysicalDeviceDriverProperties driverProps{};
-            VkPhysicalDeviceDescriptorIndexingProperties indexingProps{};
-            VkPhysicalDeviceVulkan11Features vk11{};
-            VkPhysicalDeviceVulkan12Features vk12{};
-            VkPhysicalDeviceVulkan13Features vk13{};
-            VkPhysicalDeviceFeatures2 features2{};
-
-            bool haveDriverProps = false;
-            bool haveIndexingProps = false;
-            bool haveFeatures2 = false;
-
-            // Core 1.0 query always succeeds, so it is the baseline.
             auto getProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
                     getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"));
             if (getProperties != nullptr) {
                 getProperties(devices[i], &props);
             }
 
-            if (getPhysicalDeviceProperties2 != nullptr) {
-                VkPhysicalDeviceProperties2 props2{};
-                props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-                driverProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
-                indexingProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES;
-
-                // Per the Vulkan specification an implementation must ignore
-                // unrecognised sTypes in a query pNext chain, so chaining the
-                // newer structs is safe even on an older driver.
-                props2.pNext = &driverProps;
-                driverProps.pNext = &indexingProps;
-                getPhysicalDeviceProperties2(devices[i], &props2);
-                haveDriverProps = true;
-                haveIndexingProps = true;
-            }
-
-            if (getPhysicalDeviceFeatures2 != nullptr) {
-                features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-                vk11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-                vk12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-                vk13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-                vk11.pNext = &vk12;
-                vk12.pNext = &vk13;
-                features2.pNext = &vk11;
-                getPhysicalDeviceFeatures2(devices[i], &features2);
-                haveFeatures2 = true;
-            }
-
-            std::string extensions = "[";
-            bool firstDeviceExt = true;
+            // The device extensions are enumerated first: the feature queries
+            // below are only meaningful for the version/extension combination
+            // this device actually advertises, so the names drive what is asked.
+            std::vector<std::string> deviceExtensions;
             if (enumerateDeviceExtensionProperties != nullptr) {
                 uint32_t extCount = 0;
                 if (enumerateDeviceExtensionProperties(devices[i], nullptr, &extCount, nullptr) == VK_SUCCESS &&
@@ -341,13 +310,141 @@ std::string probeVulkan() {
                     VkExtensionProperties* available = new VkExtensionProperties[extCount];
                     if (enumerateDeviceExtensionProperties(devices[i], nullptr, &extCount, available) == VK_SUCCESS) {
                         for (uint32_t e = 0; e < extCount; ++e) {
-                            if (!firstDeviceExt) extensions += ",";
-                            firstDeviceExt = false;
-                            extensions += quote(available[e].extensionName);
+                            deviceExtensions.emplace_back(available[e].extensionName);
                         }
                     }
                     delete[] available;
                 }
+            }
+            [[maybe_unused]] const auto hasExtension = [&deviceExtensions](const char* name) {
+                for (size_t e = 0; e < deviceExtensions.size(); ++e) {
+                    if (deviceExtensions[e] == name) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            FeatureBag features;
+            std::string driverName;
+            std::string driverInfo;
+            int driverId = 0;
+
+            // --- Driver name/info: core in Vulkan 1.2, otherwise the
+            // VK_KHR_driver_properties extension provides the same structure.
+#if defined(VK_VERSION_1_2)
+            if (getPhysicalDeviceProperties2 != nullptr &&
+                (props.apiVersion >= VK_API_VERSION_1_2 || hasExtension("VK_KHR_driver_properties"))) {
+                VkPhysicalDeviceDriverProperties driverProps{};
+                VkPhysicalDeviceProperties2 props2{};
+                driverProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+                props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                props2.pNext = &driverProps;
+                getPhysicalDeviceProperties2(devices[i], &props2);
+                driverId = static_cast<int>(driverProps.driverID);
+                driverName = driverProps.driverName;
+                driverInfo = driverProps.driverInfo;
+            }
+#endif
+
+            // --- Descriptor-indexing limits: the numbers VKD3D-Proton depends
+            // on (>= 1,000,000 UpdateAfterBind descriptors). Reported only when
+            // the device is able to answer the query at all, so "not queried"
+            // never looks like "the driver said zero".
+#if defined(VK_VERSION_1_2)
+            if (getPhysicalDeviceProperties2 != nullptr &&
+                (props.apiVersion >= VK_API_VERSION_1_2 || hasExtension("VK_EXT_descriptor_indexing"))) {
+                VkPhysicalDeviceDescriptorIndexingProperties indexing{};
+                VkPhysicalDeviceProperties2 props2{};
+                indexing.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES;
+                props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                props2.pNext = &indexing;
+                getPhysicalDeviceProperties2(devices[i], &props2);
+                features.limit("sampledImageUpdateAfterBind", indexing.maxDescriptorSetUpdateAfterBindSampledImages);
+                features.limit("storageImageUpdateAfterBind", indexing.maxDescriptorSetUpdateAfterBindStorageImages);
+                features.limit("samplerUpdateAfterBind", indexing.maxDescriptorSetUpdateAfterBindSamplers);
+                features.limit("uniformBufferUpdateAfterBind", indexing.maxDescriptorSetUpdateAfterBindUniformBuffers);
+            }
+#endif
+
+            // --- Core features. The aggregate feature structures
+            // (VkPhysicalDeviceVulkan11Features / ...Vulkan12Features) were
+            // introduced by the Vulkan 1.2 headers, so the whole block is guarded
+            // by VK_VERSION_1_2; the runtime check below then keeps each query
+            // valid for the API version the device itself reports.
+#if defined(VK_VERSION_1_2)
+            if (getPhysicalDeviceFeatures2 != nullptr && props.apiVersion >= VK_API_VERSION_1_1) {
+                VkPhysicalDeviceFeatures2 features2{};
+                VkPhysicalDeviceVulkan11Features vk11{};
+                features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                vk11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+                features2.pNext = &vk11;
+
+                VkPhysicalDeviceVulkan12Features vk12{};
+                const bool queryVulkan12 = props.apiVersion >= VK_API_VERSION_1_2;
+                if (queryVulkan12) {
+                    vk12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+                    vk11.pNext = &vk12;
+                }
+
+                getPhysicalDeviceFeatures2(devices[i], &features2);
+                features.flag("shaderDrawParameters", vk11.shaderDrawParameters == VK_TRUE);
+
+                if (queryVulkan12) {
+                    // samplerMirrorClampToEdge is a Vulkan 1.2 feature. It does
+                    // not exist in the Vulkan 1.0 VkPhysicalDeviceFeatures
+                    // structure, which is where an earlier revision looked for it.
+                    features.flag("samplerMirrorClampToEdge", vk12.samplerMirrorClampToEdge == VK_TRUE);
+                    features.flag("descriptorIndexing", vk12.descriptorIndexing == VK_TRUE);
+                    features.flag("runtimeDescriptorArray", vk12.runtimeDescriptorArray == VK_TRUE);
+                    features.flag("descriptorBindingSampledImageUpdateAfterBind",
+                                  vk12.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE);
+                    features.flag("descriptorBindingStorageImageUpdateAfterBind",
+                                  vk12.descriptorBindingStorageImageUpdateAfterBind == VK_TRUE);
+                    features.flag("descriptorBindingUniformBufferUpdateAfterBind",
+                                  vk12.descriptorBindingUniformBufferUpdateAfterBind == VK_TRUE);
+                    features.flag("timelineSemaphore", vk12.timelineSemaphore == VK_TRUE);
+                }
+            }
+#endif
+
+            // --- graphicsPipelineLibrary lives in VK_EXT_graphics_pipeline_library
+            // (it was never promoted into the core 1.3 feature structure), so it
+            // may only be queried through that extension's feature struct.
+#if defined(VK_EXT_graphics_pipeline_library)
+            if (getPhysicalDeviceFeatures2 != nullptr && hasExtension("VK_EXT_graphics_pipeline_library")) {
+                VkPhysicalDeviceFeatures2 features2{};
+                VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT gpl{};
+                features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                gpl.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT;
+                features2.pNext = &gpl;
+                getPhysicalDeviceFeatures2(devices[i], &features2);
+                features.flag("graphicsPipelineLibrary", gpl.graphicsPipelineLibrary == VK_TRUE);
+            }
+#endif
+
+            // --- robustImageAccess2 comes from VK_EXT_robustness2, a
+            // VKD3D-Proton requirement that is also not part of the core 1.3
+            // feature structure.
+#if defined(VK_EXT_robustness2)
+            if (getPhysicalDeviceFeatures2 != nullptr && hasExtension("VK_EXT_robustness2")) {
+                VkPhysicalDeviceFeatures2 features2{};
+                VkPhysicalDeviceRobustness2FeaturesEXT robustness{};
+                features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                robustness.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
+                features2.pNext = &robustness;
+                getPhysicalDeviceFeatures2(devices[i], &features2);
+                features.flag("robustImageAccess2", robustness.robustImageAccess2 == VK_TRUE);
+                features.flag("nullDescriptor", robustness.nullDescriptor == VK_TRUE);
+            }
+#endif
+
+            std::string extensions = "[";
+            for (size_t e = 0; e < deviceExtensions.size(); ++e) {
+                if (e > 0) {
+                    extensions += ",";
+                }
+                extensions += quote(deviceExtensions[e]);
             }
             extensions += "]";
 
@@ -363,23 +460,11 @@ std::string probeVulkan() {
             result += "\"apiVersion\":" + std::to_string(static_cast<unsigned long long>(props.apiVersion)) + ",";
             result += "\"driverVersion\":" + std::to_string(static_cast<unsigned long long>(props.driverVersion)) + ",";
             result += "\"vendorId\":" + std::to_string(static_cast<int>(props.vendorID)) + ",";
-            result += "\"driverId\":";
-            result += haveDriverProps ? std::to_string(static_cast<int>(driverProps.driverID)) : std::string("0");
-            result += ",\"driverName\":";
-            result += haveDriverProps ? quote(driverProps.driverName) : quote("");
-            result += ",\"driverInfo\":";
-            result += haveDriverProps ? quote(driverProps.driverInfo) : quote("");
-            result += ",\"extensions\":" + extensions + ",";
-            result += "\"features\":";
-            if (haveFeatures2) {
-                VkPhysicalDeviceDescriptorIndexingProperties propsForFeatures{};
-                if (haveIndexingProps) {
-                    propsForFeatures = indexingProps;
-                }
-                result += collectFeatures(features2, vk11, vk12, propsForFeatures);
-            } else {
-                result += "[]";
-            }
+            result += "\"driverId\":" + std::to_string(driverId) + ",";
+            result += "\"driverName\":" + quote(driverName) + ",";
+            result += "\"driverInfo\":" + quote(driverInfo) + ",";
+            result += "\"extensions\":" + extensions + ",";
+            result += "\"features\":" + features.toJson();
             result += "}";
         }
         delete[] devices;
@@ -397,9 +482,16 @@ std::string probeVulkan() {
 
 #endif  // PCRUN_HAS_VULKAN_HEADERS
 
-/**
+/*
  * AArch64 feature reporting. This is the in-process half of the native smoke
  * test; the out-of-process half is the `pcrt_probe` helper binary.
+ *
+ * The capabilities are read from the kernel (AT_HWCAP) rather than from the
+ * compiler's feature macros: the NDK compiles for the baseline ABI, so
+ * __ARM_FEATURE_CRC32 and __ARM_FEATURE_DOTPROD are 0 even on a Snapdragon
+ * 8 Gen 2 whose cores implement both. Reporting "no CRC32" on the chip this
+ * work targets would be a false negative, and a false negative here is what
+ * makes a device look incapable of running a translated binary.
  */
 std::string describeCpuFeatures() {
 #if defined(__aarch64__)
@@ -414,29 +506,60 @@ std::string describeCpuFeatures() {
     const char* arch = "unknown";
 #endif
 
+    // Bit numbers from the kernel UAPI headers:
+    //   arch/arm64/include/uapi/asm/hwcap.h and arch/arm/include/uapi/asm/hwcap.h
+    const unsigned long hwcapAsimd = 1UL << 1;    // AArch64: Advanced SIMD (NEON)
+    const unsigned long hwcapCrc32 = 1UL << 7;    // AArch64: CRC32 instructions
+    const unsigned long hwcapAsimddp = 1UL << 20; // AArch64: dot product
+    const unsigned long hwcapNeon32 = 1UL << 12;  // AArch32: NEON
+
+    unsigned long hwcap = 0;
+#if defined(__aarch64__) || defined(__arm__)
+    hwcap = getauxval(AT_HWCAP);
+#endif
+
+    const bool haveHwcap = hwcap != 0;
+    bool neon;
+    bool crc32;
+    bool dotprod;
+    if (haveHwcap) {
+        neon = (hwcap & hwcapAsimd) != 0 || (hwcap & hwcapNeon32) != 0;
+        crc32 = (hwcap & hwcapCrc32) != 0;
+        dotprod = (hwcap & hwcapAsimddp) != 0;
+    } else {
+        // getauxval gave no answer (non-ARM build or a very old kernel): fall
+        // back to what this translation unit was compiled for.
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+        neon = true;
+#else
+        neon = false;
+#endif
+#if defined(__ARM_FEATURE_CRC32)
+        crc32 = true;
+#else
+        crc32 = false;
+#endif
+#if defined(__ARM_FEATURE_DOTPROD)
+        dotprod = true;
+#else
+        dotprod = false;
+#endif
+    }
+
+#if defined(__ARM_FEATURE_SVE)
+    const bool sve = true;
+#else
+    const bool sve = false;
+#endif
+
     std::string out = "{";
     out += "\"arch\":" + quote(arch) + ",";
     out += "\"pointerSize\":" + std::to_string(static_cast<int>(sizeof(void*))) + ",";
-#if defined(__ARM_FEATURE_CRC32)
-    out += "\"crc32\":1,";
-#else
-    out += "\"crc32\":0,";
-#endif
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-    out += "\"neon\":1,";
-#else
-    out += "\"neon\":0,";
-#endif
-#if defined(__ARM_FEATURE_DOTPROD)
-    out += "\"dotprod\":1,";
-#else
-    out += "\"dotprod\":0,";
-#endif
-#if defined(__ARM_FEATURE_SVE)
-    out += "\"sve\":1,";
-#else
-    out += "\"sve\":0,";
-#endif
+    out += "\"neon\":" + std::string(neon ? "1" : "0") + ",";
+    out += "\"crc32\":" + std::string(crc32 ? "1" : "0") + ",";
+    out += "\"dotprod\":" + std::string(dotprod ? "1" : "0") + ",";
+    out += "\"sve\":" + std::string(sve ? "1" : "0") + ",";
+    out += "\"capabilitiesSource\":" + quote(haveHwcap ? "AT_HWCAP" : "compile-time macros") + ",";
     out += "\"androidApi\":" + std::to_string(__ANDROID_API__);
     out += "}";
     return out;

@@ -74,7 +74,16 @@ object VulkanProbe {
         }
     }
 
-    private fun parse(raw: String, source: String): VulkanReport {
+    /**
+     * Parses a native probe document.
+     *
+     * Public so the unit tests can feed it the exact JSON the native code
+     * produces without a device that has a Vulkan driver. Reading the document
+     * is also a legitimate standalone operation: a caller that captured probe
+     * output earlier (or obtained it from a different process) can decode it
+     * here instead of re-running the probe.
+     */
+    fun parse(raw: String, source: String): VulkanReport {
         return try {
             val root = JSONObject(raw)
             if (!root.optBoolean("available", false)) {
@@ -212,15 +221,60 @@ object VulkanProbe {
         )
     }
 
-    /** Native diagnostic for the in-process half of the smoke test. */
-    fun describeCpu(): String = try {
-        if (NativeLibraryManager.isLoaded(NativeLibraryManager.Feature.CORE)) {
-            nativeDescribeCpu()
-        } else {
-            "libcatroid.so not loaded"
+    /**
+     * CPU capabilities as reported by the in-process native helper.
+     *
+     * @param capabilitiesSource "AT_HWCAP" when the kernel answered, otherwise
+     *   the compiler macros the library was built with. The distinction matters:
+     *   a baseline build reports crc32=false even on a core that has it, so a
+     *   caller must not treat a macro-derived "false" as a hardware fact.
+     */
+    data class CpuCapabilities(
+        val arch: String,
+        val pointerSize: Int,
+        val neon: Boolean,
+        val crc32: Boolean,
+        val dotprod: Boolean,
+        val sve: Boolean,
+        val capabilitiesSource: String,
+        val androidApi: Int
+    ) {
+        fun summary(): String = buildString {
+            append(arch).append(", ").append(pointerSize).append("-byte pointers")
+            append(", NEON ").append(if (neon) "yes" else "no")
+            append(", CRC32 ").append(if (crc32) "yes" else "no")
+            append(", dot-product ").append(if (dotprod) "yes" else "no")
+            append(" (source: ").append(capabilitiesSource).append(")")
         }
-    } catch (e: Exception) {
-        "native CPU description unavailable: ${e.message}"
+    }
+
+    /** Runs the native helper and decodes its report. Null when unavailable. */
+    fun cpuCapabilities(): CpuCapabilities? {
+        if (!NativeLibraryManager.isLoaded(NativeLibraryManager.Feature.CORE)) {
+            return null
+        }
+        return try {
+            parseCpu(nativeDescribeCpu())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Decodes the CPU report. Public so the unit tests can feed real output in. */
+    fun parseCpu(raw: String): CpuCapabilities? = try {
+        val root = JSONObject(raw)
+        CpuCapabilities(
+            arch = root.optString("arch", "unknown"),
+            pointerSize = root.optInt("pointerSize", 0),
+            neon = root.optInt("neon", 0) == 1,
+            crc32 = root.optInt("crc32", 0) == 1,
+            dotprod = root.optInt("dotprod", 0) == 1,
+            sve = root.optInt("sve", 0) == 1,
+            capabilitiesSource = root.optString("capabilitiesSource", "unknown"),
+            androidApi = root.optInt("androidApi", 0)
+        )
+    } catch (e: JSONException) {
+        null
     }
 
     const val SOURCE_NATIVE = "libcatroid.so (live Vulkan instance)"

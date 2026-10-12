@@ -230,9 +230,18 @@ object PcRuntimeManager {
     fun query(query: PcQuery): String = when (query) {
         PcQuery.STATUS -> statusText()
         PcQuery.ERROR -> lastError?.let { "${it.code.name}: ${it.format()}" } ?: "no error"
-        PcQuery.ARCHITECTURE -> deviceReport?.let {
-            "${it.hostArch.displayName}; primary ABI ${it.primaryAbi}; ${it.cpuCores} cores; " +
-                "${it.pointerSizeBits}-bit pointers; API ${it.sdkInt}"
+        PcQuery.ARCHITECTURE -> deviceReport?.let { report ->
+            val fromPlatform = "${report.hostArch.displayName}; primary ABI ${report.primaryAbi}; " +
+                "${report.cpuCores} cores; ${report.pointerSizeBits}-bit pointers; API ${report.sdkInt}"
+            // The native helper adds what the Java APIs cannot report: whether
+            // the cores really implement NEON/CRC32/dot-product, which is what
+            // decides how a translated binary may be tuned.
+            val fromNative = VulkanProbe.cpuCapabilities()?.summary()
+            if (fromNative == null) {
+                "$fromPlatform\nnative CPU report: unavailable (libcatroid.so not loaded)"
+            } else {
+                "$fromPlatform\nnative CPU report: $fromNative"
+            }
         } ?: "runtime not initialized"
         PcQuery.ABIS -> deviceReport?.supportedAbiDescriptions() ?: "runtime not initialized"
         PcQuery.VULKAN -> vulkanReport?.let {
