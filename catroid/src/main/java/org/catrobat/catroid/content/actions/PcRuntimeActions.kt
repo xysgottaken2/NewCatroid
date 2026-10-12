@@ -31,6 +31,7 @@ import org.catrobat.catroid.CatroidApplication
 import org.catrobat.catroid.content.Scope
 import org.catrobat.catroid.formulaeditor.Formula
 import org.catrobat.catroid.formulaeditor.UserVariable
+import org.catrobat.catroid.pcruntime.BinaryInspector
 import org.catrobat.catroid.pcruntime.GraphicsBackend
 import org.catrobat.catroid.pcruntime.PcExecPlanner
 import org.catrobat.catroid.pcruntime.PcQuery
@@ -280,6 +281,16 @@ class PcInspectBinaryAction : PcBaseAction() {
         if (!file.exists()) {
             return "error: ${file.absolutePath} does not exist"
         }
+        if (!file.isFile) {
+            return "error: ${file.absolutePath} is not a regular file"
+        }
+        if (!file.canRead()) {
+            // Reading a file on shared storage needs a granted runtime
+            // permission (or SAF). Saying "unknown format" here would send the
+            // user looking for the wrong problem.
+            return "error: ${file.absolutePath} exists but cannot be read - " +
+                "check the storage permission of the app"
+        }
         val context = appContext() ?: return "error: application context unavailable"
         val plan = PcExecPlanner.plan(
             executable = file,
@@ -287,7 +298,7 @@ class PcInspectBinaryAction : PcBaseAction() {
         )
         return buildString {
             append(file.name).append(": ")
-            append(org.catrobat.catroid.pcruntime.BinaryInspector.describe(file))
+            append(BinaryInspector.describe(file))
             append('\n').append(plan.describe())
             if (plan.blockedReason != null) {
                 append('\n').append("reason: ").append(plan.blockedReason)
