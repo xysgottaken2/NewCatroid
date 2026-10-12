@@ -404,6 +404,13 @@ import org.catrobat.catroid.content.bricks.RunLuaBrick
 import org.catrobat.catroid.content.bricks.RunPythonScriptBrick
 import org.catrobat.catroid.content.bricks.RunShellBrick
 import org.catrobat.catroid.content.bricks.RunVMBrick
+import org.catrobat.catroid.content.bricks.PcInitRuntimeBrick
+import org.catrobat.catroid.content.bricks.PcShutdownRuntimeBrick
+import org.catrobat.catroid.content.bricks.PcQueryBrick
+import org.catrobat.catroid.content.bricks.PcNativeProbeBrick
+import org.catrobat.catroid.content.bricks.PcPreparePrefixBrick
+import org.catrobat.catroid.content.bricks.PcGraphicsBackendBrick
+import org.catrobat.catroid.content.bricks.PcInspectBinaryBrick
 import org.catrobat.catroid.content.bricks.RunVm2Brick
 import org.catrobat.catroid.content.bricks.RunningStitchBrick
 import org.catrobat.catroid.content.bricks.SaveBufferBrick
@@ -2091,6 +2098,16 @@ void main() {
                 if (SettingsFragment.isArduinoSharedPreferenceEnabled(context)) deviceBrickList.addAll(setupArduinoCategoryList())
                 if (SettingsFragment.isRaspiSharedPreferenceEnabled(context)) deviceBrickList.addAll(setupRaspiCategoryList())
                 if (SettingsFragment.isEmroiderySharedPreferenceEnabled(context)) deviceBrickList.addAll(setupEmbroideryCategoryList(context))
+
+                // PC runtime (PC game compatibility)
+                deviceBrickList.add(PcInitRuntimeBrick())
+                deviceBrickList.add(PcShutdownRuntimeBrick())
+                deviceBrickList.add(PcQueryBrick())
+                deviceBrickList.add(PcNativeProbeBrick())
+                deviceBrickList.add(PcPreparePrefixBrick("newcatroid"))
+                deviceBrickList.add(PcGraphicsBackendBrick())
+                deviceBrickList.add(PcInspectBinaryBrick("/sdcard/Download/box64"))
+
                 return deviceBrickList
             }
         }
@@ -2151,6 +2168,15 @@ bot.polling()""", "myVar"))
         deviceBrickList.add(SendVmInputBrick("ls ~/"))
         deviceBrickList.add(BindVmOutputBrick())
         deviceBrickList.add(RunChip8Brick("tetris.ch8"))
+
+        deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_pcruntime), template))
+        deviceBrickList.add(PcInitRuntimeBrick())
+        deviceBrickList.add(PcShutdownRuntimeBrick())
+        deviceBrickList.add(PcQueryBrick())
+        deviceBrickList.add(PcNativeProbeBrick())
+        deviceBrickList.add(PcPreparePrefixBrick("newcatroid"))
+        deviceBrickList.add(PcGraphicsBackendBrick())
+        deviceBrickList.add(PcInspectBinaryBrick("/sdcard/Download/box64"))
 
         deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_views), template))
         deviceBrickList.add(CreateWebUrlBrick("myWebView", "https://google.com", "0", "0", "500", "700"))

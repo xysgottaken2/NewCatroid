@@ -5501,4 +5501,38 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="undo_sort">Undo sort</string>
     <string formatted="false" name="sort">Sort</string>
     <string formatted="false" name="checkbox">checkbox</string>
+
+    <!-- PC runtime (block-based PC game compatibility runtime) -->
+    <string formatted="false" name="brick_pc_init_runtime">Init PC runtime</string>
+    <string formatted="false" name="brick_pc_shutdown_runtime">Shut down PC runtime</string>
+    <string formatted="false" name="brick_pc_query">PC runtime info</string>
+    <string formatted="false" name="brick_pc_native_probe">Run native ARM64 probe into</string>
+    <string formatted="false" name="brick_pc_prepare_prefix">Prepare Wine prefix</string>
+    <string formatted="false" name="brick_pc_graphics_backend">Use graphics backend</string>
+    <string formatted="false" name="brick_pc_inspect_binary">Inspect native file</string>
+    <string formatted="false" name="brick_pc_into_variable">into</string>
+
+    <string-array name="pc_query_options">
+        <item>Status</item>
+        <item>Last error</item>
+        <item>Device architecture</item>
+        <item>Device ABIs</item>
+        <item>Vulkan support</item>
+        <item>Vulkan extensions</item>
+        <item>Direct3D readiness</item>
+        <item>Installed components</item>
+        <item>Prepared prefixes</item>
+        <item>Runtime log</item>
+    </string-array>
+
+    <string-array name="pc_graphics_backends">
+        <item>None (wined3d)</item>
+        <item>DXVK D3D8</item>
+        <item>DXVK D3D9</item>
+        <item>DXVK D3D10</item>
+        <item>DXVK D3D11</item>
+        <item>VKD3D-Proton D3D12</item>
+    </string-array>
+
+    <string name="subcategory_device_pcruntime">PC runtime</string>
 </resources>

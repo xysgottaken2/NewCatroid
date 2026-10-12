@@ -80,3 +80,8 @@ Gemfile
 /sanity_logic/
 /catroid/.cxx/Debug
 /vncclient/.cxx/Debug
+
+# pcrt_probe native smoke test: build outputs of tools/build_pcrt_probe.sh.
+# They are packaged into the APK as assets, but never committed as binaries.
+/catroid/src/main/assets/pcruntime/**/pcrt_probe
+/catroid/src/main/assets/pcruntime/**/ABI
