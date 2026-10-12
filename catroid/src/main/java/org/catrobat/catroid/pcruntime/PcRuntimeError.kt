@@ -43,6 +43,7 @@ enum class PcErrorCode {
     PROCESS_LAUNCH_FAILED,
     PROCESS_TIMEOUT,
     PROCESS_CANCELLED,
+    NATIVE_PROBE_FAILED,
     VULKAN_UNAVAILABLE,
     PREFIX_PATH_INVALID,
     PREFIX_IO_ERROR,
@@ -102,6 +103,11 @@ object PcErrorCatalog {
                 "Increase the timeout or stop the program explicitly; the process has already been destroyed."
             PcErrorCode.PROCESS_CANCELLED ->
                 "The process was stopped by a 'Stop running program' block."
+            PcErrorCode.NATIVE_PROBE_FAILED ->
+                "The native smoke test started but reported a failure (non-zero exit status). " +
+                    "Read its output; a 'self_test_ok=0' means the packaged probe does not match this " +
+                    "device's ABI or was corrupted, and a self test that cannot pass means no PC binary " +
+                    "can be trusted to run here yet."
             PcErrorCode.VULKAN_UNAVAILABLE ->
                 "The device did not expose a usable Vulkan driver. Direct3D translation layers need " +
                     "Vulkan 1.3 or newer; there is no software fallback in this runtime."

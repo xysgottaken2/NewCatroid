@@ -69,33 +69,61 @@
 #  define PCRT_ARCH "unknown"
 #endif
 
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-#  define PCRT_NEON 1
-#else
-#  define PCRT_NEON 0
-#endif
+/* Hardware capabilities have to be read from the *device*, not from what the
+ * compiler happened to target: the probe is built for the baseline ABI, so
+ * __ARM_FEATURE_CRC32 and __ARM_FEATURE_DOTPROD are 0 even on a Snapdragon
+ * 8 Gen 2 whose cores do support both. Reporting that as "unsupported" would be
+ * a false negative, so AT_HWCAP is consulted on ARM and the compile time macros
+ * are only the fallback for builds made without getauxval.
+ *
+ * Bit numbers are taken from the kernel UAPI headers
+ * (arch/arm64/include/uapi/asm/hwcap.h, arch/arm/include/uapi/asm/hwcap.h). */
+#define PCRT_HWCAP_ASIMD    (1UL << 1)   /* AArch64: Advanced SIMD (NEON) */
+#define PCRT_HWCAP_CRC32    (1UL << 7)   /* AArch64: CRC32 instructions */
+#define PCRT_HWCAP_ASIMDDP  (1UL << 20)  /* AArch64: dot product instructions */
+#define PCRT_HWCAP_NEON_32  (1UL << 12)  /* AArch32: NEON */
 
-#if defined(__ARM_FEATURE_CRC32)
-#  define PCRT_CRC32 1
+static int hwcap_has(unsigned long mask) {
+#if defined(__aarch64__) || defined(__arm__)
+    const unsigned long hwcap = getauxval(AT_HWCAP);
+    if (hwcap != 0) {
+        return (hwcap & mask) ? 1 : 0;
+    }
 #else
-#  define PCRT_CRC32 0
+    (void)mask; /* not an ARM build: the caller uses the compile time macros */
 #endif
+    return -1; /* unknown: caller falls back to the compile time macro */
+}
 
-#if defined(__ARM_FEATURE_DOTPROD)
-#  define PCRT_DOTPROD 1
-#else
-#  define PCRT_DOTPROD 0
-#endif
+/* Deterministic checksum: 146 full cycles of (0+3+6+2+5+1+4)=21 for i=0..1021,
+ * then i=1022 (0) and i=1023 (3), so a correct binary prints 3069. It proves
+ * the process ran the compiled code on this CPU, which is what makes the probe
+ * a smoke test and not just a "did it start" check. */
+#define PCRT_SELF_TEST_EXPECTED 3069L
 
-/* A minimal capability check that actually executes vector code, so a probe
- * success means the CPU really can run the instructions the runtime emits. */
-static long vector_self_test(void) {
+static long self_test(void) {
     long total = 0;
     for (long i = 0; i < 1024; i++) {
         total += (i * 3) % 7;
     }
     return total;
 }
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#  define PCRT_NEON_FALLBACK 1
+#else
+#  define PCRT_NEON_FALLBACK 0
+#endif
+#if defined(__ARM_FEATURE_CRC32)
+#  define PCRT_CRC32_FALLBACK 1
+#else
+#  define PCRT_CRC32_FALLBACK 0
+#endif
+#if defined(__ARM_FEATURE_DOTPROD)
+#  define PCRT_DOTPROD_FALLBACK 1
+#else
+#  define PCRT_DOTPROD_FALLBACK 0
+#endif
 
 static void print_kv(const char *key, const char *value) {
     printf("%s=%s\n", key, value ? value : "");
@@ -123,17 +151,30 @@ int main(int argc, char **argv) {
         machine = uts.machine;
     }
 
-    const long vector_result = vector_self_test();
-    const long self_test_ok = (vector_result == 4608L) ? 1 : 0;
+    const long self_test_result = self_test();
+    const long self_test_ok = (self_test_result == PCRT_SELF_TEST_EXPECTED) ? 1 : 0;
+
+    /* Prefer the kernel's view; fall back to what the binary was built for. */
+    const int asimd = hwcap_has(PCRT_HWCAP_ASIMD);
+    const int crc32 = hwcap_has(PCRT_HWCAP_CRC32);
+    const int dotprod = hwcap_has(PCRT_HWCAP_ASIMDDP);
+    const int neon32 = hwcap_has(PCRT_HWCAP_NEON_32);
+
+    int neon = (asimd >= 0) ? asimd : (neon32 >= 0 ? neon32 : PCRT_NEON_FALLBACK);
+    int has_crc32 = (crc32 >= 0) ? crc32 : PCRT_CRC32_FALLBACK;
+    int has_dotprod = (dotprod >= 0) ? dotprod : PCRT_DOTPROD_FALLBACK;
 
     if (json) {
         printf("{\"arch\":\"%s\",\"machine\":\"%s\",\"sysname\":\"%s\",\"release\":\"%s\","
                "\"pointerSize\":%d,\"pid\":%ld,\"ppid\":%ld,\"neon\":%d,\"crc32\":%d,"
-               "\"dotprod\":%d,\"selfTestOk\":%ld}\n",
+               "\"dotprod\":%d,\"selfTestResult\":%ld,\"selfTestOk\":%ld}\n",
                PCRT_ARCH, machine, sysname, release,
                (int)sizeof(void *), (long)getpid(), (long)getppid(),
-               PCRT_NEON, PCRT_CRC32, PCRT_DOTPROD, self_test_ok);
-        return 0;
+               neon, has_crc32, has_dotprod, self_test_result, self_test_ok);
+        fflush(stdout);
+        /* Same contract as the text mode: a failed self test must be visible to
+         * the caller as a non-zero exit status, never only in the output. */
+        return self_test_ok ? 0 : 3;
     }
 
     print_kv("probe", "pcrt_probe");
@@ -144,10 +185,11 @@ int main(int argc, char **argv) {
     print_kv_int("pointer_size", (long)sizeof(void *));
     print_kv_int("pid", (long)getpid());
     print_kv_int("ppid", (long)getppid());
-    print_kv_int("neon", PCRT_NEON);
-    print_kv_int("crc32", PCRT_CRC32);
-    print_kv_int("dotprod", PCRT_DOTPROD);
-    print_kv_int("self_test_result", vector_result);
+    print_kv_int("neon", neon);
+    print_kv_int("crc32", has_crc32);
+    print_kv_int("dotprod", has_dotprod);
+    print_kv_int("self_test_expected", PCRT_SELF_TEST_EXPECTED);
+    print_kv_int("self_test_result", self_test_result);
     print_kv_int("self_test_ok", self_test_ok);
     fflush(stdout);
 

@@ -152,6 +152,17 @@ class NativeProbeRunner(
         if (result.error != null) {
             return PcNativeProbeResult(false, result.exitCode, result.output, plan.mode, result.error)
         }
+        if (result.exitCode != 0) {
+            // The probe uses a non-zero exit status to say "I ran, but the
+            // result is not trustworthy". Reporting that as a pass would be
+            // exactly the kind of fake success this runtime must not produce.
+            val error = PcErrorCatalog.describe(
+                PcErrorCode.NATIVE_PROBE_FAILED,
+                "pcrt_probe exited with status ${result.exitCode}"
+            )
+            log.error(TAG, error.format())
+            return PcNativeProbeResult(false, result.exitCode, result.output, plan.mode, error)
+        }
         log.info(TAG, "Native probe exit=${result.exitCode} in ${result.durationMs}ms")
         return PcNativeProbeResult(true, result.exitCode, result.output, plan.mode, null)
     }
