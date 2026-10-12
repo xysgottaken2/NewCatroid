@@ -176,13 +176,14 @@ jobs:
           # $ANDROID_NDK_HOME, $ANDROID_HOME/ndk/* and $ANDROID_SDK_ROOT/ndk/*.
           bash tools/build_pcrt_probe.sh
 
-      - name: Report whether pcrt_probe will be packaged
+      - name: Report the pcrt_probe asset state
         run: |
           if [ -f catroid/src/main/assets/pcruntime/arm64-v8a/pcrt_probe ]; then
             ls -l catroid/src/main/assets/pcruntime/*/
-            echo "pcrt_probe will be packaged into the APK"
+            echo "pcrt_probe exists as an asset; packaging is verified after the build"
           else
-            echo "pcrt_probe was NOT built; the runtime probe block will report MISSING_COMPONENT on device"
+            echo "pcrt_probe was NOT built (no NDK, or the build failed);"
+            echo "the runtime probe block will report MISSING_COMPONENT on device"
           fi
 
       - name: Build debug APK (danvex)
@@ -197,6 +198,25 @@ jobs:
           name: NewCatroid-debug-apk-run${{ github.run_number }}-${{ github.sha }}
           path: 'catroid/build/outputs/apk/danvex/debug/*.apk'
           retention-days: 30
+
+      - name: Verify the packaged APK contains pcrt_probe
+        # Runs after the upload so the artifact exists even when this check
+        # fails. The check is strict only when the probe was actually built: if
+        # the build step failed (for example no NDK on the runner), the APK is
+        # still valid and the runtime reports MISSING_COMPONENT at runtime.
+        run: |
+          APK="$(ls catroid/build/outputs/apk/danvex/debug/*.apk | head -1)"
+          echo "APK under test: $APK"
+          if unzip -l "$APK" | grep -q 'assets/pcruntime/.*/pcrt_probe'; then
+            echo "pcrt_probe is packaged in the APK:"
+            unzip -l "$APK" | grep 'assets/pcruntime/'
+            exit 0
+          fi
+          if [ -f catroid/src/main/assets/pcruntime/arm64-v8a/pcrt_probe ]; then
+            echo "::error::pcrt_probe was built but is missing from $APK"
+            exit 1
+          fi
+          echo "::warning::pcrt_probe is not in the APK because it was not built; the runtime probe block will report MISSING_COMPONENT"
 
       - name: Report failure details as a commit comment (optional)
         if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
