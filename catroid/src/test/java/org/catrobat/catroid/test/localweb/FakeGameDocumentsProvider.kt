@@ -47,7 +47,7 @@ import java.nio.charset.StandardCharsets
  * exercise the SAF document resolution path therefore fail if production code
  * queries the bare tree URI instead of the tree root's document URI.
  */
-class FakeGameDocumentsProvider : DocumentsProvider() {
+class FakeGameDocumentsProvider(private val rootNode: Node = defaultRoot) : DocumentsProvider() {
 
     class Node(
         val id: String,
@@ -107,7 +107,7 @@ class FakeGameDocumentsProvider : DocumentsProvider() {
             }
             return null
         }
-        return walk(root)
+        return walk(rootNode)
     }
 
     private fun mimeOf(node: Node): String {
@@ -118,6 +118,7 @@ class FakeGameDocumentsProvider : DocumentsProvider() {
             "js" -> "text/javascript"
             "png" -> "image/png"
             "wasm" -> "application/wasm"
+            "json" -> "application/json"
             else -> "application/octet-stream"
         }
     }
@@ -154,7 +155,7 @@ class FakeGameDocumentsProvider : DocumentsProvider() {
             DocumentsContract.Document.COLUMN_SIZE
         )
 
-        private val root = Node(
+        private val defaultRoot = Node(
             id = ROOT_ID,
             name = "Game",
             isDirectory = true,
@@ -175,6 +176,93 @@ class FakeGameDocumentsProvider : DocumentsProvider() {
                     )
                 )
             )
+        )
+
+
+        // ---- Deep tree fixture (models the reported device structure) ----
+        // Game/
+        // |- index.html
+        // |- root.js
+        // |- assets/
+        // |  |- app.js
+        // |  `- nested/
+        // |     |- module.js
+        // |     `- deep/
+        // |        `- config.json
+        // |- data/
+        // |  `- config.json
+        // |- my folder/            (space in the directory name)
+        // |  `- spaced file.js      (spaces in the file name)
+        // `- icons-unicode/        (Unicode directory name)
+        //    `-haupt-unicode.js     (Unicode file name)
+        val ROOT_JS = "console.log('root');".toByteArray(StandardCharsets.UTF_8)
+        val APP_JS = "console.log('app');".toByteArray(StandardCharsets.UTF_8)
+        val MODULE_JS = "console.log('module');".toByteArray(StandardCharsets.UTF_8)
+        val CONFIG_JSON = ("{\"name\":\"deep-config\",\"level\":3," +
+            "\"items\":[1,2,3,4,5],\"ok\":true}").toByteArray(StandardCharsets.UTF_8)
+        val DATA_CONFIG_JSON = "{\"name\":\"data-config\"}".toByteArray(StandardCharsets.UTF_8)
+        val SPACED_JS = "console.log('spaced');".toByteArray(StandardCharsets.UTF_8)
+        val UNICODE_JS = "console.log('unicode');".toByteArray(StandardCharsets.UTF_8)
+
+        val deepRoot = Node(
+            id = ROOT_ID,
+            name = "Game",
+            isDirectory = true,
+            children = listOf(
+                Node("$ROOT_ID/index.html", "index.html", false, INDEX_HTML),
+                Node("$ROOT_ID/root.js", "root.js", false, ROOT_JS),
+                Node(
+                    "$ROOT_ID/assets", "assets", true,
+                    children = listOf(
+                        Node("$ROOT_ID/assets/app.js", "app.js", false, APP_JS),
+                        Node(
+                            "$ROOT_ID/assets/nested", "nested", true,
+                            children = listOf(
+                                Node("$ROOT_ID/assets/nested/module.js", "module.js", false, MODULE_JS),
+                                Node(
+                                    "$ROOT_ID/assets/nested/deep", "deep", true,
+                                    children = listOf(
+                                        Node(
+                                            "$ROOT_ID/assets/nested/deep/config.json",
+                                            "config.json", false, CONFIG_JSON
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                Node(
+                    "$ROOT_ID/data", "data", true,
+                    children = listOf(
+                        Node("$ROOT_ID/data/config.json", "config.json", false, DATA_CONFIG_JSON)
+                    )
+                ),
+                Node(
+                    "$ROOT_ID/my folder", "my folder", true,
+                    children = listOf(
+                        Node("$ROOT_ID/my folder/spaced file.js", "spaced file.js", false, SPACED_JS)
+                    )
+                ),
+                Node(
+                    "$ROOT_ID/ícones", "ícones", true,
+                    children = listOf(
+                        Node("$ROOT_ID/ícones/häupt.js", "häupt.js", false, UNICODE_JS)
+                    )
+                )
+            )
+        )
+
+        /** All file documents of the deep tree (document id to content). */
+        val deepAllFiles: List<Pair<String, ByteArray>> = listOf(
+            "$ROOT_ID/index.html" to INDEX_HTML,
+            "$ROOT_ID/root.js" to ROOT_JS,
+            "$ROOT_ID/assets/app.js" to APP_JS,
+            "$ROOT_ID/assets/nested/module.js" to MODULE_JS,
+            "$ROOT_ID/assets/nested/deep/config.json" to CONFIG_JSON,
+            "$ROOT_ID/data/config.json" to DATA_CONFIG_JSON,
+            "$ROOT_ID/my folder/spaced file.js" to SPACED_JS,
+            "$ROOT_ID/ícones/häupt.js" to UNICODE_JS
         )
 
         /** All file documents (document id to content), used to register stream suppliers in tests. */

@@ -45,10 +45,12 @@ object SafTestEnvironment {
     val treeUri: Uri
         get() = Uri.parse(FakeGameDocumentsProvider.TREE_URI)
 
-    fun registerFakeProvider() {
-        val provider = FakeGameDocumentsProvider()
+    fun registerFakeProvider(
+        authority: String = FakeGameDocumentsProvider.AUTHORITY,
+        provider: FakeGameDocumentsProvider = FakeGameDocumentsProvider()
+    ) {
         val info = ProviderInfo()
-        info.authority = FakeGameDocumentsProvider.AUTHORITY
+        info.authority = authority
         info.name = FakeGameDocumentsProvider::class.java.name
         // DocumentsProvider.attachInfo enforces the same manifest rules a
         // real documents provider must satisfy.
@@ -57,12 +59,15 @@ object SafTestEnvironment {
         info.readPermission = Manifest.permission.MANAGE_DOCUMENTS
         info.writePermission = Manifest.permission.MANAGE_DOCUMENTS
         provider.attachInfo(RuntimeEnvironment.getApplication(), info)
-        ShadowContentResolver.registerProviderInternal(FakeGameDocumentsProvider.AUTHORITY, provider)
+        ShadowContentResolver.registerProviderInternal(authority, provider)
     }
 
-    fun registerDocumentStreams() {
+    fun registerDocumentStreams(
+        treeUri: Uri = this.treeUri,
+        files: List<Pair<String, ByteArray>> = FakeGameDocumentsProvider.allFiles
+    ) {
         val resolver = RuntimeEnvironment.getApplication().contentResolver
-        for ((documentId, content) in FakeGameDocumentsProvider.allFiles) {
+        for ((documentId, content) in files) {
             val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
             shadowOf(resolver).registerInputStreamSupplier(uri, Supplier { ByteArrayInputStream(content) })
         }
@@ -71,5 +76,16 @@ object SafTestEnvironment {
     fun register() {
         registerFakeProvider()
         registerDocumentStreams()
+    }
+
+    /**
+     * Registers the deep-tree fixture: the directory structure reported from
+     * the physical device (files up to four levels below the selected root,
+     * multiple nested branches, and directory/file names with spaces and
+     * Unicode characters).
+     */
+    fun registerDeep() {
+        registerFakeProvider(provider = FakeGameDocumentsProvider(FakeGameDocumentsProvider.deepRoot))
+        registerDocumentStreams(files = FakeGameDocumentsProvider.deepAllFiles)
     }
 }
