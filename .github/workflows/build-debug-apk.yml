@@ -1,0 +1,360 @@
+name: Build Debug APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_failures:
+        description: 'Post build/test failure details as a comment on the run commit (optional)'
+        required: false
+        type: boolean
+        default: false
+  push:
+
+permissions:
+  contents: write
+
+env:
+  _JAVA_OPTIONS: "-Xmx5g"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx5g -Dorg.gradle.workers.max=4 -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+
+jobs:
+  localweb-tests:
+    name: Unit tests (local web blocks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Gradle (caches dependencies)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Prepare project (CI applicationId, Firebase config, midi packages)
+        run: |
+          sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
+          find . -name "google-services*.json" -exec sed -i 's/"org.DanVexTeam.NewCatroid"/"org.DanVexTeam.NewCatroid.ci"/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.pdrogfer.mididroid/com.leff.midi/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
+          echo "Project prepared for CI"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run local web block tests
+        run: |
+          set -o pipefail
+          ./gradlew :catroid:testDanvexDebugUnitTest \
+            --tests "org.catrobat.catroid.test.localweb.*" \
+            --tests "org.catrobat.catroid.test.xmlformat.*" \
+            --tests "org.catrobat.catroid.test.pcruntime.*" \
+            --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/test-output.log"
+
+      - name: Extract test failure details
+        if: failure()
+        run: |
+          OUT="${RUNNER_TEMP}/failures.txt"
+          : > "$OUT"
+          for f in catroid/build/test-results/testDanvexDebugUnitTest/*.xml; do
+            [ -e "$f" ] || continue
+            python3 - "$f" >> "$OUT" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          try:
+              tree = ET.parse(sys.argv[1])
+          except Exception:
+              sys.exit(0)
+          for tc in tree.getroot().iter('testcase'):
+              for fail in list(tc.iter('failure')) + list(tc.iter('error')):
+                  print("FAILED: %s.%s" % (tc.get('classname'), tc.get('name')))
+                  print("  message: %s" % (fail.get('message') or '')[:400])
+                  text = (fail.text or '').strip()
+                  print("  stack: %s" % text[:1500])
+                  print()
+          PY
+          done
+          echo "extracted $(wc -l < "$OUT") lines of failure details"
+
+      - name: Report failure details as a commit comment (optional)
+        # Reports on workflow_dispatch runs with report_failures=true and on
+        # every failed push run of the local-web feature branch.
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY_FILE="${RUNNER_TEMP}/failure.md"
+          {
+            echo "## :x: Build/test failure - run ${{ github.run_number }} @ ${{ github.sha }}"
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            if [ -f "${RUNNER_TEMP}/failures.txt" ]; then
+              echo "### Failed test cases"
+              echo '```'
+              head -n 200 "${RUNNER_TEMP}/failures.txt"
+              echo '```'
+            fi
+            if [ -f "${RUNNER_TEMP}/test-output.log" ]; then
+              echo "### Unit test output (errors first, then tail)"
+              echo '```'
+              grep -E "^e: |error:|FAILED|Execution failed|What went wrong|tests? (completed|failed)|There were failing tests" "${RUNNER_TEMP}/test-output.log" | head -n 100
+              echo "----- tail -----"
+              tail -n 60 "${RUNNER_TEMP}/test-output.log"
+              echo '```'
+            fi
+          } > "$BODY_FILE"
+          python3 - "$BODY_FILE" <<'PY'
+          import json, os, sys, urllib.request
+          body = open(sys.argv[1]).read()
+          req = urllib.request.Request(
+              "https://api.github.com/repos/%s/commits/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"]),
+              data=json.dumps({"body": body}).encode(),
+              headers={"Authorization": "token " + os.environ["GH_TOKEN"],
+                       "Accept": "application/vnd.github+json"},
+              method="POST")
+          with urllib.request.urlopen(req) as resp:
+              print("Posted failure details as a commit comment (HTTP %s)" % resp.status)
+          PY
+
+      - name: Upload test reports, results and logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: NewCatroid-test-reports-run${{ github.run_number }}-${{ github.sha }}
+          path: |
+            catroid/build/test-results/testDanvexDebugUnitTest/*.xml
+            catroid/build/reports/tests/testDanvexDebugUnitTest/**
+            ${{ runner.temp }}/test-output.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  build-apk:
+    name: Debug APK (danvex)
+    needs: localweb-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Gradle (caches dependencies)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Prepare project (CI applicationId, Firebase config, midi packages)
+        run: |
+          sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
+          find . -name "google-services*.json" -exec sed -i 's/"org.DanVexTeam.NewCatroid"/"org.DanVexTeam.NewCatroid.ci"/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.pdrogfer.mididroid/com.leff.midi/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
+          echo "Project prepared for CI"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build pcrt_probe native smoke test (best effort)
+        continue-on-error: true
+        run: |
+          # The NDK ships with ubuntu-latest; the script also searches
+          # $ANDROID_NDK_HOME, $ANDROID_HOME/ndk/* and $ANDROID_SDK_ROOT/ndk/*.
+          bash tools/build_pcrt_probe.sh
+
+      - name: Report whether pcrt_probe will be packaged
+        run: |
+          if [ -f catroid/src/main/assets/pcruntime/arm64-v8a/pcrt_probe ]; then
+            ls -l catroid/src/main/assets/pcruntime/*/
+            echo "pcrt_probe will be packaged into the APK"
+          else
+            echo "pcrt_probe was NOT built; the runtime probe block will report MISSING_COMPONENT on device"
+          fi
+
+      - name: Build debug APK (danvex)
+        run: |
+          set -o pipefail
+          ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: NewCatroid-debug-apk-run${{ github.run_number }}-${{ github.sha }}
+          path: 'catroid/build/outputs/apk/danvex/debug/*.apk'
+          retention-days: 30
+
+      - name: Report failure details as a commit comment (optional)
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY_FILE="${RUNNER_TEMP}/failure.md"
+          {
+            echo "## :x: APK build failure - run ${{ github.run_number }} @ ${{ github.sha }}"
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            if [ -f "${RUNNER_TEMP}/build-output.log" ]; then
+              echo "### APK build output (errors first, then tail)"
+              echo '```'
+              grep -E "^e: |error:|FAILED|Execution failed|What went wrong" "${RUNNER_TEMP}/build-output.log" | head -n 100
+              echo "----- tail -----"
+              tail -n 60 "${RUNNER_TEMP}/build-output.log"
+              echo '```'
+            fi
+          } > "$BODY_FILE"
+          python3 - "$BODY_FILE" <<'PY'
+          import json, os, sys, urllib.request
+          body = open(sys.argv[1]).read()
+          req = urllib.request.Request(
+              "https://api.github.com/repos/%s/commits/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"]),
+              data=json.dumps({"body": body}).encode(),
+              headers={"Authorization": "token " + os.environ["GH_TOKEN"],
+                       "Accept": "application/vnd.github+json"},
+              method="POST")
+          with urllib.request.urlopen(req) as resp:
+              print("Posted failure details as a commit comment (HTTP %s)" % resp.status)
+          PY
+
+      - name: Upload build logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: NewCatroid-build-logs-run${{ github.run_number }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/build-output.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  full-unit-tests:
+    name: Full unit test suite (informational, does not block the APK)
+    runs-on: ubuntu-latest
+    # NOTE: no job-level timeout-minutes here. A job that exceeds its timeout
+    # is cancelled, and a cancelled job cancels the whole run even with
+    # continue-on-error (continue-on-error only absorbs step failures).
+    # The suite budget is enforced inside the step with the shell `timeout`
+    # command instead: when it fires, the step fails, continue-on-error keeps
+    # the run green, and the failure-report steps still run.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Gradle (caches dependencies)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Prepare project (CI applicationId, Firebase config, midi packages)
+        run: |
+          sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
+          find . -name "google-services*.json" -exec sed -i 's/"org.DanVexTeam.NewCatroid"/"org.DanVexTeam.NewCatroid.ci"/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.pdrogfer.mididroid/com.leff.midi/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
+          echo "Project prepared for CI"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run full unit test suite (110m budget; failure is informational)
+        run: |
+          set -o pipefail
+          timeout 110m ./gradlew :catroid:testDanvexDebugUnitTest --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/full-test-output.log"
+
+      - name: Extract test failure details
+        if: failure()
+        run: |
+          OUT="${RUNNER_TEMP}/failures.txt"
+          : > "$OUT"
+          for f in catroid/build/test-results/testDanvexDebugUnitTest/*.xml; do
+            [ -e "$f" ] || continue
+            python3 - "$f" >> "$OUT" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          try:
+              tree = ET.parse(sys.argv[1])
+          except Exception:
+              sys.exit(0)
+          for tc in tree.getroot().iter('testcase'):
+              for fail in list(tc.iter('failure')) + list(tc.iter('error')):
+                  print("FAILED: %s.%s" % (tc.get('classname'), tc.get('name')))
+                  print("  message: %s" % (fail.get('message') or '')[:400])
+                  text = (fail.text or '').strip()
+                  print("  stack: %s" % text[:1500])
+                  print()
+          PY
+          done
+          echo "extracted $(wc -l < "$OUT") lines of failure details"
+
+      - name: Report failure details as a commit comment (optional)
+        if: failure() && github.ref == 'refs/heads/arena/329868a7-newcatroid'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY_FILE="${RUNNER_TEMP}/failure.md"
+          {
+            echo "## :warning: Full unit test suite failure (informational) - run ${{ github.run_number }} @ ${{ github.sha }}"
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            if [ -f "${RUNNER_TEMP}/failures.txt" ]; then
+              echo "### Failed test cases"
+              echo '```'
+              head -n 300 "${RUNNER_TEMP}/failures.txt"
+              echo '```'
+            fi
+            if [ -f "${RUNNER_TEMP}/full-test-output.log" ]; then
+              echo "### Output (errors first, then tail)"
+              echo '```'
+              grep -E "^e: |error:|FAILED|Execution failed|What went wrong|tests? (completed|failed)|There were failing tests" "${RUNNER_TEMP}/full-test-output.log" | head -n 100
+              echo "----- tail -----"
+              tail -n 60 "${RUNNER_TEMP}/full-test-output.log"
+              echo '```'
+            fi
+          } > "$BODY_FILE"
+          python3 - "$BODY_FILE" <<'PY'
+          import json, os, sys, urllib.request
+          body = open(sys.argv[1]).read()
+          req = urllib.request.Request(
+              "https://api.github.com/repos/%s/commits/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"]),
+              data=json.dumps({"body": body}).encode(),
+              headers={"Authorization": "token " + os.environ["GH_TOKEN"],
+                       "Accept": "application/vnd.github+json"},
+              method="POST")
+          with urllib.request.urlopen(req) as resp:
+              print("Posted failure details as a commit comment (HTTP %s)" % resp.status)
+          PY
+
+      - name: Upload test reports, results and logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: NewCatroid-full-test-reports-run${{ github.run_number }}-${{ github.sha }}
+          path: |
+            catroid/build/test-results/testDanvexDebugUnitTest/*.xml
+            catroid/build/reports/tests/testDanvexDebugUnitTest/**
+            ${{ runner.temp }}/full-test-output.log
+          retention-days: 30
+          if-no-files-found: warn

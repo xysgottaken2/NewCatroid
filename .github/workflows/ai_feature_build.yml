@@ -45,22 +45,6 @@ jobs:
       - name: Даем права на исполнение Gradle
         run: chmod +x ./gradlew
 
-      - name: Собираем нативный пробник pcrt_probe (best effort)
-        continue-on-error: true
-        run: |
-          # The NDK ships with ubuntu-latest; the script also searches
-          # $ANDROID_NDK_HOME, $ANDROID_HOME/ndk/* and $ANDROID_SDK_ROOT/ndk/*.
-          bash tools/build_pcrt_probe.sh
-
-      - name: Отмечаем, попал ли пробник в assets
-        run: |
-          if [ -f catroid/src/main/assets/pcruntime/arm64-v8a/pcrt_probe ]; then
-            ls -l catroid/src/main/assets/pcruntime/*/
-            echo "pcrt_probe будет упакован в APK"
-          else
-            echo "pcrt_probe НЕ собран: блок проверки рантайма честно сообщит MISSING_COMPONENT"
-          fi
-
       - name: Компилируем APK (Danvex Debug)
         run: ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace
 
