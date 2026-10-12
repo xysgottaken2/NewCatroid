@@ -257,6 +257,17 @@ std::string probeVulkan() {
         createInfo.ppEnabledExtensionNames = nullptr;
         createResult = createInstance(&createInfo, nullptr, &instance);
     }
+    if (createResult != VK_SUCCESS && appInfo.apiVersion != VK_API_VERSION_1_0) {
+        // A driver may refuse an instance that asks for a newer API version than
+        // it implements, even when the loader advertises more. Downgrading is
+        // the documented fallback and still yields the physical-device query
+        // surface; the reported device apiVersion below stays the driver's own,
+        // so the requirement checks are unaffected.
+        PCRUN_LOG("vkCreateInstance failed with %d, retrying as Vulkan 1.0",
+                  static_cast<int>(createResult));
+        appInfo.apiVersion = VK_API_VERSION_1_0;
+        createResult = createInstance(&createInfo, nullptr, &instance);
+    }
     if (createResult != VK_SUCCESS) {
         dlclose(loader);
         PCRUN_LOG("vkCreateInstance failed with VkResult %d", static_cast<int>(createResult));
