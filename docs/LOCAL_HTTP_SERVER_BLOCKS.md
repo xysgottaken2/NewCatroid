@@ -138,6 +138,39 @@ Steps 1 can be replaced by **Select directory** + **Host directory** when
 hosting a fixed directory; step 3 can target any loopback URL, not only the
 embedded server.
 
+## Entry points (launching the hosted application)
+
+Opening the server URL (`http://127.0.0.1:8080/`) launches the hosted
+application instead of showing a directory listing whenever an entry point
+can be determined. Directory requests follow the established server behavior
+(Apache `mod_dir`, Python `http.server`): a default document
+(`index.html`, then `index.htm`) in the requested directory is served
+directly. When there is no default document, the server discovers a
+deterministic entry point and **redirects (302)** to the entry document's own
+URL - it never serves a nested entry under the directory URL, because
+relative asset URLs (scripts, stylesheets, images, WASM, workers) must resolve
+against the entry document's location (the same reason Apache's
+`DirectorySlash` redirect exists). Discovery rules, in order:
+
+1. **Web App Manifest** (W3C standard): `manifest.webmanifest` or
+   `manifest.json` in the directory; its `start_url` (relative values resolve
+   against the manifest's directory, absolute values are confined to the
+   served URL prefix) is followed when it points at an existing document
+   inside the selected tree.
+2. **Exactly one HTML file** in the directory.
+3. **Exactly one subdirectory** that contains a default document.
+4. **Exactly one directory in the subtree** (bounded search: depth 3, 32
+   directories) that contains a default document.
+
+If several candidates exist, the server does not guess: the directory
+listing is shown (with links), exactly like established servers. Discovery
+results are cached per directory. Requests to a directory without a trailing
+slash still redirect (301) to the slashed URL, preserving the query string;
+directory listings remain available whenever no entry point applies. Users
+can always open a specific entry URL directly (e.g.
+`http://127.0.0.1:8080/play/index.html`) - the *Open web page* block accepts
+any loopback URL.
+
 ## Nested directories
 
 The selected folder is served as the root of a complete directory tree:
