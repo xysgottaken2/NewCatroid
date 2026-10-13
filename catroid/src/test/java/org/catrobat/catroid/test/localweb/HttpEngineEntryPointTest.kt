@@ -344,7 +344,11 @@ class HttpEngineEntryPointTest {
         )
         assertEquals(
             "a b",
-            HttpEngine.extractJsonStringField("""{"start_url":"a\\u0020b"}""", "start_url")
+            HttpEngine.extractJsonStringField("""{"start_url":"a\u0020b"}""", "start_url")
+        )
+        assertEquals(
+            "say \"hi\"",
+            HttpEngine.extractJsonStringField("""{"start_url":"say \\"hi\\""}""", "start_url")
         )
         assertNull(HttpEngine.extractJsonStringField("""{"name":"x"}""", "start_url"))
         assertNull(HttpEngine.extractJsonStringField("""{"start_url": 42}""", "start_url"))

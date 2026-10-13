@@ -584,8 +584,24 @@ class HttpEngine(
                 while (i < json.length) {
                     val c = json[i]
                     if (c == '\\' && i + 1 < json.length) {
-                        sb.append(json[i + 1])
-                        i += 2
+                        when (val escaped = json[i + 1]) {
+                            'u' -> {
+                                // JSON unicode escape: \uXXXX
+                                if (i + 5 >= json.length) return null
+                                val hex = json.substring(i + 2, i + 6)
+                                val code = try {
+                                    Integer.parseInt(hex, 16)
+                                } catch (e: NumberFormatException) {
+                                    return null
+                                }
+                                sb.append(code.toChar())
+                                i += 6
+                            }
+                            else -> {
+                                sb.append(escaped)
+                                i += 2
+                            }
+                        }
                         continue
                     }
                     if (c == '"') return sb.toString()
