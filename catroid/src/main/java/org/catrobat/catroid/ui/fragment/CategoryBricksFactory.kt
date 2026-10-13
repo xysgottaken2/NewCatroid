@@ -585,6 +585,7 @@ import org.catrobat.catroid.content.bricks.SelectDirectoryBrick
 import org.catrobat.catroid.content.bricks.SelectFolderAndHostBrick
 import org.catrobat.catroid.content.bricks.SelectFileBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerBrick
+import org.catrobat.catroid.content.bricks.StartHttpServerLocalhostBrick
 import org.catrobat.catroid.content.bricks.StopHttpServerBrick
 import org.catrobat.catroid.content.bricks.HostDirectoryBrick
 import org.catrobat.catroid.content.bricks.OpenWebPageBrick
@@ -3048,6 +3049,7 @@ void main() {
         internetBrickList.add(SelectFileBrick())
         internetBrickList.add(HostDirectoryBrick("content://"))
         internetBrickList.add(StartHttpServerBrick("8080"))
+        internetBrickList.add(StartHttpServerLocalhostBrick("8080"))
         internetBrickList.add(StopHttpServerBrick())
         internetBrickList.add(OpenWebPageBrick("http://127.0.0.1:8080/"))
         internetBrickList.add(WriteBaseBrick("firebase_id", "key", "hello"))

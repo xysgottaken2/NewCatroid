@@ -475,6 +475,7 @@ public final class XstreamSerializer {
 		xstream.alias("brick", SelectFolderAndHostBrick.class);
 		xstream.alias("brick", SelectFileBrick.class);
 		xstream.alias("brick", StartHttpServerBrick.class);
+		xstream.alias("brick", StartHttpServerLocalhostBrick.class);
 		xstream.alias("brick", StopHttpServerBrick.class);
 		xstream.alias("brick", HostDirectoryBrick.class);
 		xstream.alias("brick", OpenWebPageBrick.class);

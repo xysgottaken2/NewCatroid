@@ -32,6 +32,7 @@ import org.catrobat.catroid.content.bricks.SelectDirectoryBrick
 import org.catrobat.catroid.content.bricks.SelectFileBrick
 import org.catrobat.catroid.content.bricks.SelectFolderAndHostBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerBrick
+import org.catrobat.catroid.content.bricks.StartHttpServerLocalhostBrick
 import org.catrobat.catroid.content.bricks.StopHttpServerBrick
 import org.catrobat.catroid.formulaeditor.UserVariable
 import org.catrobat.catroid.io.XstreamSerializer
@@ -60,6 +61,30 @@ class LocalWebBricksTest {
 
         val custom = StartHttpServerBrick("9090")
         assertEquals(9090.0, custom.getFormulaWithBrickField(Brick.BrickField.PORT).interpretObject(scope))
+    }
+
+    @Test
+    fun `localhost server brick has a port default and no bind address field`() {
+        val brick = StartHttpServerLocalhostBrick()
+        assertEquals(8080.0, brick.getFormulaWithBrickField(Brick.BrickField.PORT).interpretObject(scope))
+        // The localhost variant binds to localhost by construction (no IP field).
+        assertEquals(
+            StartHttpServerLocalhostBrick.LOCALHOST_BIND_ADDRESS,
+            StartHttpServerLocalhostBrick.LOCALHOST_BIND_ADDRESS
+        )
+
+        val custom = StartHttpServerLocalhostBrick("9090")
+        assertEquals(9090.0, custom.getFormulaWithBrickField(Brick.BrickField.PORT).interpretObject(scope))
+    }
+
+    @Test
+    fun `original start server brick keeps its original defaults`() {
+        val brick = StartHttpServerBrick()
+        assertEquals(8080.0, brick.getFormulaWithBrickField(Brick.BrickField.PORT).interpretObject(scope))
+        assertEquals(
+            "127.0.0.1",
+            brick.getFormulaWithBrickField(Brick.BrickField.IP).interpretString(scope)
+        )
     }
 
     @Test
@@ -135,6 +160,7 @@ class LocalWebBricksTest {
             SelectFolderAndHostBrick(),
             SelectFileBrick(),
             StartHttpServerBrick(),
+            StartHttpServerLocalhostBrick(),
             StopHttpServerBrick(),
             HostDirectoryBrick("content://tree"),
             OpenWebPageBrick("http://127.0.0.1:8080/")

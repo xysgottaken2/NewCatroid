@@ -374,6 +374,7 @@ public final class BrickInfo {
         add(SelectFolderAndHostBrick.class, "Открывает выбор папки, сохраняет URI выбранной папки в переменную и сразу назначает её корнем HTTP-сервера (префикс URL «/»). Отмена не меняет прежние значения");
         add(SelectFileBrick.class, "Открывает системный выбор файла и сохраняет URI выбранного файла в переменную. Файл не копируется в память приложения");
         add(StartHttpServerBrick.class, "Запускает встроенный локальный HTTP-сервер на указанном порту (по умолчанию только 127.0.0.1). Блок завершается после запуска или ошибки");
+        add(StartHttpServerLocalhostBrick.class, "Запускает встроенный локальный HTTP-сервер на указанном порту, привязанный к localhost; URL формируется как http://localhost:порт/ (безопасный origin для кросс-изоляции)");
         add(StopHttpServerBrick.class, "Останавливает встроенный локальный HTTP-сервер и освобождает ресурсы. Можно вызывать повторно");
         add(HostDirectoryBrick.class, "Указывает, какую папку раздавать через HTTP-сервер (URI из блока выбора папки). Сервер при этом не запускается");
         add(OpenWebPageBrick.class, "Открывает страницу во встроенном WebView. По умолчанию разрешены только локальные адреса (127.0.0.1)");
@@ -813,6 +814,7 @@ public final class BrickInfo {
         add(SelectFolderAndHostBrick.class, "Opens the folder picker, stores the selected folder URI in a variable and immediately hosts that folder as the HTTP document root (URL prefix \"/\"). Cancelling keeps the previous values");
         add(SelectFileBrick.class, "Opens the system file picker and stores the selected file URI in a variable. The file is not copied into app storage");
         add(StartHttpServerBrick.class, "Starts the embedded local HTTP server on the given port (loopback only by default). The block finishes once startup completed or failed");
+        add(StartHttpServerLocalhostBrick.class, "Starts the embedded local HTTP server on the given port, bound to localhost so the URL is generated as http://localhost:port/ (a secure origin for cross-origin isolation)");
         add(StopHttpServerBrick.class, "Stops the embedded local HTTP server and releases its resources. Safe to run repeatedly");
         add(HostDirectoryBrick.class, "Sets which directory is served over HTTP (URI from the directory selection block). Does not start the server by itself");
         add(OpenWebPageBrick.class, "Opens a page in the in-app WebView. Only local (127.0.0.1) origins are allowed by default");
@@ -1248,6 +1250,7 @@ public final class BrickInfo {
         add(SelectFolderAndHostBrick.class, "Abre o seletor de pastas, salva o URI da pasta escolhida em uma variável e já a hospeda como raiz do servidor HTTP (prefixo de URL \"/\"). Cancelar mantém os valores anteriores");
         add(SelectFileBrick.class, "Abre o seletor de arquivos do sistema e salva o URI do arquivo escolhido em uma variável. O arquivo não é copiado para o app");
         add(StartHttpServerBrick.class, "Inicia o servidor HTTP local incorporado na porta indicada (apenas 127.0.0.1 por padrão). O bloco termina após iniciar ou falhar");
+        add(StartHttpServerLocalhostBrick.class, "Inicia o servidor HTTP local incorporado na porta indicada, vinculado a localhost, então a URL é gerada como http://localhost:porta/ (origem segura para isolamento entre origens)");
         add(StopHttpServerBrick.class, "Para o servidor HTTP local incorporado e libera seus recursos. Seguro para executar repetidamente");
         add(HostDirectoryBrick.class, "Define qual pasta é servida via HTTP (URI do bloco de seleção de pasta). Não inicia o servidor sozinha");
         add(OpenWebPageBrick.class, "Abre uma página no WebView incorporado. Apenas origens locais (127.0.0.1) são permitidas por padrão");
@@ -1667,6 +1670,7 @@ public final class BrickInfo {
         add(SelectFolderAndHostBrick.class, "打开文件夹选择器，将所选文件夹的 URI 存入变量，并立即将其设为 HTTP 服务器的文档根（URL 前缀 \"/\"）。取消不会改变原有值");
         add(SelectFileBrick.class, "打开系统文件选择器，并将所选文件的 URI 存入变量。文件不会被复制到应用存储中");
         add(StartHttpServerBrick.class, "在指定端口启动内嵌本地 HTTP 服务器（默认仅 127.0.0.1）。启动成功或失败后块才结束");
+        add(StartHttpServerLocalhostBrick.class, "在指定端口启动内嵌本地 HTTP 服务器，绑定到 localhost，因此 URL 生成为 http://localhost:端口/（用于跨源隔离的安全源）");
         add(StopHttpServerBrick.class, "停止内嵌本地 HTTP 服务器并释放资源。可重复执行");
         add(HostDirectoryBrick.class, "设置通过 HTTP 提供的目录（来自目录选择块的 URI）。此块本身不启动服务器");
         add(OpenWebPageBrick.class, "在内嵌 WebView 中打开页面。默认只允许本地（127.0.0.1）来源");

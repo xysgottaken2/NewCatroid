@@ -162,7 +162,11 @@ object LocalHttpServer {
      *
      * @return true when the server is now running.
      */
-    fun start(port: Int, bindAddress: String = HttpServerEngine.DEFAULT_BIND_ADDRESS): Boolean {
+    fun start(
+        port: Int,
+        bindAddress: String = HttpServerEngine.DEFAULT_BIND_ADDRESS,
+        addCrossOriginIsolationHeaders: Boolean = true
+    ): Boolean {
         if (port < 1 || port > 65535) {
             lastError = "Invalid port: $port (expected 1-65535)"
             Log.w(TAG, lastError!!)
@@ -184,6 +188,7 @@ object LocalHttpServer {
         val newEngine = HttpServerEngine(
             storeProvider = { currentStore() },
             urlPrefixProvider = { urlPrefix },
+            addCrossOriginIsolationHeaders = addCrossOriginIsolationHeaders,
             logger = { level, message, error ->
                 when (level) {
                     LogLevel.DEBUG -> Log.d(HTTP_LOG_TAG, message)

@@ -2957,6 +2957,7 @@
     <string name="brick_select_file" formatted="false">Selecionar arquivo e salvar em</string>
     <string name="brick_select_file2" formatted="false">tipo MIME (ex. image/*)</string>
     <string name="brick_start_http_server" formatted="false">Iniciar servidor HTTP local na porta</string>
+    <string name="brick_start_http_server_localhost" formatted="false">Iniciar servidor HTTP local na porta (localhost)</string>
     <string name="brick_start_http_server2" formatted="false">endereço de vinculação (padrão 127.0.0.1)</string>
     <string name="brick_stop_http_server" formatted="false">Parar servidor HTTP local</string>
     <string name="brick_host_directory" formatted="false">Hospedar pasta em</string>

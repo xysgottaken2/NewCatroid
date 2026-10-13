@@ -64,7 +64,8 @@ typealias HttpLogSink = (level: LogLevel, message: String, error: Throwable?) ->
 class HttpEngine(
     private val storeProvider: () -> DocumentStore?,
     private val urlPrefixProvider: () -> String = { "/" },
-    private val logger: HttpLogSink = { _, _, _ -> }
+    private val logger: HttpLogSink = { _, _, _ -> },
+    private val addCrossOriginIsolationHeaders: Boolean = true
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -636,8 +637,22 @@ class HttpEngine(
     private fun writeResponseHeaders(out: OutputStream, status: Int, reason: String, headers: List<Pair<String, String>>) {
         val builder = StringBuilder()
         builder.append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n")
+        val providedNames = headers.mapTo(HashSet()) { it.first.lowercase() }
         for ((name, value) in headers) {
             builder.append(name).append(": ").append(value).append("\r\n")
+        }
+        // Cross-origin isolation (COOP/COEP): makes the served page a secure
+        // context with crossOriginIsolated=true, which games using
+        // SharedArrayBuffer, WASM threads or WebGPU require. Added to every
+        // response (files, listings, redirects, errors) unless the caller
+        // already provided the header - never duplicated.
+        if (addCrossOriginIsolationHeaders) {
+            if (HEADER_CROSS_ORIGIN_OPENER_POLICY !in providedNames) {
+                builder.append("Cross-Origin-Opener-Policy: same-origin").append("\r\n")
+            }
+            if (HEADER_CROSS_ORIGIN_EMBEDDER_POLICY !in providedNames) {
+                builder.append("Cross-Origin-Embedder-Policy: require-corp").append("\r\n")
+            }
         }
         builder.append("Connection: close").append("\r\n")
         builder.append("Server: NewCatroidLocalServer").append("\r\n")
@@ -676,6 +691,10 @@ class HttpEngine(
     companion object {
         const val STREAM_BUFFER_SIZE = 64 * 1024
         const val SMALL_FILE_BUFFER_BYTES = 4 * 1024 * 1024
+        const val HEADER_CROSS_ORIGIN_OPENER_POLICY = "cross-origin-opener-policy"
+        const val HEADER_CROSS_ORIGIN_EMBEDDER_POLICY = "cross-origin-embedder-policy"
+        const val COOP_SAME_ORIGIN = "same-origin"
+        const val COEP_REQUIRE_CORP = "require-corp"
         const val MAX_LISTING_ENTRIES = 1000
         val INDEX_FILE_NAMES = listOf("index.html", "index.htm")
         val MANIFEST_FILE_NAMES = listOf("manifest.webmanifest", "manifest.json")

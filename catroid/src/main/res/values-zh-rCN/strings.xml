@@ -2768,6 +2768,7 @@
     <string formatted="false" name="brick_select_file">选择文件并存入</string>
     <string formatted="false" name="brick_select_file2">MIME 类型（例如 image/*）</string>
     <string formatted="false" name="brick_start_http_server">启动本地 HTTP 服务器，端口为</string>
+    <string formatted="false" name="brick_start_http_server_localhost">启动本地 HTTP 服务器 (localhost)，端口为</string>
     <string formatted="false" name="brick_start_http_server2">绑定地址（默认 127.0.0.1）</string>
     <string formatted="false" name="brick_stop_http_server">停止本地 HTTP 服务器</string>
     <string formatted="false" name="brick_host_directory">托管目录</string>

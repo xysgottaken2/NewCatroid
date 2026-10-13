@@ -59,7 +59,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class HttpServerEngine(
     private val storeProvider: () -> DocumentStore?,
     private val urlPrefixProvider: () -> String = { "/" },
-    private val logger: HttpLogSink = { _, _, _ -> }
+    private val logger: HttpLogSink = { _, _, _ -> },
+    private val addCrossOriginIsolationHeaders: Boolean = true
 ) {
 
     @Volatile
@@ -105,7 +106,7 @@ class HttpServerEngine(
                 return Result.Error("Invalid bind address: $address")
             }
 
-            val engine = HttpEngine(storeProvider, urlPrefixProvider, logger)
+            val engine = HttpEngine(storeProvider, urlPrefixProvider, logger, addCrossOriginIsolationHeaders)
 
             val socket: ServerSocket = try {
                 ServerSocket()
@@ -207,9 +208,16 @@ class HttpServerEngine(
                 try {
                     BufferedOutputStream(connection.getOutputStream()).use { out ->
                         val body = "503 Service Unavailable (server busy)\n"
+                        val isolationHeaders = if (addCrossOriginIsolationHeaders) {
+                            "Cross-Origin-Opener-Policy: same-origin\r\n" +
+                                "Cross-Origin-Embedder-Policy: require-corp\r\n"
+                        } else {
+                            ""
+                        }
                         val response = ("HTTP/1.1 503 Service Unavailable\r\n" +
                             "Content-Type: text/plain; charset=utf-8\r\n" +
                             "Content-Length: ${body.toByteArray(StandardCharsets.UTF_8).size}\r\n" +
+                            isolationHeaders +
                             "Connection: close\r\n\r\n" + body)
                         out.write(response.toByteArray(StandardCharsets.UTF_8))
                         out.flush()

@@ -248,6 +248,39 @@ the structure above with the combined block, start the server, and request
 tagged lines if any nested path 404s — they name the exact document URI or
 document id whose query failed (`adb logcat -s SafDocumentStore`).
 
+## Cross-origin isolation (COOP/COEP) and the localhost block
+
+Web applications that use `SharedArrayBuffer`, WebAssembly threads or WebGPU
+require **cross-origin isolation**: the page must be served from a secure
+context (https or `localhost`/`127.0.0.1`) AND the server must send
+`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`. Without them the browser reports
+"not cross-origin isolated" and `crossOriginIsolated` stays false.
+
+The server adds both headers to **every response it constructs** - successful
+file responses (HTML, JavaScript, WebAssembly, images, …), directory listings,
+redirects (301/302) and error responses (403/404/405/416/500/503) - exactly
+once (headers already provided by a caller are never duplicated), with an
+opt-out constructor flag (`addCrossOriginIsolationHeaders = false`).
+
+For a trustworthy origin name, a dedicated block **Start local HTTP server on
+port (localhost)** starts the same server bound to `localhost`, so the
+generated URL is `http://localhost:PORT/` (e.g. `http://localhost:8080/`).
+The original **Start local HTTP server on port** block is unchanged and keeps
+its configurable bind address (default `127.0.0.1`, whose URL is
+`http://127.0.0.1:PORT/`). Both blocks reuse the same server and file-serving
+implementation.
+
+**Compatibility notes (COEP `require-corp`):** all subresources of a hosted
+application are served from the same origin, so same-origin scripts,
+stylesheets, images, workers and WASM modules load normally. Resources from
+*other* origins (e.g. CDN scripts) are subject to the browser's COEP policy:
+they must carry their own `Cross-Origin-Resource-Policy`/`Access-Control-Allow-Origin`
+headers or the browser blocks them. The server does not proxy external
+websites, does not weaken the isolation policy, and sends no JavaScript
+bridge to page content - these are browser-enforced boundaries, not server
+limitations that can be lifted generically.
+
 ## Streaming correctness and diagnostics
 
 Responses are protocol-correct by construction - a body is never promised

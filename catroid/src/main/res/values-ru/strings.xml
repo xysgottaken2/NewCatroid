@@ -3028,6 +3028,7 @@
     <string formatted="false" name="brick_select_file">Выбрать файл и сохранить в</string>
     <string formatted="false" name="brick_select_file2">MIME-тип (например image/*)</string>
     <string formatted="false" name="brick_start_http_server">Запустить локальный HTTP-сервер на порту</string>
+    <string formatted="false" name="brick_start_http_server_localhost">Запустить локальный HTTP-сервер на порту (localhost)</string>
     <string formatted="false" name="brick_start_http_server2">адрес привязки (по умолчанию 127.0.0.1)</string>
     <string formatted="false" name="brick_stop_http_server">Остановить локальный HTTP-сервер</string>
     <string formatted="false" name="brick_host_directory">Раздавать папку</string>

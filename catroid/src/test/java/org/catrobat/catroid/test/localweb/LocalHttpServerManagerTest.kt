@@ -111,6 +111,51 @@ class LocalHttpServerManagerTest {
     }
 
     @Test
+    fun `localhost bind address generates a localhost base url`() {
+        LocalHttpServer.setDocumentRoot(rootDir.absolutePath)
+        val port = freePort()
+        assertTrue(LocalHttpServer.start(port, "localhost"))
+        try {
+            assertEquals("http://localhost:$port/", LocalHttpServer.baseUrl)
+            // The server is bound to the loopback interface: reachable via 127.0.0.1.
+            val (code, _) = httpGet("http://127.0.0.1:$port/page.html")
+            assertEquals(200, code)
+        } finally {
+            LocalHttpServer.stop()
+        }
+    }
+
+    @Test
+    fun `original bind address still generates the 127 url format`() {
+        LocalHttpServer.setDocumentRoot(rootDir.absolutePath)
+        val port = freePort()
+        assertTrue(LocalHttpServer.start(port, "127.0.0.1"))
+        try {
+            assertEquals("http://127.0.0.1:$port/", LocalHttpServer.baseUrl)
+        } finally {
+            LocalHttpServer.stop()
+        }
+    }
+
+    @Test
+    fun `served responses carry cross origin isolation headers`() {
+        LocalHttpServer.setDocumentRoot(rootDir.absolutePath)
+        val port = freePort()
+        assertTrue(LocalHttpServer.start(port, "localhost"))
+        try {
+            val connection = URL("http://localhost:$port/page.html").openConnection() as HttpURLConnection
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+            assertEquals(200, connection.responseCode)
+            assertEquals("same-origin", connection.getHeaderField("Cross-Origin-Opener-Policy"))
+            assertEquals("require-corp", connection.getHeaderField("Cross-Origin-Embedder-Policy"))
+            connection.disconnect()
+        } finally {
+            LocalHttpServer.stop()
+        }
+    }
+
+    @Test
     fun `stop shuts the server down and is idempotent`() {
         LocalHttpServer.setDocumentRoot(rootDir.absolutePath)
         val port = freePort()
