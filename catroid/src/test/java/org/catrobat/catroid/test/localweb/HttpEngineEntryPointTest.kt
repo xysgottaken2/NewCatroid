@@ -348,15 +348,17 @@ class HttpEngineEntryPointTest {
         )
         assertEquals(
             "say \"hi\"",
-            HttpEngine.extractJsonStringField("""{"start_url":"say \\"hi\\""}""", "start_url")
+            HttpEngine.extractJsonStringField("""{"start_url":"say \"hi\""}""", "start_url")
         )
         assertNull(HttpEngine.extractJsonStringField("""{"name":"x"}""", "start_url"))
         assertNull(HttpEngine.extractJsonStringField("""{"start_url": 42}""", "start_url"))
         assertNull(HttpEngine.extractJsonStringField("""{"start_url":"unterminated""", "start_url"))
-        // A key occurrence that is not followed by a value is skipped.
+        // A non-string value for the field yields null.
+        assertNull(HttpEngine.extractJsonStringField("""{"start_url": {"nested": true}}""", "start_url"))
+        // A quoted occurrence that is a string value, not a key, is skipped.
         assertEquals(
-            "second",
-            HttpEngine.extractJsonStringField("""{"start_url": {"start_url": "second"}}""", "start_url")
+            "real",
+            HttpEngine.extractJsonStringField("""{"a": "start_url", "start_url": "real"}""", "start_url")
         )
         engine // engine unused beyond type access; extraction is a companion helper
     }
