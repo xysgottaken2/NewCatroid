@@ -47,6 +47,7 @@ import java.util.concurrent.Executors
 object LocalHttpServer {
 
     private const val TAG = "LocalHttpServer"
+    private const val HTTP_LOG_TAG = "NewCatroidHttp"
 
     /** Default bind address: the loopback interface (never exposed on the LAN unless requested). */
     const val DEFAULT_BIND = HttpServerEngine.DEFAULT_BIND_ADDRESS
@@ -180,7 +181,20 @@ object LocalHttpServer {
             current?.stop()
         }
 
-        val newEngine = HttpServerEngine(storeProvider = { currentStore() }, urlPrefixProvider = { urlPrefix })
+        val newEngine = HttpServerEngine(
+            storeProvider = { currentStore() },
+            urlPrefixProvider = { urlPrefix },
+            logger = { level, message, error ->
+                when (level) {
+                    LogLevel.DEBUG -> Log.d(HTTP_LOG_TAG, message)
+                    LogLevel.INFO -> Log.i(HTTP_LOG_TAG, message)
+                    LogLevel.WARN ->
+                        if (error != null) Log.w(HTTP_LOG_TAG, message, error) else Log.w(HTTP_LOG_TAG, message)
+                    LogLevel.ERROR ->
+                        if (error != null) Log.e(HTTP_LOG_TAG, message, error) else Log.e(HTTP_LOG_TAG, message)
+                }
+            }
+        )
         when (val result = newEngine.start(port, address)) {
             is HttpServerEngine.Result.Success -> {
                 synchronized(lock) {

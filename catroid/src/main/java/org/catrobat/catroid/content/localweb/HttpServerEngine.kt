@@ -58,7 +58,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class HttpServerEngine(
     private val storeProvider: () -> DocumentStore?,
-    private val urlPrefixProvider: () -> String = { "/" }
+    private val urlPrefixProvider: () -> String = { "/" },
+    private val logger: HttpLogSink = { _, _, _ -> }
 ) {
 
     @Volatile
@@ -104,7 +105,7 @@ class HttpServerEngine(
                 return Result.Error("Invalid bind address: $address")
             }
 
-            val engine = HttpEngine(storeProvider, urlPrefixProvider)
+            val engine = HttpEngine(storeProvider, urlPrefixProvider, logger)
 
             val socket: ServerSocket = try {
                 ServerSocket()

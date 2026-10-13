@@ -63,6 +63,34 @@ fun rawHttpRequest(
     }
 }
 
+/**
+ * Like [rawHttpRequest] but returns the complete raw response bytes (status
+ * line + headers + body). Used by tests that must assert on the exact bytes
+ * on the wire, e.g. that a failed stream never appends a second response to
+ * a started one.
+ */
+fun rawHttpRequestBytes(
+    port: Int,
+    method: String,
+    path: String,
+    extraHeaders: Map<String, String> = emptyMap()
+): ByteArray {
+    Socket("127.0.0.1", port).use { socket ->
+        socket.soTimeout = 10000
+        val request = buildString {
+            append(method).append(' ').append(path).append(" HTTP/1.1\r\n")
+            append("Host: 127.0.0.1:").append(port).append("\r\n")
+            for ((name, value) in extraHeaders) {
+                append(name).append(": ").append(value).append("\r\n")
+            }
+            append("Connection: close\r\n\r\n")
+        }
+        socket.getOutputStream().write(request.toByteArray(StandardCharsets.US_ASCII))
+        socket.getOutputStream().flush()
+        return socket.getInputStream().readBytes()
+    }
+}
+
 private fun parseRawResponse(raw: ByteArray): RawHttpResponse {
     val headerEnd = indexOfHeaderEnd(raw)
     val headerBlock = String(raw, 0, headerEnd, StandardCharsets.UTF_8)

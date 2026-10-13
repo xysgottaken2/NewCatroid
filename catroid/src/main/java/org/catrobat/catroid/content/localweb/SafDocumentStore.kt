@@ -200,12 +200,11 @@ class SafDocumentStore(
             val id = cursor.getString(0)
             val name = cursor.getString(1)
             val mime = cursor.getString(2)
-            val size = cursor.getLong(3)
             DocumentEntry(
                 id = id ?: expectedId,
                 name = name?.takeIf { it.isNotBlank() } ?: fallbackName,
                 isDirectory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
-                size = if (size >= 0) size else -1L,
+                size = readSize(cursor, 3),
                 mimeType = mime
             )
         }
@@ -254,14 +253,28 @@ class SafDocumentStore(
         val id = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
         val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
         val mime = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE))
-        val size = cursor.getLong(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE))
         return DocumentEntry(
             id = id,
             name = name ?: id.substringAfterLast('/'),
             isDirectory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
-            size = if (size >= 0) size else -1L,
+            size = readSize(cursor, cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)),
             mimeType = mime
         )
+    }
+
+    /**
+     * Reads a size column defensively: providers may return null (unknown
+     * size) or a non-numeric value. Unknown sizes become -1 so the engine
+     * streams with chunked encoding instead of promising a wrong length.
+     */
+    private fun readSize(cursor: Cursor, index: Int): Long {
+        if (cursor.isNull(index)) return -1L
+        return try {
+            val value = cursor.getLong(index)
+            if (value >= 0) value else -1L
+        } catch (e: Exception) {
+            -1L
+        }
     }
 
     companion object {

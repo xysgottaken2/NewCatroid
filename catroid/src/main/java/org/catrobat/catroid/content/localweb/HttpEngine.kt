@@ -31,6 +31,16 @@ import java.io.OutputStream
 import java.net.URI
 import java.nio.charset.StandardCharsets
 
+/** Severity for [HttpLogger] request diagnostics. */
+enum class LogLevel { DEBUG, INFO, WARN, ERROR }
+
+/**
+ * Sink for per-request diagnostics. Pure JVM (no Android dependencies) so
+ * the engine stays unit testable; the Android layer wires this to
+ * `android.util.Log` (see LocalHttpServer).
+ */
+typealias HttpLogSink = (level: LogLevel, message: String, error: Throwable?) -> Unit
+
 /**
  * Stateless HTTP request handler used by [HttpServerEngine].
  *
@@ -41,10 +51,20 @@ import java.nio.charset.StandardCharsets
  *
  * One request is handled per connection; responses always carry
  * `Connection: close`.
+ *
+ * Response protocol correctness: a response body is never promised before it
+ * can be delivered. The document stream is opened BEFORE any status line or
+ * headers are written, small files are buffered so `Content-Length` always
+ * matches the actual bytes, and a failure while streaming aborts the
+ * connection without appending anything to a response that already started -
+ * a client therefore never receives a corrupted or self-contradicting
+ * response (which would break scripts, WASM modules and textures and leave
+ * applications stuck on their loading screen).
  */
 class HttpEngine(
     private val storeProvider: () -> DocumentStore?,
-    private val urlPrefixProvider: () -> String = { "/" }
+    private val urlPrefixProvider: () -> String = { "/" },
+    private val logger: HttpLogSink = { _, _, _ -> }
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -62,18 +82,52 @@ class HttpEngine(
      * @param out raw socket output stream (buffered by the caller).
      */
     fun handle(method: String, rawTarget: String, headers: Map<String, String>, out: OutputStream) {
+        val response = ResponseStream(out)
         try {
-            handleInternal(method, rawTarget, headers, out)
+            handleInternal(method, rawTarget, headers, response)
         } catch (e: Exception) {
-            try {
-                out.writeSimpleError(500, "Internal Server Error", "500 Internal Server Error")
-            } catch (ignored: Exception) {
+            if (!response.started) {
+                logger(LogLevel.ERROR, "$method $rawTarget -> request failed before any response was sent", e)
+                try {
+                    response.writeSimpleError(500, "Internal Server Error", "500 Internal Server Error")
+                } catch (ignored: Exception) {
+                }
+            } else {
+                // The response is already on the wire. Appending an error
+                // response would corrupt the body the client is reading;
+                // abort by closing the connection instead (the caller does).
+                logger(LogLevel.ERROR, "$method $rawTarget -> response aborted mid-stream (connection closed)", e)
             }
         } finally {
             try {
                 out.flush()
             } catch (ignored: Exception) {
             }
+        }
+    }
+
+    /** Output stream wrapper that records whether a response has started. */
+    private class ResponseStream(private val delegate: OutputStream) : OutputStream() {
+        @Volatile
+        var started = false
+            private set
+
+        override fun write(b: Int) {
+            started = true
+            delegate.write(b)
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            started = true
+            delegate.write(b, off, len)
+        }
+
+        override fun flush() {
+            delegate.flush()
+        }
+
+        override fun close() {
+            delegate.close()
         }
     }
 
@@ -86,6 +140,7 @@ class HttpEngine(
         val isHead = method.equals("HEAD", ignoreCase = true)
         if (!method.equals("GET", ignoreCase = true) && !isHead) {
             out.writeSimpleError(405, "Method Not Allowed", "405 Method Not Allowed", extraHeaders = listOf("Allow" to "GET, HEAD"))
+            logger(LogLevel.INFO, "$method $rawTarget -> 405 method not allowed", null)
             return
         }
 
@@ -97,6 +152,7 @@ class HttpEngine(
         val normalized = HttpPaths.normalize(rawPath)
         if (normalized == null) {
             out.writeSimpleError(403, "Forbidden", "403 Forbidden (invalid path)")
+            logger(LogLevel.INFO, "$method $rawPath -> 403 invalid or escaping path", null)
             return
         }
 
@@ -104,25 +160,28 @@ class HttpEngine(
         val relativeToPrefix = HttpPaths.stripPrefix(normalized, urlPrefixProvider())
         if (relativeToPrefix == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (path is outside the served prefix)")
+            logger(LogLevel.INFO, "$method $rawPath -> 404 outside the served prefix", null)
             return
         }
 
         val store = storeProvider()
         if (store == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (no directory is being hosted)")
+            logger(LogLevel.WARN, "$method $rawPath -> 404 no directory is being hosted", null)
             return
         }
 
         val entry = store.resolve(relativeToPrefix)
         if (entry == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found")
+            logger(LogLevel.INFO, "$method $rawPath -> 404 document not resolved ($relativeToPrefix)", null)
             return
         }
 
         if (entry.isDirectory) {
             handleDirectory(store, entry, rawPath, relativeToPrefix, query, isHead, out)
         } else {
-            handleFile(store, entry, headers, isHead, out)
+            handleFile(store, entry, rawPath, headers, isHead, out)
         }
     }
 
@@ -142,13 +201,14 @@ class HttpEngine(
                 301, "Moved Permanently", "301 Moved Permanently",
                 extraHeaders = listOf("Location" to location)
             )
+            logger(LogLevel.INFO, "GET $rawPath -> 301 directory slash redirect to $location", null)
             return
         }
 
         for (indexName in INDEX_FILE_NAMES) {
             val index = store.resolve(if (normalized.isEmpty()) indexName else "$normalized/$indexName")
             if (index != null && !index.isDirectory) {
-                handleFile(store, index, emptyMap(), isHead, out)
+                handleFile(store, index, rawPath, emptyMap(), isHead, out)
                 return
             }
         }
@@ -167,10 +227,12 @@ class HttpEngine(
                 if (query.isNotEmpty()) append('?').append(query)
             }
             writeEntryRedirect(out, location, isHead)
+            logger(LogLevel.INFO, "GET $rawPath -> 302 entry point redirect to $location", null)
             return
         }
 
         // No entry point found: render a minimal directory listing.
+        logger(LogLevel.INFO, "GET $rawPath -> 200 directory listing (no default document or entry point)", null)
         val children = store.listChildren(entry).take(MAX_LISTING_ENTRIES)
         val title = escapeHtml(entry.name.ifEmpty { store.rootDisplayName })
         val body = buildString {
@@ -387,6 +449,7 @@ class HttpEngine(
     private fun handleFile(
         store: DocumentStore,
         entry: DocumentEntry,
+        requestPath: String,
         headers: Map<String, String>,
         isHead: Boolean,
         out: OutputStream
@@ -394,14 +457,85 @@ class HttpEngine(
         val contentType = resolveContentType(entry)
         val size = entry.size
 
-        val rangeResult = if (size >= 0) HttpRanges.parse(headers["range"], size) else HttpRanges.Result.Ignore
+        // Open the document BEFORE writing any status line or headers: a file
+        // that cannot be opened must produce a clean error response, never a
+        // 200 response whose promised body is not (fully) delivered.
+        val input = store.openInput(entry)
+        if (input == null) {
+            out.writeSimpleError(404, "Not Found", "404 Not Found (document could not be opened)")
+            logger(LogLevel.WARN, "GET $requestPath -> 404 document could not be opened (${entry.id})", null)
+            return
+        }
 
+        // Small files are buffered completely, so the Content-Length always
+        // matches the bytes actually sent - even when the provider reported a
+        // wrong or missing size. Ranges are applied to the buffered bytes.
+        if (size in 0..SMALL_FILE_BUFFER_BYTES) {
+            val bytes = input.use { it.readBytes() }
+            val actual = bytes.size.toLong()
+            if (actual != size) {
+                // The provider-reported size did not match the stream: the
+                // response stays well-formed (Content-Length = actual bytes)
+                // but the mismatch is a provider/stream problem worth logging.
+                logger(
+                    LogLevel.WARN,
+                    "GET $requestPath -> stream delivered $actual bytes but size was reported as $size (${entry.id})",
+                    null
+                )
+            }
+            val rangeResult = HttpRanges.parse(headers["range"], actual)
+            when (rangeResult) {
+                is HttpRanges.Result.NotSatisfiable -> {
+                    out.writeSimpleError(
+                        416, "Range Not Satisfiable", "416 Range Not Satisfiable",
+                        extraHeaders = listOf("Content-Range" to "bytes */$actual")
+                    )
+                    logger(LogLevel.INFO, "GET $requestPath -> 416 range not satisfiable", null)
+                    return
+                }
+                is HttpRanges.Result.Single -> {
+                    val slice = bytes.copyOfRange(rangeResult.start.toInt(), (rangeResult.end + 1).toInt())
+                    writeResponseHeaders(
+                        out, 206, "Partial Content",
+                        listOf(
+                            "Content-Type" to contentType,
+                            "Content-Length" to slice.size.toString(),
+                            "Content-Range" to "bytes ${rangeResult.start}-${rangeResult.end}/$actual",
+                            "Accept-Ranges" to "bytes"
+                        )
+                    )
+                    if (!isHead) out.write(slice)
+                    logger(LogLevel.INFO, "GET $requestPath -> 206 $contentType ${slice.size} of $actual bytes (${entry.id})", null)
+                    return
+                }
+                is HttpRanges.Result.Ignore -> {
+                    writeResponseHeaders(
+                        out, 200, "OK",
+                        listOf(
+                            "Content-Type" to contentType,
+                            "Content-Length" to actual.toString(),
+                            "Accept-Ranges" to "bytes"
+                        )
+                    )
+                    if (!isHead) out.write(bytes)
+                    logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $actual bytes (${entry.id})", null)
+                    return
+                }
+            }
+        }
+
+        // Large or unknown-size files are streamed. The stream is already open;
+        // if reading fails midway the connection is aborted by the caller
+        // (handle) without appending anything to the started response.
+        val rangeResult = if (size >= 0) HttpRanges.parse(headers["range"], size) else HttpRanges.Result.Ignore
         when (rangeResult) {
             is HttpRanges.Result.NotSatisfiable -> {
                 out.writeSimpleError(
                     416, "Range Not Satisfiable", "416 Range Not Satisfiable",
                     extraHeaders = listOf("Content-Range" to "bytes */$size")
                 )
+                logger(LogLevel.INFO, "GET $requestPath -> 416 range not satisfiable", null)
+                input.close()
                 return
             }
             is HttpRanges.Result.Single -> {
@@ -414,12 +548,12 @@ class HttpEngine(
                         "Accept-Ranges" to "bytes"
                     )
                 )
-                if (!isHead) writeFileRange(store, entry, rangeResult.start, rangeResult.length, out)
+                val sent = if (isHead) 0L else input.use { writeFileRange(it, entry, rangeResult.start, rangeResult.length, out) }
+                if (isHead) input.close()
+                logger(LogLevel.INFO, "GET $requestPath -> 206 $contentType $sent of $size bytes (${entry.id})", null)
                 return
             }
             is HttpRanges.Result.Ignore -> {
-                // Full response. When the length is unknown the body is sent with
-                // chunked transfer encoding so large files are still streamed.
                 if (size >= 0) {
                     writeResponseHeaders(
                         out, 200, "OK",
@@ -429,8 +563,11 @@ class HttpEngine(
                             "Accept-Ranges" to "bytes"
                         )
                     )
-                    if (!isHead) writeFileRange(store, entry, 0, size, out)
+                    val sent = if (isHead) 0L else input.use { writeFileRange(it, entry, 0, size, out) }
+                    if (isHead) input.close()
+                    logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent of $size bytes (${entry.id})", null)
                 } else {
+                    // Unknown length: chunked transfer encoding.
                     writeResponseHeaders(
                         out, 200, "OK",
                         listOf(
@@ -439,7 +576,9 @@ class HttpEngine(
                             "Accept-Ranges" to "bytes"
                         )
                     )
-                    if (!isHead) writeFileChunked(store, entry, out)
+                    val sent = if (isHead) 0L else input.use { writeFileChunked(it, entry, out) }
+                    if (isHead) input.close()
+                    logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent bytes (chunked, ${entry.id})", null)
                 }
             }
         }
@@ -459,37 +598,39 @@ class HttpEngine(
     }
 
     private fun writeFileRange(
-        store: DocumentStore,
+        input: InputStream,
         entry: DocumentEntry,
         start: Long,
         length: Long,
         out: OutputStream
-    ) {
-        store.openInput(entry)?.use { input ->
-            skipFully(input, start)
-            val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            var remaining = length
-            while (remaining > 0) {
-                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                if (read < 0) throw EOFException("Unexpected end of file while streaming ${entry.name}")
-                out.write(buffer, 0, read)
-                remaining -= read
-            }
-        } ?: throw IllegalStateException("Unable to open ${entry.name}")
+    ): Long {
+        skipFully(input, start)
+        val buffer = ByteArray(STREAM_BUFFER_SIZE)
+        var remaining = length
+        var written = 0L
+        while (remaining > 0) {
+            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read < 0) throw EOFException("Unexpected end of file while streaming ${entry.name}")
+            out.write(buffer, 0, read)
+            written += read
+            remaining -= read
+        }
+        return written
     }
 
-    private fun writeFileChunked(store: DocumentStore, entry: DocumentEntry, out: OutputStream) {
-        store.openInput(entry)?.use { input ->
-            val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                out.write((Integer.toHexString(read) + "\r\n").toByteArray(StandardCharsets.US_ASCII))
-                out.write(buffer, 0, read)
-                out.write(CRLF)
-            }
-            out.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
-        } ?: throw IllegalStateException("Unable to open ${entry.name}")
+    private fun writeFileChunked(input: InputStream, entry: DocumentEntry, out: OutputStream): Long {
+        val buffer = ByteArray(STREAM_BUFFER_SIZE)
+        var written = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            out.write((Integer.toHexString(read) + "\r\n").toByteArray(StandardCharsets.US_ASCII))
+            out.write(buffer, 0, read)
+            out.write(CRLF)
+            written += read
+        }
+        out.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
+        return written
     }
 
     private fun writeResponseHeaders(out: OutputStream, status: Int, reason: String, headers: List<Pair<String, String>>) {
@@ -534,6 +675,7 @@ class HttpEngine(
 
     companion object {
         const val STREAM_BUFFER_SIZE = 64 * 1024
+        const val SMALL_FILE_BUFFER_BYTES = 4 * 1024 * 1024
         const val MAX_LISTING_ENTRIES = 1000
         val INDEX_FILE_NAMES = listOf("index.html", "index.htm")
         val MANIFEST_FILE_NAMES = listOf("manifest.webmanifest", "manifest.json")

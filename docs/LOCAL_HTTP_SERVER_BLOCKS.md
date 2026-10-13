@@ -248,6 +248,33 @@ the structure above with the combined block, start the server, and request
 tagged lines if any nested path 404s — they name the exact document URI or
 document id whose query failed (`adb logcat -s SafDocumentStore`).
 
+## Streaming correctness and diagnostics
+
+Responses are protocol-correct by construction - a body is never promised
+before it can be delivered:
+
+- The document stream is opened **before** any status line or headers are
+  written: a document that cannot be opened produces a clean `404` error
+  response, never a `200` response whose body is missing or corrupted.
+- Small files (up to 4 MB) are buffered completely, so `Content-Length`
+  always matches the bytes actually sent - even when the provider reports a
+  wrong or missing size. Ranges are applied to the buffered bytes.
+- Larger or unknown-size files are streamed (chunked encoding when the size
+  is unknown). If a stream fails partway, the connection is aborted **without
+  appending anything** to the already started response - a client never
+  receives a second response glued onto a truncated body (which would deliver
+  scripts, WASM modules and textures as corrupted bytes and leave applications
+  stuck on their loading screen).
+- Provider-reported sizes that are null or non-numeric are treated as unknown
+  (chunked), never as zero.
+
+Every request is logged (logcat tag `NewCatroidHttp` on device): method and
+requested path, HTTP status, MIME type, expected size, bytes actually sent,
+the resolved document identifier (never file contents), and the failure reason
+- distinguishing a document that cannot be resolved (404), a document that
+cannot be opened (WARN), and a stream that fails during reading (ERROR,
+connection aborted).
+
 ## What the server does
 
 - Serves the hosted SAF directory (or a single selected file) via
