@@ -229,6 +229,29 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    /**
+     * Registers page-level failure listeners as early as possible (at
+     * onPageStarted, before the page's own scripts run) so uncaught errors and
+     * rejected promises are captured through the console log.
+     */
+    private fun injectEarlyDiagnostics() {
+        val script = """
+            (function () {
+                if (window.__newcatroidDiag) return;
+                window.__newcatroidDiag = true;
+                window.addEventListener('error', function (e) {
+                    console.error('Uncaught error: ' + e.message + ' (' + (e.filename || location.href) + ':' + e.lineno + ')');
+                });
+                window.addEventListener('unhandledrejection', function (e) {
+                    var reason = e.reason;
+                    console.error('Unhandled promise rejection: ' + (reason && reason.stack ? reason.stack : reason));
+                });
+                console.log('NewCatroid diagnostics listeners installed at ' + location.href);
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(script, null)
+    }
+
     private fun reportCapabilities() {
         // Diagnostic capability report. Evaluated as plain JavaScript and
         // surfaced through the console log - no JavaScript bridge involved.
@@ -268,6 +291,18 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     })()
                 };
                 console.log('NewCatroid WebView capabilities: ' + JSON.stringify(report));
+                // The ACTUAL response headers the browser received for this
+                // document (answers why crossOriginIsolated is false when the
+                // server claims to send COOP/COEP).
+                fetch(location.href, { method: 'HEAD' }).then(function (r) {
+                    console.log('NewCatroid document headers: COOP=' + r.headers.get('cross-origin-opener-policy') +
+                        ' COEP=' + r.headers.get('cross-origin-embedder-policy') +
+                        ' CORP=' + r.headers.get('cross-origin-resource-policy') +
+                        ' type=' + r.headers.get('content-type') +
+                        ' status=' + r.status + ' finalUrl=' + location.href);
+                }).catch(function (e) {
+                    console.error('NewCatroid header probe failed: ' + e);
+                });
             })();
         """.trimIndent()
         webView.evaluateJavascript(script, null)
@@ -298,6 +333,7 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
             progressBar.isVisible = true
             errorText.isVisible = false
             urlText.text = url
+            injectEarlyDiagnostics()
         }
 
         override fun onPageFinished(view: WebView?, url: String?) {

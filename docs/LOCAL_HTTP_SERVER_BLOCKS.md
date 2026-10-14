@@ -238,14 +238,23 @@ below the selected root), a requested path like `b/<build>/title/logo.png`
 does not exist directly under the selected root even though the file exists
 under the nested site root. As a final fallback, the resolver performs a
 deterministic **path-suffix search**: the FULL requested path must exist,
-uniquely, somewhere under the selected tree (bounded depth/directory count,
-cached, with a site-root hint so later requests resolve in one lookup). The
-search never strips prefixes, never changes the document root, never guesses
-(two or more candidates stay a 404), and cannot escape the tree. When the
-file genuinely does not exist anywhere under the selected folder, the server
-answers 404 with the diagnostic detail `document not resolved: <path>` (and
-`SafDocumentStore` logs that no document matching the path exists anywhere in
-the selected tree) - the missing file is reported, not hidden.
+uniquely, somewhere under the selected tree. To keep the first request on a
+potentially huge folder fast (a full scan once took ~16 s on a device with
+the game data below the site root), the search first uses an **anchor fast
+path**: it finds directories named like the first path segment, level by
+level from the top, and resolves the remaining path directly inside each
+anchor at the shallowest depth that has one (a handful of lookups). If no
+anchor resolves the path, a bounded full suffix search runs. Results are
+cached per requested path, and the first successful match records a
+**site-root hint** so later requests resolve with a single lookup. The
+search never strips prefixes, never changes the document root, and cannot
+escape the tree. When the same relative path exists under several nested
+site roots, the shallowest one is served (deterministic); two candidates at
+the same depth stay a 404 - the server never guesses. When the file
+genuinely does not exist anywhere under the selected folder, the server
+answers 404 with the diagnostic detail `document not resolved: <path> (no
+match anywhere in the selected tree)` - the missing file is reported, not
+hidden.
 
 **Testing limitation:** the SAF tests run under Robolectric against fakes
 that extend the *real* `android.provider.DocumentsProvider`, so the genuine
@@ -349,10 +358,16 @@ WebView's toolbar) opens a screen showing:
   terminated prematurely, with the partial byte count);
 - the recent **WebView events**: JavaScript console messages (with source and
   line), failed resource loads (URL + error code), HTTP error responses (URL +
-  status) and blocked navigations - plus a capability probe logged after each
-  page load (`crossOriginIsolated`, `SharedArrayBuffer`, `WebAssembly`,
-  workers, WebGL/WebGL2, and a resource-timing summary listing failed
-  subresource loads with their status codes).
+  status) and blocked navigations - plus page-level listeners installed at
+  `onPageStarted` capturing uncaught errors and rejected promises, and a
+  capability probe logged after each page load and again 3 s later (so
+  in-flight subresources are counted): `crossOriginIsolated`,
+  `SharedArrayBuffer`, `WebAssembly`, workers, WebGL/WebGL2, WebGPU,
+  `document.scripts.length`, a resource-timing summary (subresource count,
+  failed loads with their status codes, script count), the final URL, and
+  **the actual COOP/COEP/CORP response headers the browser received** (via a
+  HEAD fetch of the page's own URL) - which answers why `crossOriginIsolated`
+  is false when the server claims to send the headers.
 
 The report can be **copied to the clipboard** or **shared/exported** as plain
 text (Copy / Share buttons). Nothing logged contains file contents - only

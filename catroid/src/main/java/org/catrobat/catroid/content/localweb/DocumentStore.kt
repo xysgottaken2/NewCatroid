@@ -109,12 +109,80 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
         synchronized(cacheLock) {
             if (cache.containsKey(relativePath)) return cache[relativePath]
         }
-        val found = search(relativePath, maxDepth, maxDirectories)
+        // Anchor fast path: for multi-segment paths the first segment is a
+        // directory. Finding that directory near the top and resolving the
+        // rest directly inside it costs a handful of lookups instead of
+        // scanning a potentially huge tree (the first request on a big
+        // selected folder otherwise took ~16 s of SAF directory listing).
+        val segments = relativePath.split('/').filter { it.isNotEmpty() }
+        val anchored = if (segments.size > 1) findByAnchor(segments, maxDepth, maxDirectories) else null
+        val found = anchored ?: search(relativePath, maxDepth, maxDirectories)
         synchronized(cacheLock) {
             if (cache.size >= MAX_CACHE_ENTRIES) cache.clear()
             cache[relativePath] = found
         }
         return found
+    }
+
+    /**
+     * Breadth-first search for directories NAMED like the first segment of
+     * the requested path, level by level, stopping at the shallowest depth
+     * that has any. For each anchor at that depth the remaining path is
+     * resolved directly (one lookup). The match must still be unique across
+     * all anchors at that depth.
+     */
+    private fun findByAnchor(
+        segments: List<String>,
+        maxDepth: Int,
+        maxDirectories: Int
+    ): DocumentEntry? {
+        val firstSegment = segments[0]
+        val rest = segments.drop(1).joinToString("/")
+        val requested = segments.joinToString("/")
+        var visited = 0
+        var depth = 0
+        val level = ArrayDeque<String>()
+        level.add("")
+        while (level.isNotEmpty() && visited < maxDirectories) {
+            val anchors = mutableListOf<String>()
+            val nextLevel = ArrayDeque<String>()
+            while (level.isNotEmpty()) {
+                val dir = level.removeFirst()
+                if (depth > maxDepth) continue
+                val dirEntry = store.resolve(dir) ?: continue
+                if (!dirEntry.isDirectory) continue
+                visited++
+                for (child in store.listChildren(dirEntry)) {
+                    if (!child.isDirectory) continue
+                    val childPath = if (dir.isEmpty()) child.name else "$dir/${child.name}"
+                    if (child.name == firstSegment) anchors.add(childPath)
+                    if (nextLevel.size < maxDirectories * 4) nextLevel.add(childPath)
+                }
+            }
+            if (anchors.isNotEmpty()) {
+                // Shallowest depth with an anchor: resolve the rest inside each.
+                var foundPath: String? = null
+                var foundEntry: DocumentEntry? = null
+                for (anchor in anchors) {
+                    val candidate = store.resolve("$anchor/$rest")
+                    if (candidate != null) {
+                        if (foundEntry != null) return null // ambiguous: never guess
+                        foundPath = "$anchor/$rest"
+                        foundEntry = candidate
+                    }
+                }
+                if (foundEntry != null) {
+                    // foundPath ends with the full requested path; the site root
+                    // is what precedes it.
+                    siteRootHint = foundPath!!.removeSuffix(requested).removeSuffix("/")
+                    return foundEntry
+                }
+                return null // anchors exist but the rest does not resolve inside
+            }
+            level.addAll(nextLevel)
+            depth++
+        }
+        return null
     }
 
     private fun search(relativePath: String, maxDepth: Int, maxDirectories: Int): DocumentEntry? {

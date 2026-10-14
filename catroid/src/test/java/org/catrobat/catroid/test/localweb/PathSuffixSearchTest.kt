@@ -23,6 +23,8 @@
 
 package org.catrobat.catroid.test.localweb
 
+import org.catrobat.catroid.content.localweb.DocumentEntry
+import org.catrobat.catroid.content.localweb.DocumentStore
 import org.catrobat.catroid.content.localweb.FileDocumentStore
 import org.catrobat.catroid.content.localweb.HttpServerEngine
 import org.catrobat.catroid.content.localweb.PathSuffixSearcher
@@ -157,9 +159,46 @@ class PathSuffixSearchTest {
 
     @Test
     fun `ambiguous suffix matches resolve to null`() {
-        // A second site root with the same relative path: two candidates, no guess.
-        write("other-site/b/8b0b5899ed/title/logo.png", "different-logo")
+        // A second site root at the same depth with the same relative path:
+        // two candidates, no guess.
+        write("mirror2/playgta5.com/b/8b0b5899ed/title/logo.png", "different-logo")
         assertNull(PathSuffixSearcher(store).find("b/8b0b5899ed/title/logo.png"))
+    }
+
+    @Test
+    fun `anchor search resolves the nested site root with few lookups`() {
+        // The device showed the first nested asset request taking ~16 s: the
+        // suffix search scanned a huge tree. The anchor fast path (find the
+        // first path segment as a directory near the top, resolve the rest
+        // directly inside it) must cost a handful of lookups, and the site
+        // root hint must make later requests a single lookup.
+        var resolves = 0
+        var listings = 0
+        val counting = object : DocumentStore by store {
+            override fun resolve(relativePath: String): DocumentEntry? {
+                resolves++
+                return store.resolve(relativePath)
+            }
+
+            override fun listChildren(directory: DocumentEntry): List<DocumentEntry> {
+                listings++
+                return store.listChildren(directory)
+            }
+        }
+        val searcher = PathSuffixSearcher(counting)
+        val entry = searcher.find("b/8b0b5899ed/title/logo.png")
+        assertNotNull(entry)
+        val firstPassLookups = resolves + listings
+        assertTrue(
+            "first search must be cheap (resolves=$resolves listings=$listings)",
+            firstPassLookups in 1..20
+        )
+
+        resolves = 0
+        listings = 0
+        assertNotNull(searcher.find("b/8b0b5899ed/title/spinner.png"))
+        assertEquals("later requests resolve via the site root hint in one lookup", 1, resolves)
+        assertEquals(0, listings)
     }
 
     @Test
