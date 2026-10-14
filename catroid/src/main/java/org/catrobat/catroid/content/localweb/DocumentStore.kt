@@ -71,11 +71,97 @@ interface DocumentStore {
 }
 
 /**
+ * Deterministic fallback search for pages whose SITE root is nested inside
+ * the selected folder.
+ *
+ * Web pages reference absolute URLs relative to their site root. When a
+ * downloaded site is placed inside the selected folder (e.g. a mirror or
+ * wrapper directory, so the site root is one or more levels below the
+ * selected root), a requested path such as `b/<build>/title/logo.png` does
+ * not exist directly under the selected root even though the file exists
+ * under the nested site root. This searcher locates a document whose path
+ * relative to the store root ENDS WITH the full requested path.
+ *
+ * The search is deliberately conservative:
+ * - the match must be the FULL requested path (all segments), not a prefix;
+ * - the match must be unique - two or more candidates mean ambiguity and
+ *   the result is null (the server never guesses);
+ * - only directories inside the store root are traversed, so path traversal
+ *   is impossible;
+ * - the search is bounded (depth and directory count) and results are cached
+ *   per requested path, and the first successful match also records a site
+ *   root hint so later requests resolve with a single lookup.
+ */
+internal class PathSuffixSearcher(private val store: DocumentStore) {
+
+    private val cache = HashMap<String, DocumentEntry?>()
+    private val cacheLock = Any()
+
+    @Volatile
+    private var siteRootHint: String? = null
+
+    fun find(relativePath: String, maxDepth: Int = 8, maxDirectories: Int = 256): DocumentEntry? {
+        // Fast path: a site root discovered by an earlier successful search.
+        siteRootHint?.let { hint ->
+            val candidate = store.resolve(if (hint.isEmpty()) relativePath else "$hint/$relativePath")
+            if (candidate != null) return candidate
+        }
+        synchronized(cacheLock) {
+            if (cache.containsKey(relativePath)) return cache[relativePath]
+        }
+        val found = search(relativePath, maxDepth, maxDirectories)
+        synchronized(cacheLock) {
+            if (cache.size >= MAX_CACHE_ENTRIES) cache.clear()
+            cache[relativePath] = found
+        }
+        return found
+    }
+
+    private fun search(relativePath: String, maxDepth: Int, maxDirectories: Int): DocumentEntry? {
+        var foundPath: String? = null
+        var foundEntry: DocumentEntry? = null
+        var visited = 0
+        val queue = ArrayDeque<Pair<String, Int>>()
+        queue.add("" to 0)
+        while (queue.isNotEmpty() && visited < maxDirectories) {
+            val (dir, depth) = queue.removeFirst()
+            if (depth > maxDepth) continue
+            val dirEntry = store.resolve(dir) ?: continue
+            if (!dirEntry.isDirectory) continue
+            visited++
+            for (child in store.listChildren(dirEntry)) {
+                val childPath = if (dir.isEmpty()) child.name else "$dir/${child.name}"
+                if (childPath == relativePath || childPath.endsWith("/$relativePath")) {
+                    if (foundEntry != null) return null // ambiguous: never guess
+                    foundPath = childPath
+                    foundEntry = child
+                }
+                if (child.isDirectory && queue.size < maxDirectories * 4) {
+                    queue.add(childPath to depth + 1)
+                }
+            }
+        }
+        if (foundEntry != null && foundPath != null) {
+            // Remember the nested site root (matched path minus the suffix).
+            val hint = foundPath.removeSuffix(relativePath).removeSuffix("/")
+            if (hint.isNotEmpty()) siteRootHint = hint
+        }
+        return foundEntry
+    }
+
+    companion object {
+        private const val MAX_CACHE_ENTRIES = 64
+    }
+}
+
+/**
  * Serves a plain directory from the local filesystem. Used for `file://`
  * roots and by the unit tests. Contains its own canonical-path confinement
  * check as defense in depth on top of [HttpPaths.normalize].
  */
 class FileDocumentStore(private val rootDir: File) : DocumentStore {
+
+    private val suffixSearcher = PathSuffixSearcher(this)
 
     private val canonicalRoot: String = try {
         rootDir.canonicalFile.absolutePath
@@ -99,7 +185,12 @@ class FileDocumentStore(private val rootDir: File) : DocumentStore {
         ) {
             return null
         }
-        if (!canonical.exists()) return null
+        if (!canonical.exists()) {
+            // The path does not exist directly under the root: fall back to a
+            // deterministic suffix search so pages whose site root is nested
+            // inside the selected folder still resolve.
+            return suffixSearcher.find(relativePath)
+        }
         return DocumentEntry(
             id = canonical.absolutePath,
             name = if (relativePath.isEmpty()) rootDisplayName else canonical.name,

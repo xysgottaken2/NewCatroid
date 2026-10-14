@@ -247,6 +247,7 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     webgl: (function () { try { var c = document.createElement('canvas'); return !!(c.getContext('webgl') || c.getContext('experimental-webgl')); } catch (e) { return false; } })(),
                     webgl2: (function () { try { var c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; } })(),
                     readyState: document.readyState,
+                    scriptTags: document.scripts.length,
                     resources: (function () {
                         try {
                             var entries = performance.getEntriesByType('resource');
@@ -303,6 +304,9 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
             super.onPageFinished(view, url)
             progressBar.isVisible = false
             reportCapabilities()
+            // Subresources often finish after the main frame: probe again a few
+            // seconds later so the resource-timing summary is complete.
+            webView.postDelayed({ reportCapabilities() }, 3000)
         }
 
         override fun onReceivedError(

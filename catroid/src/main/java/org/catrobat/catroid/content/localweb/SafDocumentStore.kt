@@ -57,6 +57,7 @@ class SafDocumentStore(
 
     private val resolver: ContentResolver = context.contentResolver
     private val rootDocumentId: String = DocumentsContract.getTreeDocumentId(treeUri)
+    private val suffixSearcher = PathSuffixSearcher(this)
 
     /**
      * Document URI of the tree root. Providers do not accept the bare tree
@@ -122,7 +123,7 @@ class SafDocumentStore(
                 .firstOrNull { displayNameMatches(it.name, segment) }
             if (match == null) {
                 Log.i(TAG, "resolve: no child named '$segment' under document $currentId (path: $relativePath)")
-                return null
+                return resolveByPathSuffix(relativePath)
             }
             if (!isInsideTree(match.id)) {
                 Log.w(TAG, "resolve: provider returned a document outside the selected tree: ${match.id}")
@@ -131,6 +132,22 @@ class SafDocumentStore(
             currentId = match.id
         }
         return match
+    }
+
+    /**
+     * Final fallback: the requested path does not exist directly under the
+     * selected tree root. Pages reference absolute URLs relative to their SITE
+     * root, which may be nested inside the selected folder (a downloaded site
+     * placed in a mirror/wrapper directory). A deterministic, unique suffix
+     * match locates the file without stripping prefixes or changing the root;
+     * when nothing matches, the miss is reported clearly.
+     */
+    private fun resolveByPathSuffix(relativePath: String): DocumentEntry? {
+        val found = suffixSearcher.find(relativePath)
+        if (found == null) {
+            Log.i(TAG, "resolve: no document matching '$relativePath' anywhere in the selected tree")
+        }
+        return found
     }
 
     override fun openInput(entry: DocumentEntry): InputStream? {

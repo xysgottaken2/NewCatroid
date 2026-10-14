@@ -230,6 +230,23 @@ AOSP android-14 `ExternalStorageProvider` uses `rootId:path` document ids
 `queryChildDocuments`, `enforceTree` and `isChildDocument` are all
 depth-agnostic, hiding only `Android/data|obb|sandbox` from listings.
 
+**Nested site roots (downloaded sites inside the selected folder):** web
+pages reference absolute URLs relative to their *site root*. When a
+downloaded site is placed inside the selected folder (e.g. a mirror/wrapper
+directory such as `mirror/<host>/`, so the site root is one or more levels
+below the selected root), a requested path like `b/<build>/title/logo.png`
+does not exist directly under the selected root even though the file exists
+under the nested site root. As a final fallback, the resolver performs a
+deterministic **path-suffix search**: the FULL requested path must exist,
+uniquely, somewhere under the selected tree (bounded depth/directory count,
+cached, with a site-root hint so later requests resolve in one lookup). The
+search never strips prefixes, never changes the document root, never guesses
+(two or more candidates stay a 404), and cannot escape the tree. When the
+file genuinely does not exist anywhere under the selected folder, the server
+answers 404 with the diagnostic detail `document not resolved: <path>` (and
+`SafDocumentStore` logs that no document matching the path exists anywhere in
+the selected tree) - the missing file is reported, not hidden.
+
 **Testing limitation:** the SAF tests run under Robolectric against fakes
 that extend the *real* `android.provider.DocumentsProvider`, so the genuine
 AOSP URI matcher and tree-descendant enforcement execute. Two fixture
