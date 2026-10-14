@@ -25,6 +25,7 @@ package org.catrobat.catroid.test.localweb
 
 import org.catrobat.catroid.content.localweb.FileDocumentStore
 import org.catrobat.catroid.content.localweb.HttpServerEngine
+import org.catrobat.catroid.content.localweb.PathSuffixSearcher
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -118,8 +119,11 @@ class PathSuffixSearchTest {
 
     @Test
     fun `all device-reported nested paths resolve with their exact contents`() {
+        // The fallback lives at the request-mapping layer (the engine), so it
+        // is exercised through PathSuffixSearcher and through HTTP below.
+        val searcher = PathSuffixSearcher(store)
         for ((path, content) in failingPaths) {
-            val entry = store.resolve(path)
+            val entry = searcher.find(path)
             assertNotNull("must resolve: $path", entry)
             val bytes = store.openInput(entry!!)?.readBytes()
             assertNotNull("must open: $path", bytes)
@@ -129,7 +133,7 @@ class PathSuffixSearchTest {
 
     @Test
     fun `nested engine files resolve through the nested site root`() {
-        val entry = store.resolve("b/8b0b5899ed/loader.js")
+        val entry = PathSuffixSearcher(store).find("b/8b0b5899ed/loader.js")
         assertNotNull(entry)
         assertEquals(
             "console.log('loader');",
@@ -139,28 +143,30 @@ class PathSuffixSearchTest {
 
     @Test
     fun `nested data files resolve through the nested site root`() {
-        val entry = store.resolve("data/bootset.json")
+        val entry = PathSuffixSearcher(store).find("data/bootset.json")
         assertNotNull(entry)
         assertEquals("{\"files\":[]}", String(store.openInput(entry!!)!!.readBytes(), Charsets.UTF_8))
     }
 
     @Test
     fun `genuinely missing files still resolve to null`() {
-        assertNull(store.resolve("b/8b0b5899ed/title/does-not-exist.png"))
-        assertNull(store.resolve("no/such/file.js"))
+        val searcher = PathSuffixSearcher(store)
+        assertNull(searcher.find("b/8b0b5899ed/title/does-not-exist.png"))
+        assertNull(searcher.find("no/such/file.js"))
     }
 
     @Test
     fun `ambiguous suffix matches resolve to null`() {
         // A second site root with the same relative path: two candidates, no guess.
         write("other-site/b/8b0b5899ed/title/logo.png", "different-logo")
-        assertNull(store.resolve("b/8b0b5899ed/title/logo.png"))
+        assertNull(PathSuffixSearcher(store).find("b/8b0b5899ed/title/logo.png"))
     }
 
     @Test
     fun `traversal attempts still do not resolve`() {
-        assertNull(store.resolve("../outside.txt"))
-        assertNull(store.resolve("b/8b0b5899ed/title/../../escape.png"))
+        val searcher = PathSuffixSearcher(store)
+        assertNull(searcher.find("../outside.txt"))
+        assertNull(searcher.find("b/8b0b5899ed/title/../../escape.png"))
     }
 
     @Test

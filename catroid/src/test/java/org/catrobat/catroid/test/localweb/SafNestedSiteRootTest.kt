@@ -26,6 +26,7 @@ package org.catrobat.catroid.test.localweb
 import android.net.Uri
 import android.provider.DocumentsContract
 import org.catrobat.catroid.content.localweb.HttpServerEngine
+import org.catrobat.catroid.content.localweb.PathSuffixSearcher
 import org.catrobat.catroid.content.localweb.SafDocumentStore
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -124,8 +125,11 @@ class SafNestedSiteRootTest {
     @Test
     fun `device reported nested paths resolve through saf with exact contents`() {
         startServer()
+        // The suffix fallback maps the request path onto the nested site
+        // root; it is exercised through the searcher (SAF store) and HTTP.
+        val searcher = PathSuffixSearcher(store)
         for ((path, content) in failingPaths) {
-            val entry = store.resolve(path)
+            val entry = searcher.find(path)
             assertNotNull("must resolve through SAF: $path", entry)
             val bytes = store.openInput(entry!!)?.readBytes()
             assertNotNull("must open through SAF: $path", bytes)
@@ -144,8 +148,9 @@ class SafNestedSiteRootTest {
     @Test
     fun `genuinely missing files do not resolve through the suffix search`() {
         startServer()
-        assertNull(store.resolve("b/8b0b5899ed/title/missing.png"))
-        assertNull(store.resolve("no/such/file.js"))
+        val searcher = PathSuffixSearcher(store)
+        assertNull(searcher.find("b/8b0b5899ed/title/missing.png"))
+        assertNull(searcher.find("no/such/file.js"))
     }
 
     @Test

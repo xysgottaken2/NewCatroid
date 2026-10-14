@@ -74,6 +74,17 @@ class HttpEngine(
     private val entryPointCacheLock = Any()
 
     /**
+     * Fallback searcher for request paths whose SITE root is nested inside
+     * the selected folder (a downloaded site placed in a mirror/wrapper
+     * directory): the full requested path must exist, uniquely, somewhere
+     * under the served root. Applied ONLY to the main request path - never to
+     * default-document or entry-point discovery, which must stay direct.
+     * Recreated when the served store changes (setDocumentRoot).
+     */
+    private var suffixSearcher: PathSuffixSearcher? = null
+    private var suffixSearcherStore: DocumentStore? = null
+
+    /**
      * Handles a single HTTP request and writes the full response (status line,
      * headers and, for GET, the body) to [out]. Never throws for expected
      * error conditions; unexpected exceptions are turned into 500 responses.
@@ -232,13 +243,37 @@ class HttpEngine(
             return
         }
 
-        val entry = store.resolve(relativeToPrefix)
+        var entry = store.resolve(relativeToPrefix)
         if (entry == null) {
-            out.writeSimpleError(404, "Not Found", "404 Not Found")
-            record.status = 404
-            record.detail = "document not resolved: $relativeToPrefix"
-            logger(LogLevel.INFO, "$method $rawPath -> 404 document not resolved ($relativeToPrefix)", null)
-            return
+            // The path does not exist directly under the served root. Pages
+            // reference absolute URLs relative to their site root, which may
+            // be nested inside the selected folder (a downloaded site placed
+            // in a mirror/wrapper directory): locate the full requested path
+            // under the served root, uniquely. This fallback applies ONLY to
+            // the request path - default-document and entry-point discovery
+            // below must stay direct (they look inside the requested
+            // directory).
+            val searcher = if (suffixSearcherStore !== store) {
+                PathSuffixSearcher(store).also {
+                    suffixSearcher = it
+                    suffixSearcherStore = store
+                }
+            } else {
+                suffixSearcher!!
+            }
+            entry = searcher.find(relativeToPrefix)
+            if (entry == null) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found")
+                record.status = 404
+                record.detail = "document not resolved: $relativeToPrefix (no match anywhere in the selected tree)"
+                logger(LogLevel.INFO, "$method $rawPath -> 404 document not resolved ($relativeToPrefix)", null)
+                return
+            }
+            logger(
+                LogLevel.INFO,
+                "$method $rawPath -> resolved under a nested site root (${entry.id})",
+                null
+            )
         }
 
         if (entry.isDirectory) {

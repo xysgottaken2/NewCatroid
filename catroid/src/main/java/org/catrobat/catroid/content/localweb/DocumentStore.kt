@@ -161,8 +161,6 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
  */
 class FileDocumentStore(private val rootDir: File) : DocumentStore {
 
-    private val suffixSearcher = PathSuffixSearcher(this)
-
     private val canonicalRoot: String = try {
         rootDir.canonicalFile.absolutePath
     } catch (e: Exception) {
@@ -185,12 +183,7 @@ class FileDocumentStore(private val rootDir: File) : DocumentStore {
         ) {
             return null
         }
-        if (!canonical.exists()) {
-            // The path does not exist directly under the root: fall back to a
-            // deterministic suffix search so pages whose site root is nested
-            // inside the selected folder still resolve.
-            return suffixSearcher.find(relativePath)
-        }
+        if (!canonical.exists()) return null
         return DocumentEntry(
             id = canonical.absolutePath,
             name = if (relativePath.isEmpty()) rootDisplayName else canonical.name,
