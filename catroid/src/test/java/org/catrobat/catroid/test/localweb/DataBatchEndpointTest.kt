@@ -151,20 +151,19 @@ class DataBatchEndpointTest {
     }
 
     @Test
-    fun `empty runs and empty ranges are served as zero length`() {
+    fun `an empty run list is served as an empty body`() {
         startServer()
         val response = rawHttpPost(port, "/data/batch", runsBody())
         assertEquals(200, response.statusCode)
         assertEquals("", response.headers["x-run-lengths"])
         assertEquals(0, response.body.size)
 
-        val zero = rawHttpPost(
+        // an inverted range is invalid (the reference contract rejects it too)
+        val inverted = rawHttpPost(
             port, "/data/batch",
             runsBody(Triple(archiveA.first, 500L, 499L))
         )
-        assertEquals(200, zero.statusCode)
-        assertEquals("0", zero.headers["x-run-lengths"])
-        assertEquals(0, zero.body.size)
+        assertEquals(400, inverted.statusCode)
     }
 
     @Test

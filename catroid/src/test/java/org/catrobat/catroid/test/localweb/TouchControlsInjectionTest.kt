@@ -65,6 +65,7 @@ class TouchControlsInjectionTest {
             var btn = document.createElement('button');
             btn.textContent = 'JUMP';
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
+            window.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: 20, bubbles: true }));
             document.body.appendChild(joy);
             document.body.appendChild(btn);
         })();
