@@ -202,6 +202,33 @@ class PathSuffixSearchTest {
     }
 
     @Test
+    fun `a miss with existing anchors is authoritative and cheap`() {
+        // The game's io worker probes a per-batch cache URL (data/batchc/<hash>.bin)
+        // that does not exist on a plain mirror: the miss must stay cheap (the
+        // anchor search found the site root but the path does not resolve
+        // inside it), never a full expensive tree scan.
+        var resolves = 0
+        var listings = 0
+        val counting = object : DocumentStore by store {
+            override fun resolve(relativePath: String): DocumentEntry? {
+                resolves++
+                return store.resolve(relativePath)
+            }
+
+            override fun listChildren(directory: DocumentEntry): List<DocumentEntry> {
+                listings++
+                return store.listChildren(directory)
+            }
+        }
+        val searcher = PathSuffixSearcher(counting)
+        assertNull(searcher.find("data/batchc/deadbeef.bin"))
+        assertTrue(
+            "miss must be cheap (resolves=$resolves listings=$listings)",
+            resolves + listings <= 20
+        )
+    }
+
+    @Test
     fun `traversal attempts still do not resolve`() {
         val searcher = PathSuffixSearcher(store)
         assertNull(searcher.find("../outside.txt"))

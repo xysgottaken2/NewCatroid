@@ -114,9 +114,17 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
         // rest directly inside it costs a handful of lookups instead of
         // scanning a potentially huge tree (the first request on a big
         // selected folder otherwise took ~16 s of SAF directory listing).
+        // When anchors exist but the rest of the path does not resolve inside
+        // any of them, the miss is authoritative (skip the full search) so
+        // that 404s and the game io worker's per-batch cache probes stay cheap.
         val segments = relativePath.split('/').filter { it.isNotEmpty() }
-        val anchored = if (segments.size > 1) findByAnchor(segments, maxDepth, maxDirectories) else null
-        val found = anchored ?: search(relativePath, maxDepth, maxDirectories)
+        val anchorResult = if (segments.size > 1) findByAnchor(segments, maxDepth, maxDirectories) else null
+        val found = when {
+            anchorResult == null -> search(relativePath, maxDepth, maxDirectories)
+            anchorResult.first != null -> anchorResult.first
+            anchorResult.second -> null // anchors exist, the path does not: authoritative miss
+            else -> search(relativePath, maxDepth, maxDirectories) // no anchors anywhere: full search
+        }
         synchronized(cacheLock) {
             if (cache.size >= MAX_CACHE_ENTRIES) cache.clear()
             cache[relativePath] = found
@@ -135,7 +143,7 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
         segments: List<String>,
         maxDepth: Int,
         maxDirectories: Int
-    ): DocumentEntry? {
+    ): Pair<DocumentEntry?, Boolean> {
         val firstSegment = segments[0]
         val rest = segments.drop(1).joinToString("/")
         val requested = segments.joinToString("/")
@@ -166,7 +174,7 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
                 for (anchor in anchors) {
                     val candidate = store.resolve("$anchor/$rest")
                     if (candidate != null) {
-                        if (foundEntry != null) return null // ambiguous: never guess
+                        if (foundEntry != null) return null to true // ambiguous: never guess
                         foundPath = "$anchor/$rest"
                         foundEntry = candidate
                     }
@@ -175,14 +183,14 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
                     // foundPath ends with the full requested path; the site root
                     // is what precedes it.
                     siteRootHint = foundPath!!.removeSuffix(requested).removeSuffix("/")
-                    return foundEntry
+                    return foundEntry to true
                 }
-                return null // anchors exist but the rest does not resolve inside
+                return null to true // anchors exist but the rest does not resolve inside
             }
             level.addAll(nextLevel)
             depth++
         }
-        return null
+        return null to false // no anchors anywhere within the bounds
     }
 
     private fun search(relativePath: String, maxDepth: Int, maxDirectories: Int): DocumentEntry? {

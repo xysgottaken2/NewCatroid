@@ -64,6 +64,35 @@ fun rawHttpRequest(
 }
 
 /**
+ * Sends a raw HTTP/1.1 POST with a body (Content-Length set automatically) and
+ * parses the response. Used to exercise the data batch endpoint of hosted
+ * games.
+ */
+fun rawHttpPost(
+    port: Int,
+    path: String,
+    body: ByteArray,
+    extraHeaders: Map<String, String> = emptyMap()
+): RawHttpResponse {
+    Socket("127.0.0.1", port).use { socket ->
+        socket.soTimeout = 10000
+        val request = buildString {
+            append("POST ").append(path).append(" HTTP/1.1\r\n")
+            append("Host: 127.0.0.1:").append(port).append("\r\n")
+            append("Content-Type: application/json\r\n")
+            append("Content-Length: ").append(body.size).append("\r\n")
+            for ((name, value) in extraHeaders) {
+                append(name).append(": ").append(value).append("\r\n")
+            }
+            append("Connection: close\r\n\r\n")
+        }.toByteArray(StandardCharsets.US_ASCII) + body
+        socket.getOutputStream().write(request)
+        socket.getOutputStream().flush()
+        return parseRawResponse(socket.getInputStream().readBytes())
+    }
+}
+
+/**
  * Like [rawHttpRequest] but returns the complete raw response bytes (status
  * line + headers + body). Used by tests that must assert on the exact bytes
  * on the wire, e.g. that a failed stream never appends a second response to

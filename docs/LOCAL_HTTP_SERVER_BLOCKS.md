@@ -421,6 +421,61 @@ The same information goes to logcat on device: `adb logcat -s NewCatroidHttp`
 5. Note whether the capability probe reports `crossOriginIsolated: true` and
    whether `SharedArrayBuffer`/`WebAssembly` are available.
 
+## Data batch endpoint (`POST /data/batch`)
+
+Hosted games whose engine streams its data through an io worker (like the
+playgta5 build) fetch whole batches of byte ranges in ONE POST:
+**"thousands of small archive pieces cost one round trip per batch instead of
+one each"** (the reference server implements the same contract). Without this
+endpoint the engine's start-up data arrives one SAF open+Range round trip per
+piece and the boot stalls right after the engine starts (the reported 22%
+"Starting the engine" stall, with only a few MB of the ~600 MB boot read-set
+transferred). The server implements the reference contract:
+
+- request body: a JSON array of `[name, start, end]` runs - name relative to
+  the hosted `data/` directory, byte offsets inclusive;
+- response: one `application/octet-stream` body with the runs concatenated in
+  order, an `X-Run-Lengths` header with each run's length AS SENT (ranges are
+  clamped at the end of the file), and with `?gz=1` a gzip body plus
+  `Content-Encoding: gzip` (decoded transparently by the browser);
+- limits: at most 1000 runs, request body at most 1 MiB, total at most
+  64 MiB; invalid bodies/ranges answer 400, unknown files 404, non-POST
+  methods 405, oversized bodies 413.
+
+Files are resolved through the served store (with the nested-site-root
+fallback), so batch reads stay confined to the selected tree and traversal
+attempts in run names are rejected. The io worker's per-batch cache probes
+(`GET /data/batchc/<hash>.bin`) simply 404 and it falls back to the POST. The
+miss path of the nested-site-root search was made authoritative (cheap) so
+these probes and genuine 404s never trigger an expensive full-tree scan.
+
+## Optional touch controls overlay
+
+Hosted games that only read keyboard/mouse input can be played on phones
+with an optional overlay: open the game URL with **`&newcatroid_touch=1`**
+appended (e.g. `http://localhost:8080/homepage.html?newcatroid_touch=1`).
+The server then injects one script tag into the served HTML - the hosted
+file itself is not modified. The overlay (`res/raw/newcatroid_touch_controls.js`,
+served at `/__newcatroid_touch_controls.js`) provides:
+
+- a **left virtual joystick** for movement (WASD);
+- a **right-side drag area** for camera/look (mouse look);
+- buttons for **jump** (Space), **sprint** (Shift), **crouch** (Ctrl) and
+  **fire** (left mouse button) - the standard mappings the page's own key
+  table already defines;
+- multi-touch (every control tracks its own touch identifier), responsive
+  sizing, adjustable opacity/size (`?touchOpacity=`, `?touchSize=`), a
+  hide/show gear, and `touch-action: none` so the browser never scrolls or
+  gestures while playing.
+
+The overlay does **not** talk to the game engine. It dispatches synthetic DOM
+keyboard/mouse events, which the page's EXISTING input handlers forward to
+the engine through its own input pathway (the page's key table and shared
+input memory). So the controls reach the game's real control system; nothing
+is invented or bypassed. The overlay only appears on touch devices and never
+intercepts mouse/keyboard input, so desktop play is unchanged; without the
+`?newcatroid_touch=1` parameter the served pages are byte-identical.
+
 ## What the server does
 
 - Serves the hosted SAF directory (or a single selected file) via

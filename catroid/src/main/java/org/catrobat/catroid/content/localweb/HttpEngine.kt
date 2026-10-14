@@ -30,6 +30,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.util.zip.GZIPOutputStream
 
 /** Severity for [HttpLogger] request diagnostics. */
 enum class LogLevel { DEBUG, INFO, WARN, ERROR }
@@ -66,7 +67,8 @@ class HttpEngine(
     private val urlPrefixProvider: () -> String = { "/" },
     private val logger: HttpLogSink = { _, _, _ -> },
     private val addCrossOriginIsolationHeaders: Boolean = true,
-    private val requestLog: RequestLog? = null
+    private val requestLog: RequestLog? = null,
+    private val touchControlsScriptProvider: (() -> String?)? = null
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -94,12 +96,18 @@ class HttpEngine(
      * @param headers lower-cased header name -> value map.
      * @param out raw socket output stream (buffered by the caller).
      */
-    fun handle(method: String, rawTarget: String, headers: Map<String, String>, out: OutputStream) {
+    fun handle(
+        method: String,
+        rawTarget: String,
+        headers: Map<String, String>,
+        out: OutputStream,
+        body: ByteArray? = null
+    ) {
         val response = ResponseStream(out)
         val record = RequestRecord(method, rawTarget)
         val startedAt = System.nanoTime()
         try {
-            handleInternal(method, rawTarget, headers, response, record)
+            handleInternal(method, rawTarget, headers, body, response, record)
         } catch (e: Exception) {
             if (!response.started) {
                 record.status = 500
@@ -198,9 +206,29 @@ class HttpEngine(
         method: String,
         rawTarget: String,
         headers: Map<String, String>,
+        body: ByteArray?,
         out: OutputStream,
         record: RequestRecord
     ) {
+        val rawPath = rawTarget.substringBefore('?').ifEmpty { "/" }
+        val query = if ('?' in rawTarget) rawTarget.substringAfter('?') else ""
+
+        val normalizedEarly = HttpPaths.normalize(rawPath)
+
+        // Built-in data batch endpoint (POST /data/batch). Hosted games whose
+        // engine streams its data through an io worker (like the playgta5
+        // build) ask for whole batches of byte ranges in ONE POST: "thousands
+        // of small archive pieces cost one round trip per batch instead of one
+        // each" (the reference server implements exactly this contract).
+        // Without it the engine's start-up data arrives one SAF open+Range
+        // round trip per piece and the boot stalls right after the engine
+        // starts. Matched before the method/prefix checks because the game's
+        // io worker always addresses it at <origin>/data/batch.
+        if (normalizedEarly == DATA_BATCH_PATH) {
+            handleDataBatch(method, rawPath, query, body, out, record)
+            return
+        }
+
         val isHead = method.equals("HEAD", ignoreCase = true)
         if (!method.equals("GET", ignoreCase = true) && !isHead) {
             out.writeSimpleError(405, "Method Not Allowed", "405 Method Not Allowed", extraHeaders = listOf("Allow" to "GET, HEAD"))
@@ -209,9 +237,6 @@ class HttpEngine(
             logger(LogLevel.INFO, "$method $rawTarget -> 405 method not allowed", null)
             return
         }
-
-        val rawPath = rawTarget.substringBefore('?').ifEmpty { "/" }
-        val query = if ('?' in rawTarget) rawTarget.substringAfter('?') else ""
 
         // Normalize the full request path first: invalid paths and traversal
         // attempts escaping the served root are rejected before anything else.
@@ -257,6 +282,36 @@ class HttpEngine(
             return
         }
 
+        // Built-in optional touch controls overlay script. Served by the
+        // server itself (a separate, removable file - no hosted game file is
+        // modified). Injected into HTML pages only when requested with
+        // ?newcatroid_touch=1 (see handleFile); the overlay itself hides on
+        // non-touch devices and leaves desktop mouse/keyboard input alone.
+        if (relativeToPrefix == TOUCH_CONTROLS_PATH) {
+            val script = touchControlsScriptProvider?.invoke()
+            if (script == null) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found (touch controls unavailable)")
+                record.status = 404
+                record.detail = "touch controls script unavailable"
+                return
+            }
+            val body = script.toByteArray(StandardCharsets.UTF_8)
+            writeResponseHeaders(
+                out, 200, "OK",
+                listOf(
+                    "Content-Type" to "text/javascript; charset=utf-8",
+                    "Content-Length" to body.size.toString(),
+                    "Cache-Control" to "no-store"
+                )
+            )
+            if (!isHead) out.write(body)
+            record.status = 200
+            record.mimeType = "text/javascript; charset=utf-8"
+            record.detail = "built-in touch controls overlay script"
+            logger(LogLevel.INFO, "$method $rawPath -> 200 touch controls script", null)
+            return
+        }
+
         val store = storeProvider()
         if (store == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (no directory is being hosted)")
@@ -276,15 +331,7 @@ class HttpEngine(
             // the request path - default-document and entry-point discovery
             // below must stay direct (they look inside the requested
             // directory).
-            val searcher = if (suffixSearcherStore !== store) {
-                PathSuffixSearcher(store).also {
-                    suffixSearcher = it
-                    suffixSearcherStore = store
-                }
-            } else {
-                suffixSearcher!!
-            }
-            entry = searcher.find(relativeToPrefix)
+            entry = suffixSearcherFor(store).find(relativeToPrefix)
             if (entry == null) {
                 out.writeSimpleError(404, "Not Found", "404 Not Found")
                 record.status = 404
@@ -302,7 +349,7 @@ class HttpEngine(
         if (entry.isDirectory) {
             handleDirectory(store, entry, rawPath, relativeToPrefix, query, isHead, out, record)
         } else {
-            handleFile(store, entry, rawPath, headers, isHead, out, record)
+            handleFile(store, entry, rawPath, headers, isHead, out, record, query)
         }
     }
 
@@ -332,7 +379,7 @@ class HttpEngine(
         for (indexName in INDEX_FILE_NAMES) {
             val index = store.resolve(if (normalized.isEmpty()) indexName else "$normalized/$indexName")
             if (index != null && !index.isDirectory) {
-                handleFile(store, index, rawPath, emptyMap(), isHead, out, record)
+                handleFile(store, index, rawPath, emptyMap(), isHead, out, record, query)
                 return
             }
         }
@@ -582,7 +629,8 @@ class HttpEngine(
         headers: Map<String, String>,
         isHead: Boolean,
         out: OutputStream,
-        record: RequestRecord
+        record: RequestRecord,
+        query: String = ""
     ) {
         val contentType = resolveContentType(entry)
         val size = entry.size
@@ -647,22 +695,36 @@ class HttpEngine(
                     return
                 }
                 is HttpRanges.Result.Ignore -> {
+                    // Optional touch controls overlay: inject the overlay
+                    // script into HTML pages when the request asks for it
+                    // (?newcatroid_touch=1). The overlay is a separate script
+                    // served by this server; the hosted file itself is not
+                    // modified.
+                    var outBytes = bytes
+                    if (query.split('&').any { it == "newcatroid_touch" || it == "newcatroid_touch=1" } &&
+                        contentType.startsWith("text/html")
+                    ) {
+                        outBytes = injectTouchControlsScript(bytes)
+                        record.detail = "touch controls overlay injected"
+                        logger(LogLevel.INFO, "GET $requestPath -> injected touch controls overlay", null)
+                    }
+                    val sent = outBytes.size.toLong()
                     writeResponseHeaders(
                         out, 200, "OK",
                         listOf(
                             "Content-Type" to contentType,
-                            "Content-Length" to actual.toString(),
+                            "Content-Length" to sent.toString(),
                             "Accept-Ranges" to "bytes"
                         )
                     )
-                    if (!isHead) out.write(bytes)
+                    if (!isHead) out.write(outBytes)
                     record.status = 200
                     record.mimeType = contentType
-                    record.bytesSent = if (isHead) 0 else actual
-                    if (actual != size) {
-                        record.detail = "size mismatch: provider reported $size, sent $actual bytes"
+                    record.bytesSent = if (isHead) 0 else sent
+                    if (sent != size) {
+                        record.detail = "size mismatch: provider reported $size, sent $sent bytes"
                     }
-                    logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $actual bytes (${entry.id})", null)
+                    logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent bytes (${entry.id})", null)
                     return
                 }
             }
@@ -752,6 +814,299 @@ class HttpEngine(
         if (byExtension != MimeTypes.DEFAULT) return byExtension
         val reported = entry.mimeType?.takeIf { it.isNotBlank() && it != DIRECTORY_MIME && it != MimeTypes.DEFAULT }
         return reported ?: MimeTypes.DEFAULT
+    }
+
+    /**
+     * Handles `POST /data/batch` - the batch byte-range endpoint used by
+     * hosted games whose engine streams its data through an io worker (the
+     * playgta5 build's io worker, for example, fetches its whole boot read-set
+     * this way: "thousands of small archive pieces cost one round trip per
+     * batch instead of one each"). The contract mirrors the reference server:
+     *
+     * - request body: a JSON array of `[name, start, end]` runs (name relative
+     *   to the hosted `data/` directory, byte offsets inclusive);
+     * - response: one `application/octet-stream` body containing the runs
+     *   concatenated in order, an `X-Run-Lengths` header with the length of
+     *   each run AS SENT (each range is clamped at the end of the file), and
+     *   with `?gz=1` a gzip-compressed body plus `Content-Encoding: gzip`
+     *   (the browser decodes it transparently);
+     * - limits: at most 1000 runs, request body at most 1 MiB, total at most
+     *   64 MiB; invalid bodies/ranges answer 400, unknown files 404, other
+     *   methods 405.
+     *
+     * Files are resolved through the served store (with the nested-site-root
+     * fallback), so the batch reads stay confined to the selected tree.
+     */
+    private fun handleDataBatch(
+        method: String,
+        rawPath: String,
+        query: String,
+        body: ByteArray?,
+        out: OutputStream,
+        record: RequestRecord
+    ) {
+        val store = storeProvider()
+        if (store == null) {
+            out.writeSimpleError(404, "Not Found", "404 Not Found (no directory is being hosted)")
+            record.status = 404
+            record.detail = "no directory is being hosted"
+            return
+        }
+        if (!method.equals("POST", ignoreCase = true)) {
+            out.writeSimpleError(405, "Method Not Allowed", "405 Method Not Allowed", extraHeaders = listOf("Allow" to "POST"))
+            record.status = 405
+            record.detail = "batch endpoint expects POST"
+            logger(LogLevel.INFO, "$method $rawPath -> 405 batch endpoint expects POST", null)
+            return
+        }
+        if (body != null && body.size > MAX_BATCH_BODY_BYTES) {
+            out.writeSimpleError(413, "Payload Too Large", "413 Payload Too Large (batch body exceeds 1 MiB)")
+            record.status = 413
+            record.detail = "batch body exceeds 1 MiB"
+            return
+        }
+        val runs = try {
+            parseBatchRuns(body?.toString(StandardCharsets.UTF_8) ?: "")
+        } catch (e: Exception) {
+            null
+        }
+        if (runs == null) {
+            out.writeSimpleError(400, "Bad Request", "400 Bad Request (invalid batch body)")
+            record.status = 400
+            record.detail = "invalid batch body"
+            return
+        }
+        if (runs.size > MAX_BATCH_RUNS) {
+            out.writeSimpleError(400, "Bad Request", "400 Bad Request (too many runs)")
+            record.status = 400
+            record.detail = "too many runs: ${runs.size}"
+            return
+        }
+
+        data class Selected(val entry: DocumentEntry, val start: Long, val length: Long)
+        val selected = mutableListOf<Selected>()
+        var total = 0L
+        for ((name, start, end) in runs) {
+            // Confine every run name to a safe relative path inside data/.
+            val normalizedName = HttpPaths.normalize(name)
+            if (normalizedName.isNullOrEmpty()) {
+                out.writeSimpleError(400, "Bad Request", "400 Bad Request (invalid file name)")
+                record.status = 400
+                record.detail = "invalid file name: $name"
+                return
+            }
+            if (start < 0 || end < start) {
+                out.writeSimpleError(400, "Bad Request", "400 Bad Request (invalid range)")
+                record.status = 400
+                record.detail = "invalid range for $name"
+                return
+            }
+            val storePath = "data/$normalizedName"
+            val entry = store.resolve(storePath) ?: suffixSearcherFor(store).find(storePath)
+            if (entry == null || entry.isDirectory) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found (data file not found: $normalizedName)")
+                record.status = 404
+                record.detail = "data file not found: $normalizedName"
+                return
+            }
+            // Clamp the range at the end of the server's copy of the file.
+            val length = if (entry.size >= 0) {
+                maxOf(0L, minOf(end + 1, entry.size) - start)
+            } else {
+                end + 1 - start
+            }
+            total += length
+            if (total > MAX_BATCH_TOTAL_BYTES) {
+                out.writeSimpleError(400, "Bad Request", "400 Bad Request (batch exceeds 64 MiB)")
+                record.status = 400
+                record.detail = "batch exceeds 64 MiB"
+                return
+            }
+            selected.add(Selected(entry, start, length))
+        }
+
+        // Read the runs and concatenate them in order.
+        val output = ByteArrayOutputStream()
+        val lengths = ArrayList<Long>(selected.size)
+        var failure: String? = null
+        for (item in selected) {
+            val input = store.openInput(item.entry)
+            if (input == null) {
+                failure = "cannot open ${item.entry.name}"
+                break
+            }
+            var sent = 0L
+            try {
+                input.use { inp ->
+                    skipFully(inp, item.start)
+                    val buffer = ByteArray(
+                        minOf(STREAM_BUFFER_SIZE.toLong(), maxOf(1L, item.length)).toInt()
+                    )
+                    var remaining = item.length
+                    while (remaining > 0) {
+                        val read = inp.read(
+                            buffer, 0,
+                            minOf(buffer.size.toLong(), remaining).toInt()
+                        )
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        sent += read
+                        remaining -= read
+                    }
+                }
+            } catch (e: Exception) {
+                failure = "read failed for ${item.entry.name}: ${e.message}"
+                break
+            }
+            lengths.add(sent)
+        }
+        if (failure != null) {
+            out.writeSimpleError(404, "Not Found", "404 Not Found ($failure)")
+            record.status = 404
+            record.detail = failure
+            return
+        }
+
+        var responseBody = output.toByteArray()
+        val compressed = query.split('&').any { it == "gz=1" }
+        if (compressed) {
+            val gz = ByteArrayOutputStream()
+            GZIPOutputStream(gz).use { it.write(responseBody) }
+            responseBody = gz.toByteArray()
+        }
+        writeResponseHeaders(
+            out, 200, "OK",
+            listOfNotNull(
+                "Content-Type" to "application/octet-stream",
+                "Content-Length" to responseBody.size.toString(),
+                "X-Run-Lengths" to lengths.joinToString(","),
+                if (compressed) "Content-Encoding" to "gzip" else null
+            )
+        )
+        out.write(responseBody)
+        record.status = 200
+        record.mimeType = "application/octet-stream"
+        record.bytesSent = responseBody.size.toLong()
+        record.detail = "data batch: ${selected.size} runs, ${lengths.sum()} bytes" +
+            if (compressed) " (gzipped)" else ""
+        logger(
+            LogLevel.INFO,
+            "POST $rawPath -> 200 data batch (${selected.size} runs, ${lengths.sum()} bytes)",
+            null
+        )
+    }
+
+    /** Lazily created (and store-change aware) nested-site-root searcher. */
+    private fun suffixSearcherFor(store: DocumentStore): PathSuffixSearcher {
+        if (suffixSearcherStore !== store) {
+            suffixSearcher = PathSuffixSearcher(store)
+            suffixSearcherStore = store
+        }
+        return suffixSearcher!!
+    }
+
+    /** Injects the touch controls overlay script tag into an HTML document. */
+    private fun injectTouchControlsScript(html: ByteArray): ByteArray {
+        val prefix = HttpPaths.normalizePrefix(urlPrefixProvider())
+        val src = if (prefix == "/") "/$TOUCH_CONTROLS_PATH" else "$prefix/$TOUCH_CONTROLS_PATH"
+        val tag = "<script src=\"$src\" defer></script>"
+        val text = String(html, StandardCharsets.UTF_8)
+        val bodyEnd = text.lastIndexOf("</body>", ignoreCase = true)
+        val injected = if (bodyEnd >= 0) {
+            text.substring(0, bodyEnd) + tag + text.substring(bodyEnd)
+        } else {
+            text + tag
+        }
+        return injected.toByteArray(StandardCharsets.UTF_8)
+    }
+
+    /**
+     * Minimal parser for the batch request body: a JSON array of
+     * `[name, start, end]` runs. Hand-rolled (the engine stays pure JVM and
+     * dependency-free); returns null when the body is not exactly that shape.
+     */
+    private fun parseBatchRuns(body: String): List<Triple<String, Long, Long>>? {
+        var i = 0
+        fun skipWs() {
+            while (i < body.length && body[i].isWhitespace()) i++
+        }
+        fun parseString(): String? {
+            if (i >= body.length || body[i] != '"') return null
+            i++
+            val sb = StringBuilder()
+            while (i < body.length) {
+                val c = body[i]
+                if (c == '\\' && i + 1 < body.length) {
+                    sb.append(body[i + 1])
+                    i += 2
+                    continue
+                }
+                if (c == '"') {
+                    i++
+                    return sb.toString()
+                }
+                sb.append(c)
+                i++
+            }
+            return null
+        }
+        fun parseNumber(): Long? {
+            val start = i
+            if (i < body.length && (body[i] == '-' || body[i] == '+')) i++
+            while (i < body.length && body[i].isDigit()) i++
+            if (i < body.length && body[i] == '.') {
+                i++
+                while (i < body.length && body[i].isDigit()) i++
+            }
+            if (i < body.length && (body[i] == 'e' || body[i] == 'E')) {
+                i++
+                if (i < body.length && (body[i] == '+' || body[i] == '-')) i++
+                while (i < body.length && body[i].isDigit()) i++
+            }
+            if (start == i) return null
+            return body.substring(start, i).toDoubleOrNull()?.toLong()
+        }
+        fun parseArray(): List<Any>? {
+            if (i >= body.length || body[i] != '[') return null
+            i++
+            val out = mutableListOf<Any>()
+            skipWs()
+            if (i < body.length && body[i] == ']') {
+                i++
+                return out
+            }
+            while (true) {
+                skipWs()
+                val value: Any = when {
+                    i < body.length && body[i] == '"' -> parseString() ?: return null
+                    i < body.length && body[i] == '[' -> parseArray() ?: return null
+                    else -> parseNumber() ?: return null
+                }
+                out.add(value)
+                skipWs()
+                if (i >= body.length) return null
+                if (body[i] == ',') {
+                    i++
+                    continue
+                }
+                if (body[i] == ']') {
+                    i++
+                    return out
+                }
+                return null
+            }
+        }
+        skipWs()
+        val parsed = parseArray() ?: return null
+        skipWs()
+        if (i != body.length) return null
+        return parsed.map { run ->
+            if (run !is List<*> || run.size != 3) return null
+            val name = run[0] as? String ?: return null
+            val start = (run[1] as? Long) ?: return null
+            val end = (run[2] as? Long) ?: return null
+            Triple(name, start, end)
+        }
     }
 
     private fun writeFileRange(
@@ -852,6 +1207,11 @@ class HttpEngine(
          * (`/__newcatroid_isolation_check`).
          */
         const val ISOLATION_CHECK_PATH = "__newcatroid_isolation_check"
+        const val TOUCH_CONTROLS_PATH = "__newcatroid_touch_controls.js"
+        const val DATA_BATCH_PATH = "data/batch"
+        const val MAX_BATCH_RUNS = 1000
+        const val MAX_BATCH_BODY_BYTES = 1024 * 1024
+        const val MAX_BATCH_TOTAL_BYTES = 64L * 1024 * 1024
 
         /**
          * Minimal diagnostic page served by the server itself. Reports the

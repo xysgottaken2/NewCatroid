@@ -61,7 +61,8 @@ class HttpServerEngine(
     private val urlPrefixProvider: () -> String = { "/" },
     private val logger: HttpLogSink = { _, _, _ -> },
     private val addCrossOriginIsolationHeaders: Boolean = true,
-    private val requestLog: RequestLog? = null
+    private val requestLog: RequestLog? = null,
+    private val touchControlsScriptProvider: (() -> String?)? = null
 ) {
 
     @Volatile
@@ -107,7 +108,14 @@ class HttpServerEngine(
                 return Result.Error("Invalid bind address: $address")
             }
 
-            val engine = HttpEngine(storeProvider, urlPrefixProvider, logger, addCrossOriginIsolationHeaders, requestLog)
+            val engine = HttpEngine(
+                storeProvider,
+                urlPrefixProvider,
+                logger,
+                addCrossOriginIsolationHeaders,
+                requestLog,
+                touchControlsScriptProvider
+            )
 
             val socket: ServerSocket = try {
                 ServerSocket()
@@ -265,7 +273,28 @@ class HttpServerEngine(
                 }
             }
 
-            engine.handle(method, target, headers, out)
+            // Read the request body (bounded) so POST endpoints (the data batch
+            // endpoint of hosted games) can be served.
+            val body: ByteArray? = try {
+                val declared = headers["content-length"]?.toLongOrNull() ?: 0L
+                if (declared <= 0) {
+                    null
+                } else {
+                    val cap = minOf(declared, MAX_REQUEST_BODY_BYTES + 1L).toInt()
+                    val buffer = ByteArray(cap)
+                    var got = 0
+                    while (got < cap) {
+                        val read = input.read(buffer, got, cap - got)
+                        if (read < 0) break
+                        got += read
+                    }
+                    if (got == 0) null else buffer.copyOf(got)
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            engine.handle(method, target, headers, out, body)
         } catch (e: SocketException) {
             // Client went away; nothing to do.
         } catch (e: IOException) {
@@ -317,6 +346,7 @@ class HttpServerEngine(
         const val MAX_HEADER_LINE_BYTES = 8192
         const val MAX_HEADER_BYTES = 16384
         const val MAX_HEADERS = 100
+        const val MAX_REQUEST_BODY_BYTES = 1024 * 1024
     }
 
     private class DaemonThreadFactory(private val prefix: String) : ThreadFactory {

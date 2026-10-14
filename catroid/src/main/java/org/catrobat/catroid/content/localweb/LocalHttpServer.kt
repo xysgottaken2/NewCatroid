@@ -49,6 +49,22 @@ object LocalHttpServer {
     private const val TAG = "LocalHttpServer"
     private const val HTTP_LOG_TAG = "NewCatroidHttp"
 
+    /** Lazily read (and cached) touch controls overlay script from the app assets. */
+    private var cachedTouchControlsScript: String? = null
+
+    private fun touchControlsScript(): String? {
+        cachedTouchControlsScript?.let { return it }
+        return try {
+            val context = CatroidApplication.getAppContext()
+            context.resources.openRawResource(org.catrobat.catroid.R.raw.newcatroid_touch_controls)
+                .use { it.readBytes().toString(Charsets.UTF_8) }
+                .also { cachedTouchControlsScript = it }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to read touch controls overlay script", e)
+            null
+        }
+    }
+
     /** Default bind address: the loopback interface (never exposed on the LAN unless requested). */
     const val DEFAULT_BIND = HttpServerEngine.DEFAULT_BIND_ADDRESS
 
@@ -190,6 +206,7 @@ object LocalHttpServer {
             urlPrefixProvider = { urlPrefix },
             addCrossOriginIsolationHeaders = addCrossOriginIsolationHeaders,
             requestLog = LocalDiagnostics.requestLog,
+            touchControlsScriptProvider = { touchControlsScript() },
             logger = { level, message, error ->
                 when (level) {
                     LogLevel.DEBUG -> Log.d(HTTP_LOG_TAG, message)
