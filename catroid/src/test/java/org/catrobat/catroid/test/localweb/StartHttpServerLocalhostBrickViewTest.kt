@@ -23,6 +23,8 @@
 
 package org.catrobat.catroid.test.localweb
 
+import android.content.Context
+import android.view.ContextThemeWrapper
 import android.view.View
 import android.widget.TextView
 import org.catrobat.catroid.ProjectManager
@@ -60,7 +62,12 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class StartHttpServerLocalhostBrickViewTest {
 
-    private val context = RuntimeEnvironment.getApplication()
+    private val context: Context = RuntimeEnvironment.getApplication()
+    // Brick layouts use theme attributes (?attr/large via the BrickEditText
+    // style) that only resolve with the app theme - the same setup the
+    // existing brick-view tests get from a themed activity.
+    private val themedContext: Context =
+        ContextThemeWrapper(context, R.style.Catroid)
     private val scope: Scope = Scope(null, Sprite(), null)
 
     private fun portFieldOf(brickView: View, id: Int): TextView =
@@ -69,7 +76,7 @@ class StartHttpServerLocalhostBrickViewTest {
     @Test
     fun `localhost brick view exposes a visible editable port field`() {
         val brick = StartHttpServerLocalhostBrick()
-        val view = brick.getView(context)
+        val view = brick.getView(themedContext)
 
         val field = portFieldOf(view, R.id.brick_start_http_server_localhost_edit_port)
         assertNotNull("port field view must exist in the inflated layout", field)
@@ -86,7 +93,7 @@ class StartHttpServerLocalhostBrickViewTest {
         // Dragging a brick from the palette into a script clones it.
         val brick = StartHttpServerLocalhostBrick("9090")
         val clone = brick.clone() as StartHttpServerLocalhostBrick
-        val view = clone.getView(context)
+        val view = clone.getView(themedContext)
         val field = portFieldOf(view, R.id.brick_start_http_server_localhost_edit_port)
         assertNotNull(field)
         assertEquals("9090", field.text.toString())
@@ -98,7 +105,7 @@ class StartHttpServerLocalhostBrickViewTest {
         // the field overflow a single line; the field must wrap (via its
         // layout_newLine hint) and remain fully inside the brick.
         val brick = StartHttpServerLocalhostBrick()
-        val view = brick.getView(context)
+        val view = brick.getView(themedContext)
         val narrowWidth = 220
         view.measure(
             View.MeasureSpec.makeMeasureSpec(narrowWidth, View.MeasureSpec.EXACTLY),
@@ -117,7 +124,7 @@ class StartHttpServerLocalhostBrickViewTest {
     @Test
     fun `original start server brick view is unchanged`() {
         val brick = StartHttpServerBrick()
-        val view = brick.getView(context)
+        val view = brick.getView(themedContext)
         val port = portFieldOf(view, R.id.brick_start_http_server_edit_port)
         val bind = portFieldOf(view, R.id.brick_start_http_server_edit_bind)
         assertEquals("8080", port.text.toString())
