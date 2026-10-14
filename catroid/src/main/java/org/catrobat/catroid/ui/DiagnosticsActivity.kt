@@ -34,6 +34,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.catrobat.catroid.content.localweb.LocalDiagnostics
@@ -133,7 +134,14 @@ class DiagnosticsActivity : AppCompatActivity() {
             append("url: ").append(LocalHttpServer.baseUrl.ifEmpty { "(none)" }).append('\n')
             append("port: ").append(LocalHttpServer.port).append('\n')
             append("document root: ").append(LocalHttpServer.documentRoot.ifEmpty { "(none)" }).append('\n')
-            append("last error: ").append(LocalHttpServer.lastError ?: "(none)")
+            append("last error: ").append(LocalHttpServer.lastError ?: "(none)").append('\n')
+            val webViewPackage = try {
+                WebView.getCurrentWebViewPackage()
+            } catch (e: Exception) {
+                null
+            }
+            append("webview package: ")
+                .append(if (webViewPackage != null) webViewPackage.packageName + " " + (webViewPackage.versionName ?: "?") else "(unknown)")
         }
         requestsText.text = LocalDiagnostics.requestLog.formatForCopy()
         webViewText.text = LocalDiagnostics.webViewLog.formatForCopy()

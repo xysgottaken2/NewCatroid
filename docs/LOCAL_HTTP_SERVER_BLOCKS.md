@@ -307,6 +307,33 @@ reports a clear error. (The bind address and the browser URL hostname are the
 same value here: the server listens on loopback and the URL uses `localhost`,
 which resolves to loopback; nothing is exposed to the local network.)
 
+**Cross-origin isolation: the built-in check page and a known WebView
+limitation.** Every response carries COOP/COEP (verified on the wire by a HEAD
+probe). The server also serves a built-in diagnostic page at
+**`/__newcatroid_isolation_check`** (reachable under the configured URL
+prefix too, e.g. `/game/__newcatroid_isolation_check`; works with or without
+a hosted folder). It is a minimal page that reports `crossOriginIsolated`,
+`isSecureContext`, `SharedArrayBuffer`, `WebAssembly`, the user agent
+(WebView and Chromium versions), tries `new SharedArrayBuffer(8)` and
+`WebAssembly.compile`, and reports the COOP/COEP/CORP headers the browser
+actually received for its own document (HEAD fetch of itself). It exists to
+distinguish a WebView limitation from a hosted game's own JavaScript.
+
+**Known platform limitation (evidence):** Chromium issue 40914606 - "WebView
+does not support cross-origin isolation at all, regardless of whether web
+pages opt in via headers. Current versions of WebView only use one renderer
+process for each Android app that is using WebView, so no isolation is
+possible" (Google, Won't Fix; 2025 follow-ups confirm multithreaded WASM is
+impossible in Android WebView for this reason). Consequence: a hosted game
+whose engine requires `SharedArrayBuffer`/threaded WASM (like the playgta5
+build, whose page only creates its engine worker when `crossOriginIsolated`)
+cannot start inside the embedded WebView on such devices, no matter what the
+server sends. The check page confirms this on-device; the diagnostics screen
+also shows the Android System WebView package name/version. Options for such
+games: a newer WebView that supports isolation (test with the check page), or
+opening the same localhost URL in the device's full browser (which supports
+isolation). The isolation headers remain correct and are kept.
+
 **Compatibility notes (COEP `require-corp`):** all subresources of a hosted
 application are served from the same origin, so same-origin scripts,
 stylesheets, images, workers and WASM modules load normally. Resources from

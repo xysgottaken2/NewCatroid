@@ -234,6 +234,29 @@ class HttpEngine(
             return
         }
 
+        // Built-in diagnostic route, served by the server itself (with the
+        // standard response headers): a minimal page that isolates WebView
+        // cross-origin-isolation behavior from any hosted game's JavaScript -
+        // it reports crossOriginIsolated, isSecureContext, SharedArrayBuffer,
+        // WebAssembly, the user agent (WebView/Chromium versions), and the
+        // headers the browser actually received for its own document.
+        if (relativeToPrefix == ISOLATION_CHECK_PATH) {
+            val body = ISOLATION_CHECK_HTML.toByteArray(StandardCharsets.UTF_8)
+            writeResponseHeaders(
+                out, 200, "OK",
+                listOf(
+                    "Content-Type" to "text/html; charset=utf-8",
+                    "Content-Length" to body.size.toString()
+                )
+            )
+            if (!isHead) out.write(body)
+            record.status = 200
+            record.mimeType = "text/html; charset=utf-8"
+            record.detail = "built-in isolation check page"
+            logger(LogLevel.INFO, "$method $rawPath -> 200 isolation check page", null)
+            return
+        }
+
         val store = storeProvider()
         if (store == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (no directory is being hosted)")
@@ -824,6 +847,73 @@ class HttpEngine(
     }
 
     companion object {
+        /**
+         * Path of the built-in cross-origin isolation check page
+         * (`/__newcatroid_isolation_check`).
+         */
+        const val ISOLATION_CHECK_PATH = "__newcatroid_isolation_check"
+
+        /**
+         * Minimal diagnostic page served by the server itself. Reports the
+         * WebView's cross-origin isolation state, secure-context state,
+         * SharedArrayBuffer/WebAssembly availability, the user agent (WebView
+         * and Chromium versions), and the response headers the browser
+         * actually received for this document (via a HEAD fetch of itself).
+         * Everything is also console.logged so the WebView event capture
+         * records it. Used to distinguish a WebView limitation from a hosted
+         * game's own JavaScript failure.
+         */
+        const val ISOLATION_CHECK_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>NewCatroid isolation check</title></head>
+<body>
+<h1>NewCatroid cross-origin isolation check</h1>
+<p>Served by the local server with the standard COOP/COEP headers. Open this page
+directly (no redirect) and compare with the hosted game's page.</p>
+<pre id="out">running...</pre>
+<script>
+(function () {
+    var lines = [];
+    function log(s) {
+        lines.push(s);
+        var el = document.getElementById('out');
+        if (el) el.textContent = lines.join('
+');
+        console.log(s);
+    }
+    log('url: ' + location.href);
+    log('isSecureContext: ' + window.isSecureContext);
+    log('crossOriginIsolated: ' + window.crossOriginIsolated);
+    log('SharedArrayBuffer: ' + typeof SharedArrayBuffer);
+    log('WebAssembly: ' + typeof WebAssembly);
+    log('userAgent: ' + navigator.userAgent);
+    try {
+        var sab = new SharedArrayBuffer(8);
+        log('SharedArrayBuffer(8): OK (' + sab.byteLength + ' bytes)');
+    } catch (e) {
+        log('SharedArrayBuffer(8): FAILED: ' + e);
+    }
+    try {
+        WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(
+            function () { log('WebAssembly.compile: OK'); },
+            function (e) { log('WebAssembly.compile: FAILED: ' + e); }
+        );
+    } catch (e) {
+        log('WebAssembly.compile: FAILED: ' + e);
+    }
+    fetch(location.href, { method: 'HEAD' }).then(function (r) {
+        log('own HEAD: status=' + r.status +
+            ' COOP=' + r.headers.get('cross-origin-opener-policy') +
+            ' COEP=' + r.headers.get('cross-origin-embedder-policy') +
+            ' CORP=' + r.headers.get('cross-origin-resource-policy') +
+            ' type=' + r.headers.get('content-type'));
+    }).catch(function (e) { log('own HEAD: FAILED: ' + e); });
+    fetch(location.href).then(function (r) {
+        log('own GET: status=' + r.status);
+    }).catch(function (e) { log('own GET: FAILED: ' + e); });
+})();
+</script>
+</body></html>"""
+
         const val STREAM_BUFFER_SIZE = 64 * 1024
         const val SMALL_FILE_BUFFER_BYTES = 4 * 1024 * 1024
         const val HEADER_CROSS_ORIGIN_OPENER_POLICY = "cross-origin-opener-policy"

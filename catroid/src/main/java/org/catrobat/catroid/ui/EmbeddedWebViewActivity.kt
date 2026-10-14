@@ -271,6 +271,8 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     webgl2: (function () { try { var c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; } })(),
                     readyState: document.readyState,
                     scriptTags: document.scripts.length,
+                    isSecureContext: window.isSecureContext,
+                    userAgent: navigator.userAgent,
                     resources: (function () {
                         try {
                             var entries = performance.getEntriesByType('resource');
