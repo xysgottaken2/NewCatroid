@@ -86,6 +86,12 @@ class HttpEngineRequestLogTest {
         file.writeText(content, StandardCharsets.UTF_8)
     }
 
+    private fun write(relativePath: String, content: ByteArray) {
+        val file = File(rootDir, relativePath)
+        file.parentFile?.mkdirs()
+        file.writeBytes(content)
+    }
+
     private fun lastEntry() = requestLog.snapshot().last()
 
     @Test
