@@ -189,7 +189,7 @@ class TouchControlsInjectionTest {
     }
 
     @Test
-    fun `desktop compatibility: no injection without the opt-in parameter`() {
+    fun `desktop compatibility - no injection without the opt-in parameter`() {
         startServer()
         // Without ?newcatroid_touch=1 the served page is byte-identical, so
         // desktop mouse/keyboard behavior is untouched; the overlay itself
