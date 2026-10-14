@@ -128,7 +128,8 @@ class StartHttpServerLocalhostBrickViewTest {
         val port = portFieldOf(view, R.id.brick_start_http_server_edit_port)
         val bind = portFieldOf(view, R.id.brick_start_http_server_edit_bind)
         assertEquals("8080", port.text.toString().trim())
-        assertEquals("127.0.0.1", bind.text.toString().trim())
+        // String formulas are displayed with surrounding single quotes.
+        assertEquals("'127.0.0.1'", bind.text.toString().trim())
         brick.setClickListeners()
         assertTrue(port.hasOnClickListeners())
         assertTrue(bind.hasOnClickListeners())
