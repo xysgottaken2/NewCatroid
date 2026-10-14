@@ -65,7 +65,8 @@ class HttpEngine(
     private val storeProvider: () -> DocumentStore?,
     private val urlPrefixProvider: () -> String = { "/" },
     private val logger: HttpLogSink = { _, _, _ -> },
-    private val addCrossOriginIsolationHeaders: Boolean = true
+    private val addCrossOriginIsolationHeaders: Boolean = true,
+    private val requestLog: RequestLog? = null
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -84,10 +85,14 @@ class HttpEngine(
      */
     fun handle(method: String, rawTarget: String, headers: Map<String, String>, out: OutputStream) {
         val response = ResponseStream(out)
+        val record = RequestRecord(method, rawTarget)
+        val startedAt = System.nanoTime()
         try {
-            handleInternal(method, rawTarget, headers, response)
+            handleInternal(method, rawTarget, headers, response, record)
         } catch (e: Exception) {
             if (!response.started) {
+                record.status = 500
+                record.detail = "internal error: ${e.message}"
                 logger(LogLevel.ERROR, "$method $rawTarget -> request failed before any response was sent", e)
                 try {
                     response.writeSimpleError(500, "Internal Server Error", "500 Internal Server Error")
@@ -97,29 +102,75 @@ class HttpEngine(
                 // The response is already on the wire. Appending an error
                 // response would corrupt the body the client is reading;
                 // abort by closing the connection instead (the caller does).
-                logger(LogLevel.ERROR, "$method $rawTarget -> response aborted mid-stream (connection closed)", e)
+                record.status = response.status
+                record.bytesSent = response.bytesWritten
+                record.detail = "aborted mid-stream: " + when (e) {
+                    is EOFException -> "document stream ended early (truncated file?)"
+                    is java.io.IOException -> "connection failed while writing (client closed early?)"
+                    else -> "unexpected error: ${e.message}"
+                }
+                logger(LogLevel.ERROR, "$method $rawTarget -> response aborted mid-stream (${record.detail}, ${response.bytesWritten} body bytes sent)", e)
             }
         } finally {
             try {
                 out.flush()
             } catch (ignored: Exception) {
             }
+            record.durationMs = (System.nanoTime() - startedAt) / 1_000_000
+            requestLog?.add(record.toEntry())
         }
     }
 
-    /** Output stream wrapper that records whether a response has started. */
+    /** Mutable per-request record; converted to a [RequestLogEntry] when done. */
+    private class RequestRecord(val method: String, val path: String) {
+        var status: Int = 0
+        var mimeType: String? = null
+        var bytesSent: Long = 0
+        var detail: String? = null
+        var durationMs: Long = 0
+
+        fun toEntry(): RequestLogEntry = RequestLogEntry(
+            timestampMs = System.currentTimeMillis(),
+            method = method,
+            path = path,
+            status = status,
+            mimeType = mimeType,
+            bytesSent = bytesSent,
+            durationMs = durationMs,
+            detail = detail
+        )
+    }
+
+    /**
+     * Output stream wrapper that records whether a response has started, its
+     * status, and how many body bytes were written (for abort diagnostics).
+     */
     private class ResponseStream(private val delegate: OutputStream) : OutputStream() {
         @Volatile
         var started = false
             private set
 
+        var status: Int = 0
+
+        var bytesWritten: Long = 0
+            private set
+
+        private var countBodyBytes = false
+
+        /** Starts counting written bytes (called once the headers are on the wire). */
+        fun beginBody() {
+            countBodyBytes = true
+        }
+
         override fun write(b: Int) {
             started = true
+            if (countBodyBytes) bytesWritten++
             delegate.write(b)
         }
 
         override fun write(b: ByteArray, off: Int, len: Int) {
             started = true
+            if (countBodyBytes) bytesWritten += len
             delegate.write(b, off, len)
         }
 
@@ -136,11 +187,14 @@ class HttpEngine(
         method: String,
         rawTarget: String,
         headers: Map<String, String>,
-        out: OutputStream
+        out: OutputStream,
+        record: RequestRecord
     ) {
         val isHead = method.equals("HEAD", ignoreCase = true)
         if (!method.equals("GET", ignoreCase = true) && !isHead) {
             out.writeSimpleError(405, "Method Not Allowed", "405 Method Not Allowed", extraHeaders = listOf("Allow" to "GET, HEAD"))
+            record.status = 405
+            record.detail = "method not allowed"
             logger(LogLevel.INFO, "$method $rawTarget -> 405 method not allowed", null)
             return
         }
@@ -153,6 +207,8 @@ class HttpEngine(
         val normalized = HttpPaths.normalize(rawPath)
         if (normalized == null) {
             out.writeSimpleError(403, "Forbidden", "403 Forbidden (invalid path)")
+            record.status = 403
+            record.detail = "invalid or escaping path"
             logger(LogLevel.INFO, "$method $rawPath -> 403 invalid or escaping path", null)
             return
         }
@@ -161,6 +217,8 @@ class HttpEngine(
         val relativeToPrefix = HttpPaths.stripPrefix(normalized, urlPrefixProvider())
         if (relativeToPrefix == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (path is outside the served prefix)")
+            record.status = 404
+            record.detail = "path is outside the served prefix"
             logger(LogLevel.INFO, "$method $rawPath -> 404 outside the served prefix", null)
             return
         }
@@ -168,6 +226,8 @@ class HttpEngine(
         val store = storeProvider()
         if (store == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (no directory is being hosted)")
+            record.status = 404
+            record.detail = "no directory is being hosted"
             logger(LogLevel.WARN, "$method $rawPath -> 404 no directory is being hosted", null)
             return
         }
@@ -175,14 +235,16 @@ class HttpEngine(
         val entry = store.resolve(relativeToPrefix)
         if (entry == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found")
+            record.status = 404
+            record.detail = "document not resolved: $relativeToPrefix"
             logger(LogLevel.INFO, "$method $rawPath -> 404 document not resolved ($relativeToPrefix)", null)
             return
         }
 
         if (entry.isDirectory) {
-            handleDirectory(store, entry, rawPath, relativeToPrefix, query, isHead, out)
+            handleDirectory(store, entry, rawPath, relativeToPrefix, query, isHead, out, record)
         } else {
-            handleFile(store, entry, rawPath, headers, isHead, out)
+            handleFile(store, entry, rawPath, headers, isHead, out, record)
         }
     }
 
@@ -193,7 +255,8 @@ class HttpEngine(
         normalized: String,
         query: String,
         isHead: Boolean,
-        out: OutputStream
+        out: OutputStream,
+        record: RequestRecord
     ) {
         // Redirect to a trailing slash so relative resource URLs resolve correctly.
         if (!rawPath.endsWith("/")) {
@@ -202,6 +265,8 @@ class HttpEngine(
                 301, "Moved Permanently", "301 Moved Permanently",
                 extraHeaders = listOf("Location" to location)
             )
+            record.status = 301
+            record.detail = "slash redirect to $location"
             logger(LogLevel.INFO, "GET $rawPath -> 301 directory slash redirect to $location", null)
             return
         }
@@ -209,7 +274,7 @@ class HttpEngine(
         for (indexName in INDEX_FILE_NAMES) {
             val index = store.resolve(if (normalized.isEmpty()) indexName else "$normalized/$indexName")
             if (index != null && !index.isDirectory) {
-                handleFile(store, index, rawPath, emptyMap(), isHead, out)
+                handleFile(store, index, rawPath, emptyMap(), isHead, out, record)
                 return
             }
         }
@@ -228,11 +293,16 @@ class HttpEngine(
                 if (query.isNotEmpty()) append('?').append(query)
             }
             writeEntryRedirect(out, location, isHead)
+            record.status = 302
+            record.detail = "entry point redirect to $location"
             logger(LogLevel.INFO, "GET $rawPath -> 302 entry point redirect to $location", null)
             return
         }
 
         // No entry point found: render a minimal directory listing.
+        record.status = 200
+        record.mimeType = "text/html; charset=utf-8"
+        record.detail = "directory listing (no default document or entry point)"
         logger(LogLevel.INFO, "GET $rawPath -> 200 directory listing (no default document or entry point)", null)
         val children = store.listChildren(entry).take(MAX_LISTING_ENTRIES)
         val title = escapeHtml(entry.name.ifEmpty { store.rootDisplayName })
@@ -453,7 +523,8 @@ class HttpEngine(
         requestPath: String,
         headers: Map<String, String>,
         isHead: Boolean,
-        out: OutputStream
+        out: OutputStream,
+        record: RequestRecord
     ) {
         val contentType = resolveContentType(entry)
         val size = entry.size
@@ -464,6 +535,8 @@ class HttpEngine(
         val input = store.openInput(entry)
         if (input == null) {
             out.writeSimpleError(404, "Not Found", "404 Not Found (document could not be opened)")
+            record.status = 404
+            record.detail = "document could not be opened: ${entry.id}"
             logger(LogLevel.WARN, "GET $requestPath -> 404 document could not be opened (${entry.id})", null)
             return
         }
@@ -491,6 +564,8 @@ class HttpEngine(
                         416, "Range Not Satisfiable", "416 Range Not Satisfiable",
                         extraHeaders = listOf("Content-Range" to "bytes */$actual")
                     )
+                    record.status = 416
+                    record.detail = "range not satisfiable (size $actual)"
                     logger(LogLevel.INFO, "GET $requestPath -> 416 range not satisfiable", null)
                     return
                 }
@@ -506,6 +581,10 @@ class HttpEngine(
                         )
                     )
                     if (!isHead) out.write(slice)
+                    record.status = 206
+                    record.mimeType = contentType
+                    record.bytesSent = slice.size.toLong()
+                    record.detail = "range ${rangeResult.start}-${rangeResult.end} of $actual bytes"
                     logger(LogLevel.INFO, "GET $requestPath -> 206 $contentType ${slice.size} of $actual bytes (${entry.id})", null)
                     return
                 }
@@ -519,6 +598,12 @@ class HttpEngine(
                         )
                     )
                     if (!isHead) out.write(bytes)
+                    record.status = 200
+                    record.mimeType = contentType
+                    record.bytesSent = if (isHead) 0 else actual
+                    if (actual != size) {
+                        record.detail = "size mismatch: provider reported $size, sent $actual bytes"
+                    }
                     logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $actual bytes (${entry.id})", null)
                     return
                 }
@@ -535,6 +620,8 @@ class HttpEngine(
                     416, "Range Not Satisfiable", "416 Range Not Satisfiable",
                     extraHeaders = listOf("Content-Range" to "bytes */$size")
                 )
+                record.status = 416
+                record.detail = "range not satisfiable (size $size)"
                 logger(LogLevel.INFO, "GET $requestPath -> 416 range not satisfiable", null)
                 input.close()
                 return
@@ -551,6 +638,10 @@ class HttpEngine(
                 )
                 val sent = if (isHead) 0L else input.use { writeFileRange(it, entry, rangeResult.start, rangeResult.length, out) }
                 if (isHead) input.close()
+                record.status = 206
+                record.mimeType = contentType
+                record.bytesSent = sent
+                record.detail = "range ${rangeResult.start}-${rangeResult.end} of $size bytes"
                 logger(LogLevel.INFO, "GET $requestPath -> 206 $contentType $sent of $size bytes (${entry.id})", null)
                 return
             }
@@ -566,6 +657,9 @@ class HttpEngine(
                     )
                     val sent = if (isHead) 0L else input.use { writeFileRange(it, entry, 0, size, out) }
                     if (isHead) input.close()
+                    record.status = 200
+                    record.mimeType = contentType
+                    record.bytesSent = sent
                     logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent of $size bytes (${entry.id})", null)
                 } else {
                     // Unknown length: chunked transfer encoding.
@@ -579,6 +673,10 @@ class HttpEngine(
                     )
                     val sent = if (isHead) 0L else input.use { writeFileChunked(it, entry, out) }
                     if (isHead) input.close()
+                    record.status = 200
+                    record.mimeType = contentType
+                    record.bytesSent = sent
+                    record.detail = "chunked (unknown size)"
                     logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent bytes (chunked, ${entry.id})", null)
                 }
             }
@@ -657,7 +755,9 @@ class HttpEngine(
         builder.append("Connection: close").append("\r\n")
         builder.append("Server: NewCatroidLocalServer").append("\r\n")
         builder.append("\r\n")
+        (out as? ResponseStream)?.status = status
         out.write(builder.toString().toByteArray(StandardCharsets.US_ASCII))
+        (out as? ResponseStream)?.beginBody()
     }
 
     private fun OutputStream.writeSimpleError(

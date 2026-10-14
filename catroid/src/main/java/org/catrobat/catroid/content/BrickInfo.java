@@ -376,6 +376,7 @@ public final class BrickInfo {
         add(StartHttpServerBrick.class, "Запускает встроенный локальный HTTP-сервер на указанном порту (по умолчанию только 127.0.0.1). Блок завершается после запуска или ошибки");
         add(StartHttpServerLocalhostBrick.class, "Запускает встроенный локальный HTTP-сервер на указанном порту, привязанный к localhost; URL формируется как http://localhost:порт/ (безопасный origin для кросс-изоляции)");
         add(StopHttpServerBrick.class, "Останавливает встроенный локальный HTTP-сервер и освобождает ресурсы. Можно вызывать повторно");
+        add(ShowHttpDiagnosticsBrick.class, "Открывает экран диагностики: состояние сервера, журнал HTTP-запросов (статусы, MIME, байты, ошибки) и события WebView (консоль, ошибки загрузки ресурсов) с возможностью копирования");
         add(HostDirectoryBrick.class, "Указывает, какую папку раздавать через HTTP-сервер (URI из блока выбора папки). Сервер при этом не запускается");
         add(OpenWebPageBrick.class, "Открывает страницу во встроенном WebView. По умолчанию разрешены только локальные адреса (127.0.0.1)");
         add(WriteBaseBrick.class, "Записывает значение в FireBase ВАЖНО: если айди базы неправильный - может вызывать фатальную ошибку");
@@ -816,6 +817,7 @@ public final class BrickInfo {
         add(StartHttpServerBrick.class, "Starts the embedded local HTTP server on the given port (loopback only by default). The block finishes once startup completed or failed");
         add(StartHttpServerLocalhostBrick.class, "Starts the embedded local HTTP server on the given port, bound to localhost so the URL is generated as http://localhost:port/ (a secure origin for cross-origin isolation)");
         add(StopHttpServerBrick.class, "Stops the embedded local HTTP server and releases its resources. Safe to run repeatedly");
+        add(ShowHttpDiagnosticsBrick.class, "Opens the diagnostics screen: server state, HTTP request log (statuses, MIME types, bytes, errors) and WebView events (console, resource load failures) with copy/share export");
         add(HostDirectoryBrick.class, "Sets which directory is served over HTTP (URI from the directory selection block). Does not start the server by itself");
         add(OpenWebPageBrick.class, "Opens a page in the in-app WebView. Only local (127.0.0.1) origins are allowed by default");
         add(WriteBaseBrick.class, "Writes a value to Firebase. IMPORTANT: if the database ID is incorrect, it may cause a fatal error.");
@@ -1252,6 +1254,7 @@ public final class BrickInfo {
         add(StartHttpServerBrick.class, "Inicia o servidor HTTP local incorporado na porta indicada (apenas 127.0.0.1 por padrão). O bloco termina após iniciar ou falhar");
         add(StartHttpServerLocalhostBrick.class, "Inicia o servidor HTTP local incorporado na porta indicada, vinculado a localhost, então a URL é gerada como http://localhost:porta/ (origem segura para isolamento entre origens)");
         add(StopHttpServerBrick.class, "Para o servidor HTTP local incorporado e libera seus recursos. Seguro para executar repetidamente");
+        add(ShowHttpDiagnosticsBrick.class, "Abre a tela de diagnósticos: estado do servidor, registro de requisições HTTP (status, tipos MIME, bytes, erros) e eventos do WebView (console, falhas de carregamento) com exportação por copiar/compartilhar");
         add(HostDirectoryBrick.class, "Define qual pasta é servida via HTTP (URI do bloco de seleção de pasta). Não inicia o servidor sozinha");
         add(OpenWebPageBrick.class, "Abre uma página no WebView incorporado. Apenas origens locais (127.0.0.1) são permitidas por padrão");
         add(WriteBaseBrick.class, "Grava o valor no Firebase. IMPORTANTE: se o ID do banco de dados estiver incorreto, pode causar um erro fatal.");
@@ -1672,6 +1675,7 @@ public final class BrickInfo {
         add(StartHttpServerBrick.class, "在指定端口启动内嵌本地 HTTP 服务器（默认仅 127.0.0.1）。启动成功或失败后块才结束");
         add(StartHttpServerLocalhostBrick.class, "在指定端口启动内嵌本地 HTTP 服务器，绑定到 localhost，因此 URL 生成为 http://localhost:端口/（用于跨源隔离的安全源）");
         add(StopHttpServerBrick.class, "停止内嵌本地 HTTP 服务器并释放资源。可重复执行");
+        add(ShowHttpDiagnosticsBrick.class, "打开诊断界面：服务器状态、HTTP 请求日志（状态码、MIME 类型、字节数、错误）和 WebView 事件（控制台、资源加载失败），支持复制/分享导出");
         add(HostDirectoryBrick.class, "设置通过 HTTP 提供的目录（来自目录选择块的 URI）。此块本身不启动服务器");
         add(OpenWebPageBrick.class, "在内嵌 WebView 中打开页面。默认只允许本地（127.0.0.1）来源");
         add(WriteBaseBrick.class, "将值写入 Firebase。重要提示：如果数据库 ID 不正确，可能导致致命错误。");

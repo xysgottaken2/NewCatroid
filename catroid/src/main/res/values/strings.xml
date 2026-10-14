@@ -3121,6 +3121,7 @@
     <string formatted="false" name="brick_start_http_server_localhost">Start local HTTP server on port (localhost)</string>
     <string formatted="false" name="brick_start_http_server2">bind address (default 127.0.0.1)</string>
     <string formatted="false" name="brick_stop_http_server">Stop local HTTP server</string>
+    <string formatted="false" name="brick_show_http_diagnostics">Show HTTP diagnostics</string>
     <string formatted="false" name="brick_host_directory">Host directory at</string>
     <string formatted="false" name="brick_host_directory2">URL prefix (optional)</string>
     <string formatted="false" name="brick_open_web_page">Open web page at</string>

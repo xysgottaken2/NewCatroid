@@ -587,6 +587,7 @@ import org.catrobat.catroid.content.bricks.SelectFileBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerLocalhostBrick
 import org.catrobat.catroid.content.bricks.StopHttpServerBrick
+import org.catrobat.catroid.content.bricks.ShowHttpDiagnosticsBrick
 import org.catrobat.catroid.content.bricks.HostDirectoryBrick
 import org.catrobat.catroid.content.bricks.OpenWebPageBrick
 import org.catrobat.catroid.content.bricks.StopSoundBrick
@@ -3051,6 +3052,7 @@ void main() {
         internetBrickList.add(StartHttpServerBrick("8080"))
         internetBrickList.add(StartHttpServerLocalhostBrick("8080"))
         internetBrickList.add(StopHttpServerBrick())
+        internetBrickList.add(ShowHttpDiagnosticsBrick())
         internetBrickList.add(OpenWebPageBrick())
         internetBrickList.add(WriteBaseBrick("firebase_id", "key", "hello"))
         internetBrickList.add(ReadBaseBrick("firebase_id", "key"))

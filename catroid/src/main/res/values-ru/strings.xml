@@ -3031,6 +3031,7 @@
     <string formatted="false" name="brick_start_http_server_localhost">Запустить локальный HTTP-сервер на порту (localhost)</string>
     <string formatted="false" name="brick_start_http_server2">адрес привязки (по умолчанию 127.0.0.1)</string>
     <string formatted="false" name="brick_stop_http_server">Остановить локальный HTTP-сервер</string>
+    <string formatted="false" name="brick_show_http_diagnostics">Показать диагностику HTTP</string>
     <string formatted="false" name="brick_host_directory">Раздавать папку</string>
     <string formatted="false" name="brick_host_directory2">префикс URL (необязательно)</string>
     <string formatted="false" name="brick_open_web_page">Открыть веб-страницу</string>

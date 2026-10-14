@@ -134,6 +134,9 @@
             android:theme="@style/Catroid" />
 
         <activity
+            android:name=".ui.DiagnosticsActivity"
+            android:exported="false" />
+        <activity
             android:name=".ui.EmbeddedWebViewActivity"
             android:label="@string/app_name"
             android:configChanges="orientation|screenSize|keyboardHidden" />

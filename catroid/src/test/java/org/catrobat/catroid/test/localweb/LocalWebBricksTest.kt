@@ -33,6 +33,7 @@ import org.catrobat.catroid.content.bricks.SelectFileBrick
 import org.catrobat.catroid.content.bricks.SelectFolderAndHostBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerBrick
 import org.catrobat.catroid.content.bricks.StartHttpServerLocalhostBrick
+import org.catrobat.catroid.content.bricks.ShowHttpDiagnosticsBrick
 import org.catrobat.catroid.content.bricks.StopHttpServerBrick
 import org.catrobat.catroid.formulaeditor.UserVariable
 import org.catrobat.catroid.io.XstreamSerializer
@@ -146,6 +147,12 @@ class LocalWebBricksTest {
     }
 
     @Test
+    fun `show http diagnostics brick has no formula fields`() {
+        val brick = ShowHttpDiagnosticsBrick()
+        assertTrue(brick.allFormulaFieldsWithFormulas.isEmpty())
+    }
+
+    @Test
     fun `stop http server brick has no formula fields`() {
         val brick = StopHttpServerBrick()
         assertTrue(brick.allFormulaFieldsWithFormulas.isEmpty())
@@ -162,6 +169,7 @@ class LocalWebBricksTest {
             StartHttpServerBrick(),
             StartHttpServerLocalhostBrick(),
             StopHttpServerBrick(),
+            ShowHttpDiagnosticsBrick(),
             HostDirectoryBrick("content://tree"),
             OpenWebPageBrick("http://127.0.0.1:8080/")
         )

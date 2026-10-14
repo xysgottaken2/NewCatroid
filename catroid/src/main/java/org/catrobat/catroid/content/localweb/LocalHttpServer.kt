@@ -189,6 +189,7 @@ object LocalHttpServer {
             storeProvider = { currentStore() },
             urlPrefixProvider = { urlPrefix },
             addCrossOriginIsolationHeaders = addCrossOriginIsolationHeaders,
+            requestLog = LocalDiagnostics.requestLog,
             logger = { level, message, error ->
                 when (level) {
                     LogLevel.DEBUG -> Log.d(HTTP_LOG_TAG, message)

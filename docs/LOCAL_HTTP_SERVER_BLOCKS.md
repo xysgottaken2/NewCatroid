@@ -318,6 +318,50 @@ the resolved document identifier (never file contents), and the failure reason
 cannot be opened (WARN), and a stream that fails during reading (ERROR,
 connection aborted).
 
+## Diagnostics (finding a stuck loading screen)
+
+The server and the WebView record structured diagnostics while running; the
+**Show HTTP diagnostics** block (or the **Diag** button in the embedded
+WebView's toolbar) opens a screen showing:
+
+- server state (running, URL, port, document root, last error);
+- the recent **HTTP requests** (bounded log, newest last): method, path,
+  status, MIME type, body bytes sent, duration, and a detail line for
+  redirects (301/302 + target), directory listings, errors (403/404/405/416)
+  and **aborted responses** (a stream that ended early or a connection that
+  terminated prematurely, with the partial byte count);
+- the recent **WebView events**: JavaScript console messages (with source and
+  line), failed resource loads (URL + error code), HTTP error responses (URL +
+  status) and blocked navigations - plus a capability probe logged after each
+  page load (`crossOriginIsolated`, `SharedArrayBuffer`, `WebAssembly`,
+  workers, WebGL/WebGL2, and a resource-timing summary listing failed
+  subresource loads with their status codes).
+
+The report can be **copied to the clipboard** or **shared/exported** as plain
+text (Copy / Share buttons). Nothing logged contains file contents - only
+paths, statuses, sizes and failure reasons.
+
+The same information goes to logcat on device: `adb logcat -s NewCatroidHttp`
+(per-request server log), `adb logcat -s SafDocumentStore` (SAF resolution),
+`adb logcat -s EmbeddedWebView` (WebView console).
+
+**Collecting logs on a device (Galaxy S23 Ultra) to diagnose a stuck page:**
+
+1. Install the debug APK; host the game folder (Select Folder, Save to
+   Variable and Host), start the server (the localhost block) and open the
+   page - let it get stuck on the loading screen.
+2. While it is stuck, open the embedded WebView's toolbar and tap **Diag**
+   (or run the **Show HTTP diagnostics** block), then tap **Copy** and paste
+   the report into a message, or use **Share** to export it.
+3. Look for: requests that never complete, 404/403/500 responses, responses
+   with `aborted mid-stream` or a size mismatch, and WebView events naming the
+   failing script/resource (`resource load failed`, `HTTP error response`,
+   console `ERROR`s).
+4. Alternatively/additionally: `adb logcat -s NewCatroidHttp -s SafDocumentStore -s EmbeddedWebView -s chromium > log.txt`
+   while reproducing, and share `log.txt`.
+5. Note whether the capability probe reports `crossOriginIsolated: true` and
+   whether `SharedArrayBuffer`/`WebAssembly` are available.
+
 ## What the server does
 
 - Serves the hosted SAF directory (or a single selected file) via

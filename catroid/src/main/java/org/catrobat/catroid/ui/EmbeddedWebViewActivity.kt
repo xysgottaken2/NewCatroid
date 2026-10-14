@@ -42,6 +42,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import org.catrobat.catroid.BuildConfig
 import org.catrobat.catroid.content.localweb.EmbeddedWebViewManager
+import org.catrobat.catroid.content.localweb.LocalDiagnostics
+import org.catrobat.catroid.content.localweb.WebViewEvent
 
 /**
  * Reusable full-screen in-app WebView used by the "Open Web Page" block.
@@ -84,6 +86,11 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
         }
         backButton = Button(this).apply { text = "◀"; setOnClickListener { onBackPressed() } }
         val reloadButton = Button(this).apply { text = "⟳"; setOnClickListener { webView.reload() } }
+        val diagnosticsButton = Button(this).apply {
+            text = "Diag"
+            textSize = 11f
+            setOnClickListener { LocalDiagnostics.open(this@EmbeddedWebViewActivity) }
+        }
         val closeButton = Button(this).apply { text = "✕"; setOnClickListener { close() } }
         urlText = TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -91,6 +98,7 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
         }
         toolbar.addView(backButton)
         toolbar.addView(reloadButton)
+        toolbar.addView(diagnosticsButton)
         toolbar.addView(closeButton)
         toolbar.addView(urlText)
 
@@ -174,6 +182,44 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    private fun captureConsole(level: String, message: String, source: String?, line: Int) {
+        LocalDiagnostics.webViewLog.add(
+            WebViewEvent(
+                timestampMs = System.currentTimeMillis(),
+                kind = WebViewEvent.Kind.CONSOLE,
+                level = level,
+                message = message,
+                url = source,
+                line = line
+            )
+        )
+    }
+
+    private fun captureResourceError(url: String?, errorCode: Int, description: String?, isMainFrame: Boolean) {
+        LocalDiagnostics.webViewLog.add(
+            WebViewEvent(
+                timestampMs = System.currentTimeMillis(),
+                kind = WebViewEvent.Kind.RESOURCE_ERROR,
+                level = if (isMainFrame) "ERROR" else "WARN",
+                message = "resource load failed: $description (code $errorCode)" +
+                    if (isMainFrame) " [main frame]" else "",
+                url = url
+            )
+        )
+    }
+
+    private fun captureHttpError(url: String?, statusCode: Int) {
+        LocalDiagnostics.webViewLog.add(
+            WebViewEvent(
+                timestampMs = System.currentTimeMillis(),
+                kind = WebViewEvent.Kind.HTTP_ERROR,
+                level = "ERROR",
+                message = "HTTP error response: $statusCode",
+                url = url
+            )
+        )
+    }
+
     private fun showError(message: String) {
         Log.w(TAG, message)
         errorText.text = message
@@ -198,7 +244,26 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     sharedArrayBuffer: typeof SharedArrayBuffer === 'function',
                     webgpu: typeof navigator !== 'undefined' && navigator.gpu !== undefined && navigator.gpu !== null,
                     webgl: (function () { try { var c = document.createElement('canvas'); return !!(c.getContext('webgl') || c.getContext('experimental-webgl')); } catch (e) { return false; } })(),
-                    webgl2: (function () { try { var c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; } })()
+                    webgl2: (function () { try { var c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; } })(),
+                    readyState: document.readyState,
+                    resources: (function () {
+                        try {
+                            var entries = performance.getEntriesByType('resource');
+                            var failed = [];
+                            for (var i = 0; i < entries.length; i++) {
+                                var status = entries[i].responseStatus;
+                                if (typeof status === 'number' && status >= 400) {
+                                    failed.push(entries[i].name + ' -> ' + status);
+                                }
+                            }
+                            return {
+                                count: entries.length,
+                                failedCount: failed.length,
+                                failed: failed.slice(0, 20),
+                                scriptCount: entries.filter(function (e) { return /\.(js|mjs)(\?|#|$)/.test(e.name); }).length
+                            };
+                        } catch (e) { return { error: String(e) }; }
+                    })()
                 };
                 console.log('NewCatroid WebView capabilities: ' + JSON.stringify(report));
             })();
@@ -213,6 +278,15 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
             if (EmbeddedWebViewManager.isAllowedOrigin(url)) {
                 return false // load inside this WebView
             }
+            LocalDiagnostics.webViewLog.add(
+                WebViewEvent(
+                    timestampMs = System.currentTimeMillis(),
+                    kind = WebViewEvent.Kind.NAVIGATION_ERROR,
+                    level = "WARN",
+                    message = "navigation blocked (origin not allowed)",
+                    url = url
+                )
+            )
             showError("Navigation blocked (origin not allowed): $url")
             return true
         }
@@ -236,9 +310,26 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
             error: WebResourceError?
         ) {
             super.onReceivedError(view, request, error)
+            // Capture every failed resource (not only the main frame) - a
+            // single failing script or texture is enough to stall a game.
+            captureResourceError(
+                request?.url?.toString(),
+                error?.errorCode ?: -1,
+                error?.description,
+                request?.isForMainFrame == true
+            )
             if (request?.isForMainFrame == true) {
                 showError("Failed to load ${request.url}: ${error?.description} (${error?.errorCode})")
             }
+        }
+
+        override fun onReceivedHttpError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            errorResponse: WebResourceResponse?
+        ) {
+            super.onReceivedHttpError(view, request, errorResponse)
+            captureHttpError(request?.url?.toString(), errorResponse?.statusCode ?: -1)
         }
     }
 
@@ -252,6 +343,13 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
 
         override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
             val message = consoleMessage?.message() ?: return false
+            val level = consoleMessage.messageLevel()?.name ?: "LOG"
+            captureConsole(
+                level,
+                message,
+                consoleMessage.sourceId(),
+                consoleMessage.lineNumber()
+            )
             val line = "JS console (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()}): $message"
             when (consoleMessage.messageLevel()) {
                 android.webkit.ConsoleMessage.MessageLevel.ERROR -> Log.e(TAG, line)

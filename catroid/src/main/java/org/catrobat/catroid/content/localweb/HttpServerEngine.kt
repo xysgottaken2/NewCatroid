@@ -60,7 +60,8 @@ class HttpServerEngine(
     private val storeProvider: () -> DocumentStore?,
     private val urlPrefixProvider: () -> String = { "/" },
     private val logger: HttpLogSink = { _, _, _ -> },
-    private val addCrossOriginIsolationHeaders: Boolean = true
+    private val addCrossOriginIsolationHeaders: Boolean = true,
+    private val requestLog: RequestLog? = null
 ) {
 
     @Volatile
@@ -106,7 +107,7 @@ class HttpServerEngine(
                 return Result.Error("Invalid bind address: $address")
             }
 
-            val engine = HttpEngine(storeProvider, urlPrefixProvider, logger, addCrossOriginIsolationHeaders)
+            val engine = HttpEngine(storeProvider, urlPrefixProvider, logger, addCrossOriginIsolationHeaders, requestLog)
 
             val socket: ServerSocket = try {
                 ServerSocket()

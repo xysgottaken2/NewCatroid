@@ -3148,6 +3148,10 @@ public class ActionFactory extends Actions {
 		return action;
 	}
 
+	public Action createShowHttpDiagnosticsAction() {
+		return action(ShowHttpDiagnosticsAction.class);
+	}
+
 	public Action createStopHttpServerAction(Sprite sprite, SequenceAction sequence) {
 		StopHttpServerAction action = action(StopHttpServerAction.class);
 		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
