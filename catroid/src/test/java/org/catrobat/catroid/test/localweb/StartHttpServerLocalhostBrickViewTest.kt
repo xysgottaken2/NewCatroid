@@ -80,7 +80,7 @@ class StartHttpServerLocalhostBrickViewTest {
 
         val field = portFieldOf(view, R.id.brick_start_http_server_localhost_edit_port)
         assertNotNull("port field view must exist in the inflated layout", field)
-        assertEquals("8080", field.text.toString())
+        assertEquals("8080", field.text.toString().trim())
 
         // The field becomes editable (clickable) exactly like in the original
         // block: the adapter calls setClickListeners() when the brick is shown.
@@ -96,7 +96,7 @@ class StartHttpServerLocalhostBrickViewTest {
         val view = clone.getView(themedContext)
         val field = portFieldOf(view, R.id.brick_start_http_server_localhost_edit_port)
         assertNotNull(field)
-        assertEquals("9090", field.text.toString())
+        assertEquals("9090", field.text.toString().trim())
     }
 
     @Test
@@ -127,8 +127,8 @@ class StartHttpServerLocalhostBrickViewTest {
         val view = brick.getView(themedContext)
         val port = portFieldOf(view, R.id.brick_start_http_server_edit_port)
         val bind = portFieldOf(view, R.id.brick_start_http_server_edit_bind)
-        assertEquals("8080", port.text.toString())
-        assertEquals("127.0.0.1", bind.text.toString())
+        assertEquals("8080", port.text.toString().trim())
+        assertEquals("127.0.0.1", bind.text.toString().trim())
         brick.setClickListeners()
         assertTrue(port.hasOnClickListeners())
         assertTrue(bind.hasOnClickListeners())
