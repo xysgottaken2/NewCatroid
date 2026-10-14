@@ -37,13 +37,18 @@ import org.catrobat.catroid.formulaeditor.Formula
  * HTTP server can be displayed. Navigation is restricted to local (loopback)
  * origins by default. When a target name is given, the URL is loaded into the
  * named in-stage WebView from the "Create WebView" blocks instead.
+ *
+ * An EMPTY URL opens the URL of the currently running local HTTP server
+ * (e.g. `http://localhost:8080/` when started with the localhost block), so
+ * the opened page always follows the server that is actually running instead
+ * of a hardcoded address.
  */
 class OpenWebPageBrick : FormulaBrick {
 
     constructor() : super() {
         addAllowedBrickField(BrickField.WEB_PAGE_URL, R.id.brick_open_web_page_edit_url)
         addAllowedBrickField(BrickField.NAV_TARGET, R.id.brick_open_web_page_edit_target)
-        setFormulaWithBrickField(BrickField.WEB_PAGE_URL, Formula("http://127.0.0.1:8080/"))
+        setFormulaWithBrickField(BrickField.WEB_PAGE_URL, Formula(""))
         setFormulaWithBrickField(BrickField.NAV_TARGET, Formula(""))
     }
 

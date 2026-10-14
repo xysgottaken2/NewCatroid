@@ -3051,7 +3051,7 @@ void main() {
         internetBrickList.add(StartHttpServerBrick("8080"))
         internetBrickList.add(StartHttpServerLocalhostBrick("8080"))
         internetBrickList.add(StopHttpServerBrick())
-        internetBrickList.add(OpenWebPageBrick("http://127.0.0.1:8080/"))
+        internetBrickList.add(OpenWebPageBrick())
         internetBrickList.add(WriteBaseBrick("firebase_id", "key", "hello"))
         internetBrickList.add(ReadBaseBrick("firebase_id", "key"))
         internetBrickList.add(DeleteBaseBrick("firebase_id", "key"))

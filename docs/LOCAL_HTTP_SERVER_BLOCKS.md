@@ -269,7 +269,17 @@ generated URL is `http://localhost:PORT/` (e.g. `http://localhost:8080/`).
 The original **Start local HTTP server on port** block is unchanged and keeps
 its configurable bind address (default `127.0.0.1`, whose URL is
 `http://127.0.0.1:PORT/`). Both blocks reuse the same server and file-serving
-implementation.
+implementation, and the server always binds to the loopback interface only.
+
+**Opening the hosted page:** the **Open web page** block accepts an explicit
+URL (used unchanged, so existing scripts keep working). With an *empty* URL it
+opens the base URL of the **currently running** server - `http://localhost:PORT/`
+when started with the localhost block, `http://127.0.0.1:PORT/` with the
+original block - so the opened page always follows the server that is actually
+running instead of a hardcoded address. With no URL and no running server it
+reports a clear error. (The bind address and the browser URL hostname are the
+same value here: the server listens on loopback and the URL uses `localhost`,
+which resolves to loopback; nothing is exposed to the local network.)
 
 **Compatibility notes (COEP `require-corp`):** all subresources of a hosted
 application are served from the same origin, so same-origin scripts,

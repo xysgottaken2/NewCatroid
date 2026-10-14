@@ -48,7 +48,8 @@
 
         <TextView
             android:id="@+id/brick_start_http_server_localhost_edit_port"
-            style="@style/BrickEditText" />
+            style="@style/BrickEditText"
+            app:layout_newLine="true" />
     </org.catrobat.catroid.ui.BrickLayout>
 
 </LinearLayout>

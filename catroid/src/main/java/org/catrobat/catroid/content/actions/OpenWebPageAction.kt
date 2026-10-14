@@ -29,6 +29,7 @@ import android.widget.Toast
 import com.badlogic.gdx.scenes.scene2d.actions.TemporalAction
 import org.catrobat.catroid.content.Scope
 import org.catrobat.catroid.content.localweb.EmbeddedWebViewManager
+import org.catrobat.catroid.content.localweb.LocalHttpServer
 import org.catrobat.catroid.formulaeditor.Formula
 import org.catrobat.catroid.stage.StageActivity
 
@@ -53,14 +54,23 @@ class OpenWebPageAction : TemporalAction() {
             return
         }
 
-        val urlValue = try {
+        val evaluatedUrl = try {
             url?.interpretString(scope)?.trim().orEmpty()
         } catch (e: Exception) {
             Log.w(TAG, "Unable to interpret URL formula", e)
             return
         }
+        // An empty URL opens the URL of the running local HTTP server, so the
+        // page always follows the server that is actually running (e.g.
+        // http://localhost:PORT/ for the localhost block) instead of a
+        // hardcoded address.
+        val urlValue = resolvePageUrl(evaluatedUrl)
         if (urlValue.isEmpty()) {
-            EmbeddedWebViewManager.open(activity, "")
+            val message = "No URL given and no local HTTP server is running (start the server first)"
+            EmbeddedWebViewManager.reportError(message)
+            activity.runOnUiThread {
+                Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+            }
             return
         }
 
@@ -112,6 +122,17 @@ class OpenWebPageAction : TemporalAction() {
                 }
             }
         }
+    }
+
+    /**
+     * Resolves the URL to open: an explicitly given URL is used unchanged; an
+     * empty URL resolves to the base URL of the running local HTTP server
+     * (empty when no server is running).
+     */
+    internal fun resolvePageUrl(evaluatedUrl: String): String {
+        val trimmed = evaluatedUrl.trim()
+        if (trimmed.isNotEmpty()) return trimmed
+        return LocalHttpServer.baseUrl
     }
 
     companion object {

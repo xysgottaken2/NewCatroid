@@ -51,6 +51,12 @@ object EmbeddedWebViewManager {
     var lastError: String? = null
         private set
 
+    /** Records a user-facing error (readable via the lastError state). */
+    fun reportError(message: String) {
+        lastError = message
+        Log.w(TAG, message)
+    }
+
     @Volatile
     private var activeActivity: EmbeddedWebViewActivity? = null
 
