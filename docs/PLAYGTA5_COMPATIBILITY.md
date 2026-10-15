@@ -1,0 +1,57 @@
+# PlayGTA5 snapshot findings and NewCatroid compatibility limits
+
+**Research date:** 2026-10-15. This is a behavioral review of a public browser-client snapshot, not the original PlayGTA5 source repository, not an endorsement, and not a license to use or redistribute its files. The reviewed GitHub project explicitly says reuse rights are unverified and its repository has no license. No game assets, WASM module, or data mirror were copied into NewCatroid.
+
+The public `playgta5.com` root returned HTTP 401 during this review. No credentials, authentication bypass, or access-control workaround was used. The Catroid workspace has no `game.wasm` or game data mirror, so there was no basis for claiming successful gameplay or diagnosing a specific failure inside the game engine.
+
+## Public-client behavior verified
+
+The archived snapshot at commit [`787e9e1946f797b2fb06f6af97cdf1f86ea611ab`](https://github.com/Adityabaskati-weeb/playgta5/tree/787e9e1946f797b2fb06f6af97cdf1f86ea611ab) was inspected read-only. The fixed-commit source links below are included so the findings can be audited; the snapshot is community-maintained and may differ from the live service.
+
+### Startup and isolation
+
+- `homepage.html` stops at a visible “not cross-origin isolated” message unless `crossOriginIsolated` is true. It transfers its canvas with `transferControlToOffscreen()`, then creates a top-level `Worker` for `loader.js`.
+- `loader.js` creates separate `wgpu_worker.js` and `io_worker.js` workers, passes the data base URL and a bootset, fetches `game.wasm`, and instantiates the Emscripten module. Its glue tries the streaming WebAssembly path and has a download-then-compile fallback.
+- The snapshot's response-header example uses `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. NewCatroid's local server already emits the isolation headers for hosted documents; the built-in check now reports what the browser actually received.
+- The browser client also uses shared WebAssembly memory/Atomics, a worker-based GPU path, AudioWorklet audio, and persistent block storage through OPFS when available. Its game glue constructs shared WebAssembly memory with an `address: 'i64'` descriptor, so a WebView that lacks the required shared Memory64 behavior will fail even if ordinary WebAssembly compilation works. The runtime probes in NewCatroid report API presence and attempt a small shared Memory64 allocation and a WebGPU adapter request; API presence alone is not proof that the complete game can run.
+
+### Data and worker path
+
+`io_worker.js` is a distinct browser download path, not the Catroid URL-to-file block:
+
+1. It fetches `/data/manifest.json`, selects `bootset.json` or `bootset_low.json`, and asks for data under the page origin's `/data/` base.
+2. It tries the cached compressed-batch URL `/data/batchc/<hash>.bin` and otherwise posts byte-run lists to `/data/batch` (the gzip form includes `gz=1` and manifest-version parameters).
+3. Large/other files are fetched in inclusive byte ranges with `Range: bytes=start-end`; the client accepts a `206` response and has a fallback path for a server that responds `200` to a range request.
+4. It streams response chunks into an append-only OPFS store and journal when the required storage APIs are available; otherwise its own source describes a bounded 48 MiB memory cache. This is why a NewCatroid `FilesUrlAction` change cannot by itself repair a browser-worker fetch or OPFS failure.
+5. The snapshot sets 32 parallel range lanes and four compressed-batch lanes. NewCatroid's embedded server was corrected to let a matching bounded number of request handlers run concurrently; the client values do not promise a particular rate on Android/SAF.
+
+The current Catroid server already has the corresponding `/data/batch` route, normal manifest/file serving, range support, and streamed large-file GETs. The range/batch request formats and hosted game files were not changed for this work.
+
+### Browser input bridge, not game action semantics
+
+The public page maps `KeyboardEvent.code` values into a shared 256-byte input block. Its table contains standard navigation/modifier/punctuation keys, `Digit0`–`Digit9`, `Numpad0`–`Numpad9`, `KeyA`–`KeyZ`, and `F1`–`F24`. The page deliberately passes `F5`, `F11`, and `F12` through to the browser. Its mouse bridge handles `mousemove` deltas/coordinates and mouse buttons 0–4; the internal mouse-button bit order is `[0, 2, 1, 3, 4]` for DOM `MouseEvent.button` values 0–4. In its optional flight-input convenience mapping it aliases I/K/J/L/U/O to numpad keys.
+
+This is evidence about which browser events the page bridge accepts. It does **not** reveal the game's semantic action for each key; that behavior is inside the unavailable game module. Accordingly, NewCatroid's overlay uses neutral labels (`SPACE`, `SHIFT`, `CTRL`, `LCLICK`) and allows custom key/mouse assignment. Its default WASD, mouse movement, Space, Shift, Control and left-click controls are input events, not a verified “jump/sprint/fire” mapping. No gameplay-key claim is made.
+
+## Worker error interpretation
+
+The snapshot's Emscripten glue formats a worker error using `event.filename`, `event.lineno`, and `event.message`. A browser that omits those event fields can make the displayed text contain `undefined`; that explains one possible formatting artifact but does not explain the failure itself. NewCatroid now logs available worker error fields, worker `messageerror`, unhandled promise rejections, resource/HTTP failures and relevant browser capability probes. It does not ignore worker errors.
+
+The WebView observer wraps page-created Worker instances. It is not injected into nested workers' global scope, so nested I/O/GPU/Pthread failures may still have to be interpreted from the parent worker's forwarded log. A diagnostic capture from the target device is necessary to determine whether the failure is an HTTP status/short range, WebView feature gap, storage failure, worker startup/runtime exception, or an engine/WASM condition.
+
+## GeckoView decision
+
+A genuine GeckoView choice is **not implemented**. The existing activity is Android `WebView`; adding a preference or “GeckoView” label without a real `GeckoRuntime`/`GeckoSession`/`GeckoView` host would not select another engine. Official Maven metadata checked on 2026-10-15 listed `158.0.20261007201254` as the latest stable GeckoView artifact, but the required Android integration, native package-size impact, compatibility with this app's `compileSdk 34`, AGP `8.6.0` and Java 11 bytecode target, same-origin isolation behavior, and target-device behavior all need validation. More importantly, the current Firefox-for-Android WebGPU implementation status lists WebGPU as disabled by default/behind a flag, while the reviewed client launches a WebGPU worker. Enabling an unsupported hidden preference would not be a safe compatibility fix.
+
+The appropriate follow-up, if requested, is a separately packaged optional GeckoView build flavor, with explicit SDK/Java/native-size review and the same local isolation/capability tests run on the target hardware. Until that is verified, NewCatroid remains on Android WebView and reports capabilities honestly.
+
+## Source references
+
+- [Community snapshot repository and license notice](https://github.com/Adityabaskati-weeb/playgta5/blob/787e9e1946f797b2fb06f6af97cdf1f86ea611ab/README.md)
+- [Page isolation, worker startup and input bridge](https://github.com/Adityabaskati-weeb/playgta5/blob/787e9e1946f797b2fb06f6af97cdf1f86ea611ab/homepage.html#L350-L585)
+- [Emscripten loader and worker creation](https://github.com/Adityabaskati-weeb/playgta5/blob/787e9e1946f797b2fb06f6af97cdf1f86ea611ab/loader.js#L1-L150)
+- [Emscripten worker error formatter and memory glue](https://github.com/Adityabaskati-weeb/playgta5/blob/787e9e1946f797b2fb06f6af97cdf1f86ea611ab/game.js)
+- [I/O worker store, batching, range fetches and lane counts](https://github.com/Adityabaskati-weeb/playgta5/blob/787e9e1946f797b2fb06f6af97cdf1f86ea611ab/io_worker.js#L1-L380)
+- [Official GeckoView Maven metadata](https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview/maven-metadata.xml)
+- [WebGPU implementation status](https://github.com/gpuweb/gpuweb/wiki/Implementation-Status)
+- [SharedArrayBuffer secure-context/cross-origin-isolation requirements](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer)

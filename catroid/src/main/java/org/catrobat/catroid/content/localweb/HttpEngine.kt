@@ -1245,6 +1245,12 @@ directly (no redirect) and compare with the hosted game's page.</p>
     log('crossOriginIsolated: ' + window.crossOriginIsolated);
     log('SharedArrayBuffer: ' + typeof SharedArrayBuffer);
     log('WebAssembly: ' + typeof WebAssembly);
+    log('Worker: ' + typeof Worker);
+    log('OffscreenCanvas: ' + typeof OffscreenCanvas);
+    log('AudioWorkletNode: ' + typeof AudioWorkletNode);
+    log('navigator.storage.getDirectory (OPFS): ' + (navigator.storage && typeof navigator.storage.getDirectory === 'function'));
+    log('FileSystemSyncAccessHandle: ' + typeof FileSystemSyncAccessHandle);
+    log('navigator.gpu: ' + (navigator.gpu ? 'present' : 'absent'));
     log('userAgent: ' + navigator.userAgent);
     try {
         var sab = new SharedArrayBuffer(8);
@@ -1253,12 +1259,24 @@ directly (no redirect) and compare with the hosted game's page.</p>
         log('SharedArrayBuffer(8): FAILED: ' + e);
     }
     try {
+        if (typeof BigInt !== 'function') throw new Error('BigInt is unavailable');
+        var memory64 = new WebAssembly.Memory({ initial: BigInt(1), maximum: BigInt(2), shared: true, address: 'i64' });
+        log('shared WebAssembly Memory64: OK (' + memory64.buffer.byteLength + ' bytes)');
+    } catch (e) {
+        log('shared WebAssembly Memory64: FAILED: ' + e);
+    }
+    try {
         WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(
             function () { log('WebAssembly.compile: OK'); },
             function (e) { log('WebAssembly.compile: FAILED: ' + e); }
         );
     } catch (e) {
         log('WebAssembly.compile: FAILED: ' + e);
+    }
+    if (navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
+        navigator.gpu.requestAdapter().then(function (adapter) {
+            log('WebGPU adapter: ' + (adapter ? 'available' : 'unavailable'));
+        }).catch(function (e) { log('WebGPU adapter: FAILED: ' + e); });
     }
     fetch(location.href, { method: 'HEAD' }).then(function (r) {
         log('own HEAD: status=' + r.status +

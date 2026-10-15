@@ -59,9 +59,10 @@ import org.catrobat.catroid.content.localweb.WebViewEvent
  *    where the platform WebView supports them). No JavaScript bridge is
  *    exposed to page content.
  *  - After each page load a capability report (JavaScript, WebAssembly,
- *    Web Worker, crossOriginIsolated, SharedArrayBuffer, navigator.gpu) is
- *    evaluated and reported through the console log; in debug builds console
- *    messages are logged with the "EmbeddedWebView" tag.
+ *    Web Workers, crossOriginIsolated, SharedArrayBuffer, shared Memory64,
+ *    OffscreenCanvas, AudioWorklet, OPFS, and WebGPU adapter availability) is
+ *    evaluated and reported through the console log; worker error events are
+ *    also recorded with nullable fields made explicit.
  *  - Pressing back navigates the page history first and closes the activity
  *    (returning to NewCatroid) when there is no history.
  */
@@ -246,6 +247,43 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     var reason = e.reason;
                     console.error('Unhandled promise rejection: ' + (reason && reason.stack ? reason.stack : reason));
                 });
+                // Observe page-created workers before the page attaches its own
+                // onerror handler. Worker error events can omit filename,
+                // line, or message (especially across origin boundaries), so
+                // serialize missing fields explicitly instead of producing an
+                // unhelpful "undefined:undefined" diagnostic.
+                try {
+                    if (typeof window.Worker === 'function' && typeof Proxy === 'function') {
+                        var NativeWorker = window.Worker;
+                        window.Worker = new Proxy(NativeWorker, {
+                            construct: function (target, args, newTarget) {
+                                var worker = Reflect.construct(target, args, newTarget);
+                                worker.addEventListener('error', function (event) {
+                                    var workerError = event.error;
+                                    console.error('NewCatroid worker error: ' + JSON.stringify({
+                                        workerUrl: String(args[0] || '(not reported)'),
+                                        filename: event.filename || '(not reported)',
+                                        line: typeof event.lineno === 'number' ? event.lineno : null,
+                                        column: typeof event.colno === 'number' ? event.colno : null,
+                                        message: event.message || '(not reported)',
+                                        errorName: workerError && workerError.name ? workerError.name : null,
+                                        errorMessage: workerError && workerError.message ? workerError.message : null,
+                                        stack: workerError && workerError.stack ? workerError.stack : null
+                                    }));
+                                });
+                                worker.addEventListener('messageerror', function (event) {
+                                    console.error('NewCatroid worker messageerror: ' + JSON.stringify({
+                                        workerUrl: String(args[0] || '(not reported)'),
+                                        message: event.message || '(not reported)'
+                                    }));
+                                });
+                                return worker;
+                            }
+                        });
+                    }
+                } catch (workerObserverError) {
+                    console.warn('NewCatroid worker observer could not be installed: ' + workerObserverError);
+                }
                 console.log('NewCatroid diagnostics listeners installed at ' + location.href);
             })();
         """.trimIndent()
@@ -266,6 +304,21 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     webWorker: typeof Worker === 'function',
                     crossOriginIsolated: typeof crossOriginIsolated === 'boolean' ? crossOriginIsolated : false,
                     sharedArrayBuffer: typeof SharedArrayBuffer === 'function',
+                    sharedArrayBufferConstructible: (function () {
+                        try { return typeof SharedArrayBuffer === 'function' && new SharedArrayBuffer(8).byteLength === 8; }
+                        catch (e) { return false; }
+                    })(),
+                    sharedMemory64: (function () {
+                        try {
+                            if (typeof WebAssembly !== 'object' || typeof WebAssembly.Memory !== 'function' || typeof BigInt !== 'function') return false;
+                            var memory = new WebAssembly.Memory({ initial: BigInt(1), maximum: BigInt(2), shared: true, address: 'i64' });
+                            return memory.buffer instanceof SharedArrayBuffer;
+                        } catch (e) { return false; }
+                    })(),
+                    offscreenCanvas: typeof OffscreenCanvas === 'function',
+                    audioWorklet: typeof AudioWorkletNode === 'function' && typeof AudioContext === 'function' && !!AudioContext.prototype.audioWorklet,
+                    opfsDirectoryApi: !!navigator.storage && typeof navigator.storage.getDirectory === 'function',
+                    syncAccessHandleConstructor: typeof FileSystemSyncAccessHandle === 'function',
                     webgpu: typeof navigator !== 'undefined' && navigator.gpu !== undefined && navigator.gpu !== null,
                     webgl: (function () { try { var c = document.createElement('canvas'); return !!(c.getContext('webgl') || c.getContext('experimental-webgl')); } catch (e) { return false; } })(),
                     webgl2: (function () { try { var c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; } })(),
@@ -293,6 +346,20 @@ class EmbeddedWebViewActivity : AppCompatActivity() {
                     })()
                 };
                 console.log('NewCatroid WebView capabilities: ' + JSON.stringify(report));
+                if (report.webgpu) {
+                    try {
+                        navigator.gpu.requestAdapter().then(function (adapter) {
+                            console.log('NewCatroid WebGPU adapter: ' + JSON.stringify({
+                                available: !!adapter,
+                                features: adapter ? Array.from(adapter.features || []) : []
+                            }));
+                        }).catch(function (error) {
+                            console.error('NewCatroid WebGPU adapter request failed: ' + error);
+                        });
+                    } catch (error) {
+                        console.error('NewCatroid WebGPU adapter probe failed: ' + error);
+                    }
+                }
                 // The ACTUAL response headers the browser received for this
                 // document (answers why crossOriginIsolated is false when the
                 // server claims to send COOP/COEP).

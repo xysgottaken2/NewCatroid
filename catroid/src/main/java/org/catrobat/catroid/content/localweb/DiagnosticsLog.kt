@@ -43,7 +43,12 @@ data class RequestLogEntry(
     val bytesSent: Long,
     val durationMs: Long,
     val detail: String?
-)
+) {
+    /** Approximate per-request payload rate as observed by the local server. */
+    val mebibytesPerSecond: Double?
+        get() = if (bytesSent <= 0L || durationMs <= 0L) null else
+            bytesSent.toDouble() * 1000.0 / durationMs.toDouble() / (1024.0 * 1024.0)
+}
 
 /**
  * One captured WebView event: a console message (log/warning/error, with
@@ -91,11 +96,15 @@ class RequestLog(private val capacity: Int = 200) {
             sb.append("  (none)\n")
         } else {
             for (entry in entries) {
+                val rate = entry.mebibytesPerSecond?.let {
+                    "  rate=${String.format(Locale.US, "%.2f", it)} MiB/s"
+                }.orEmpty()
                 sb.append("  ").append(entry.method).append(' ').append(entry.path)
                     .append(" -> ").append(entry.status)
                     .append("  mime=").append(entry.mimeType ?: "-")
                     .append("  bytes=").append(entry.bytesSent)
                     .append("  ").append(entry.durationMs).append("ms")
+                    .append(rate)
                     .append(if (entry.detail != null) "  [" + entry.detail + "]" else "")
                     .append('\n')
             }

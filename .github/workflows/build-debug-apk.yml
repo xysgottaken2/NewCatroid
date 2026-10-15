@@ -19,7 +19,7 @@ env:
 
 jobs:
   localweb-tests:
-    name: Unit tests (local web blocks)
+    name: Unit tests (local web and streamed downloads)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -39,6 +39,11 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Prepare project (CI applicationId, Firebase config, midi packages)
         run: |
           sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
@@ -55,8 +60,13 @@ jobs:
           set -o pipefail
           ./gradlew :catroid:testDanvexDebugUnitTest \
             --tests "org.catrobat.catroid.test.localweb.*" \
+            --tests "org.catrobat.catroid.test.common.NewCatroidDownloadTest" \
+            --tests "org.catrobat.catroid.test.common.DownloadFileActionLifecycleTest" \
             --tests "org.catrobat.catroid.test.xmlformat.*" \
             --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/test-output.log"
+
+      - name: Run touch-control editor tests
+        run: node --test catroid/src/test/js/newcatroid_touch_controls.test.cjs
 
       - name: Extract test failure details
         if: failure()
@@ -85,7 +95,7 @@ jobs:
       - name: Report failure details as a commit comment (optional)
         # Reports on workflow_dispatch runs with report_failures=true and on
         # every failed push run of the local-web feature branch.
-        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -182,7 +192,7 @@ jobs:
           retention-days: 30
 
       - name: Report failure details as a commit comment (optional)
-        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -292,7 +302,7 @@ jobs:
           echo "extracted $(wc -l < "$OUT") lines of failure details"
 
       - name: Report failure details as a commit comment (optional)
-        if: failure() && github.ref == 'refs/heads/arena/329868a7-newcatroid'
+        if: failure() && github.ref == 'refs/heads/arena/5736be66-newcatroid'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
