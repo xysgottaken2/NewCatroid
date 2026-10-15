@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      run_full_suite:
+        description: 'Run the optional full unit test suite after APK upload (diagnostic only)'
+        required: false
+        type: boolean
+        default: false
   push:
 
 permissions:
@@ -145,9 +150,9 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # Run in parallel with focused tests so their results stay visible without delaying the APK artifact.
   build-apk:
     name: Debug APK (danvex)
-    needs: localweb-tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -234,8 +239,11 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # Optional manual diagnostic. Wait until the APK and focused tests finish so this job cannot delay the artifact.
   full-unit-tests:
-    name: Full unit test suite (informational, does not block the APK)
+    name: Full unit test suite (manual diagnostic, does not block the APK)
+    needs: [build-apk, localweb-tests]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_suite == 'true' }}
     runs-on: ubuntu-latest
     # NOTE: no job-level timeout-minutes here. A job that exceeds its timeout
     # is cancelled, and a cancelled job cancels the whole run even with
