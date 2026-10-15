@@ -66,8 +66,10 @@ The JS is integration code; the internal engine is compiled into the absent Wasm
    to the GPU worker. `wasm_httpfs_io_start_js` passes the I/O request table.
 3. `initDevice` requests a high-performance adapter, filters 11 optional feature
    names against advertised support, and requests adapter limits. Filtering does
-   not implement fallbacks: e.g. BC textures still need actual BC support. No
-   observed device capabilities were supplied for this investigation.
+   not implement fallbacks: e.g. BC textures still need actual BC support. The
+   v2 capture reports `float32-filterable` was not enabled on the device, but it
+   does not provide a complete adapter-support/requested-feature/device-feature
+   comparison that distinguishes unsupported hardware from a different worker.
 4. `createShader`/`prefetchShader` fetch translated WGSL and constants through
    packs or individual files. `shaderProgram` packs uniform buffers and creates
    a module. `pipelineDescFor` selects the vertex/pixel variants and target state.
