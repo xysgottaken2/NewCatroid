@@ -15,6 +15,7 @@
 
     var DEBUG_ENABLED = params.get('newcatroid_debug') === '1';
     var ADRENO_FIX_ENABLED = params.get('newcatroid_adreno_fix') === '1';
+    var ALPHA_FIX_ENABLED = params.get('newcatroid_alpha_fix') === '1';
     if (!DEBUG_ENABLED && !ADRENO_FIX_ENABLED) return;
     if (window.__newcatroidGameDiagnostics) return;
 
@@ -35,7 +36,7 @@
     var lastHeartbeat = monotonicNow();
     var ui = null;
     var state = {
-        flags: { debug: DEBUG_ENABLED, adrenoFix: ADRENO_FIX_ENABLED },
+        flags: { debug: DEBUG_ENABLED, adrenoFix: ADRENO_FIX_ENABLED, alphaFix: ALPHA_FIX_ENABLED },
         stage: 'Waiting for page initialization events',
         stageChangedAt: startedAt,
         progress: null,
@@ -98,7 +99,17 @@
             gpuWorkerHeartbeatGapMs: null,
             deviceLost: null,
             operationObserverStatus: '',
-            gpuWorkerConfig: null
+            gpuWorkerConfig: null,
+            shaderCompatibility: {
+                requested: ALPHA_FIX_ENABLED,
+                workerUrlConfirmed: null,
+                hookInstalled: null,
+                alphaCoverageVariantsSeen: 0,
+                nonVec4AlphaTestsBypassed: 0,
+                vec4AlphaTestsPreserved: 0,
+                firstNonVec4OutputType: '',
+                lastObservedAt: null
+            }
         },
         fix: {
             requested: ADRENO_FIX_ENABLED,
@@ -109,8 +120,8 @@
             workerSyncPipelines: null,
             gpuWorkerStarted: null,
             gpuWorkerSyncQueryObserved: null,
-            syncPipelineMethodCallsObserved: 0,
-            asyncPipelineMethodCallsObserved: 0,
+            syncRenderPipelineCallsObserved: 0,
+            asyncRenderPipelineCallsObserved: 0,
             workerPipelineImplementationObserved: false,
             workerOptionConfirmed: false,
             behaviorConsistentWithRequest: null,
@@ -219,11 +230,25 @@
     function sanitizeContext(items) {
         if (!Array.isArray(items)) return [];
         return items.slice(-24).map(function (item) {
-            return {
-                at: isoTime(Number(item && item.at) || Date.now()),
-                category: safeText(item && item.category || '', 160),
-                message: safeText(item && item.message || '', 8000)
+            item = item && typeof item === 'object' ? item : {};
+            var result = {
+                at: isoTime(Number(item.at) || Date.now()),
+                category: safeText(item.category || (item.operation ? 'GPU operation' : ''), 160),
+                message: safeText(item.message || '', 8000)
             };
+            if (item.operation) {
+                result.sequence = Number(item.sequence) || null;
+                result.operation = safeText(item.operation, 180);
+                result.count = Math.max(1, Number(item.count) || 1);
+                var operationDetails = '';
+                try {
+                    operationDetails = typeof item.details === 'string' ? item.details : JSON.stringify(item.details || {});
+                } catch (ignored) {
+                    operationDetails = '[operation details unavailable]';
+                }
+                result.operationDetails = safeText(operationDetails, 800);
+            }
+            return result;
         });
     }
 
@@ -1174,13 +1199,56 @@
         names.forEach(function (name) {
             if (typeof apiCalls[name] === 'number') state.rendering.pipelineApiCalls[name] = apiCalls[name];
         });
-        state.fix.syncPipelineMethodCallsObserved = state.rendering.pipelineApiCalls.createRenderPipeline + state.rendering.pipelineApiCalls.createComputePipeline;
-        state.fix.asyncPipelineMethodCallsObserved = state.rendering.pipelineApiCalls.createRenderPipelineAsync + state.rendering.pipelineApiCalls.createComputePipelineAsync;
+        state.fix.syncRenderPipelineCallsObserved = state.rendering.pipelineApiCalls.createRenderPipeline;
+        state.fix.asyncRenderPipelineCallsObserved = state.rendering.pipelineApiCalls.createRenderPipelineAsync;
         if (ADRENO_FIX_ENABLED && state.fix.workerOptionConfirmed) {
-            state.fix.status = 'GPU worker URL carried syncpipelines=1; observed sync API calls=' + state.fix.syncPipelineMethodCallsObserved +
-                ', async API calls=' + state.fix.asyncPipelineMethodCallsObserved + '; option-to-effect causality is not established';
+            state.fix.status = 'GPU worker URL carried syncpipelines=1; observed render pipeline calls: sync=' +
+                state.fix.syncRenderPipelineCallsObserved + ', async=' + state.fix.asyncRenderPipelineCallsObserved +
+                '; compute pipeline calls are tracked separately; option-to-visual-effect causality is not established';
         }
         if (timestamp) state.rendering.lastGraphicsSampleAt = isoTime(timestamp);
+    }
+
+    function updateShaderCompatibility(details, timestamp) {
+        if (!details || typeof details !== 'object') return;
+        var status = state.gpu.shaderCompatibility;
+        if (typeof details.workerUrlAlphaFix === 'boolean') status.workerUrlConfirmed = details.workerUrlAlphaFix;
+        var hasSnapshot = Object.prototype.hasOwnProperty.call(details, 'shaderCompatibility');
+        var snapshot = details.shaderCompatibility;
+        if (!snapshot && details.pipeline && typeof details.pipeline === 'object') {
+            if (Object.prototype.hasOwnProperty.call(details.pipeline, 'shaderCompatibility')) {
+                hasSnapshot = true;
+                snapshot = details.pipeline.shaderCompatibility;
+            }
+            if (typeof details.pipeline.workerUrlAlphaFix === 'boolean') status.workerUrlConfirmed = details.pipeline.workerUrlAlphaFix;
+        }
+        if (hasSnapshot && !snapshot) {
+            status.hookInstalled = false;
+        } else if (snapshot && typeof snapshot === 'object') {
+            status.hookInstalled = snapshot.hookInstalled === true;
+            status.alphaCoverageVariantsSeen = Math.max(0, Number(snapshot.alphaCoverageVariantsSeen) || 0);
+            status.nonVec4AlphaTestsBypassed = Math.max(0, Number(snapshot.nonVec4AlphaTestsBypassed) || 0);
+            status.vec4AlphaTestsPreserved = Math.max(0, Number(snapshot.vec4AlphaTestsPreserved) || 0);
+            status.firstNonVec4OutputType = safeText(snapshot.firstNonVec4OutputType || '', 80);
+            status.lastObservedAt = isoTime(Number(snapshot.lastObservedAt) || Number(timestamp) || Date.now());
+        }
+        if (timestamp && !status.lastObservedAt && (hasSnapshot || typeof details.workerUrlAlphaFix === 'boolean')) {
+            status.lastObservedAt = isoTime(timestamp);
+        }
+    }
+
+    function shaderCompatibilityStatus() {
+        var shader = state.gpu.shaderCompatibility;
+        if (!shader.requested) return 'not requested';
+        if (shader.hookInstalled === true) {
+            return 'worker shim confirmed; alpha variants=' + shader.alphaCoverageVariantsSeen +
+                ', non-vec4 bypassed=' + shader.nonVec4AlphaTestsBypassed +
+                ', vec4 preserved=' + shader.vec4AlphaTestsPreserved;
+        }
+        if (shader.workerUrlConfirmed === false) return 'flag not seen on GPU worker URL';
+        if (shader.hookInstalled === false) return 'GPU worker observed, shim not confirmed';
+        if (shader.workerUrlConfirmed === true) return 'flag reached GPU worker URL; shim confirmation pending';
+        return 'waiting for GPU worker confirmation';
     }
 
     function updateGraphicsSnapshot(details, timestamp) {
@@ -1270,6 +1338,7 @@
         var type = safeText(data.type || 'event', 120);
         var details = data.details && typeof data.details === 'object' ? data.details : {};
         var at = Number(data.at) || Date.now();
+        if (source === 'gpu-worker') updateShaderCompatibility(details, at);
 
         if (type === 'webgpu-error-group') {
             if (DEBUG_ENABLED) captureWebGpuErrorGroup(data);
@@ -1758,11 +1827,11 @@
             note: state.rendering.note
         };
         return {
-            schema: 'NewCatroid local game diagnostics v2',
+            schema: 'NewCatroid local game diagnostics v3',
             capturedAt: isoTime(now),
             page: safeUrl(window.location.href),
             privacy: 'Collected in this WebView only over local BroadcastChannel messages. Exported URLs omit query values; credential-like fields and local paths are redacted. No diagnostic HTTP telemetry is sent.',
-            optIns: { newcatroid_debug: DEBUG_ENABLED, newcatroid_adreno_fix: ADRENO_FIX_ENABLED },
+            optIns: { newcatroid_debug: DEBUG_ENABLED, newcatroid_adreno_fix: ADRENO_FIX_ENABLED, newcatroid_alpha_fix: ALPHA_FIX_ENABLED },
             initialization: {
                 stage: safeText(state.stage, 500),
                 stageChangedAt: isoTime(state.stageChangedAt),
@@ -1794,6 +1863,7 @@
                 gpuWorkerFeaturesLog: safeText(state.gpu.features, 4000),
                 gpuLimitsLog: safeText(state.gpu.limits, 8000),
                 gpuWorkerConfig: state.gpu.gpuWorkerConfig,
+                shaderCompatibility: state.gpu.shaderCompatibility,
                 gpuWorkerInit: state.gpu.workerInit || null,
                 operationObserverStatus: safeText(state.gpu.operationObserverStatus, 1000),
                 pendingPipelineReport: state.gpu.pendingPipelines,
@@ -1816,12 +1886,16 @@
                 syncPipelinesOnGpuWorkerUrl: state.fix.workerSyncPipelines,
                 gpuWorkerStarted: state.fix.gpuWorkerStarted,
                 gpuWorkerSyncQueryObserved: state.fix.gpuWorkerSyncQueryObserved,
-                syncPipelineApiCallsObserved: state.fix.syncPipelineMethodCallsObserved,
-                asyncPipelineApiCallsObserved: state.fix.asyncPipelineMethodCallsObserved,
+                syncRenderPipelineApiCallsObserved: state.fix.syncRenderPipelineCallsObserved,
+                asyncRenderPipelineApiCallsObserved: state.fix.asyncRenderPipelineCallsObserved,
+                computePipelineApiCallsObserved: {
+                    createComputePipeline: state.rendering.pipelineApiCalls.createComputePipeline,
+                    createComputePipelineAsync: state.rendering.pipelineApiCalls.createComputePipelineAsync
+                },
                 pipelineImplementationObserved: state.fix.workerPipelineImplementationObserved,
                 behaviorConsistentWithRequest: state.fix.behaviorConsistentWithRequest,
                 status: safeText(state.fix.status, 1200),
-                interpretation: 'URL/launch receipt and observed API calls are separate evidence; API calls do not by themselves prove that the option caused a particular implementation path or rendering outcome.'
+                interpretation: 'URL/launch receipt and observed API calls are separate evidence. In the pinned client syncpipelines selects render-pipeline creation; compute-pipeline calls are reported separately and are not controlled by this switch. API calls do not prove visual output or that the option caused it.'
             },
             audio: state.audio,
             memory: state.memory,
@@ -1843,6 +1917,108 @@
     function getReport() {
         try { return JSON.stringify(buildReportObject(), null, 2); }
         catch (error) { return 'Diagnostics export failed: ' + safeText(error); }
+    }
+
+    var SHORT_SUMMARY_MAX_CHARS = 5000;
+
+    function compactText(value, limit) {
+        return safeText(value, limit || 240).replace(/[\r\n]+/g, ' ').trim();
+    }
+
+    function compactOperationList(items, limit) {
+        if (!Array.isArray(items) || !items.length) return 'not observed';
+        return items.slice(-limit).map(function (item) {
+            var operation = compactText(item && (item.operation || item.category) || 'GPU operation', 120);
+            var count = Math.max(1, Number(item && item.count) || 1);
+            var details = item && (item.operationDetails || item.details || item.message);
+            var detailsText = compactText(details || '', 150);
+            return operation + (count > 1 ? ' x' + count : '') + (detailsText && detailsText !== '{}' ? ' [' + detailsText + ']' : '');
+        }).join(' <- ');
+    }
+
+    function getShortSummary() {
+        try {
+            var now = Date.now();
+            var canvas = state.rendering.canvas || {};
+            var canvasConfig = state.rendering.canvasConfiguration || {};
+            var latestMemory = state.memory.latestWasmLinearMemory;
+            var latestAudio = state.audio.contexts.length ? state.audio.contexts[state.audio.contexts.length - 1] : null;
+            var pipelineCalls = state.rendering.pipelineApiCalls;
+            var shader = state.gpu.shaderCompatibility;
+            var workerLabels = Object.keys(workerStates).slice(-5).map(function (key) {
+                var worker = workerStates[key];
+                return compactText(worker.role, 50) + ':' + compactText(worker.state || 'observed', 40);
+            });
+            var errors = state.gpu.errorGroups.slice().sort(function (left, right) {
+                return (Date.parse(right.lastAt) || 0) - (Date.parse(left.lastAt) || 0);
+            }).slice(0, 3);
+            var lines = [
+                'NewCatroid PlayGTA5 short diagnostics v1',
+                'Captured: ' + isoTime(now) + ' · page: ' + safeUrl(window.location.href),
+                'Flags: newcatroid_debug=' + (DEBUG_ENABLED ? '1' : '0') +
+                    ' · newcatroid_adreno_fix=' + (ADRENO_FIX_ENABLED ? '1' : '0') +
+                    ' · newcatroid_alpha_fix=' + (ALPHA_FIX_ENABLED ? '1' : '0'),
+                'Initialization: ' + compactText(state.stage, 180) + ' · page progress=' +
+                    (state.progress == null ? 'n/a' : state.progress + '%') + ' · engine target=' +
+                    (state.targetProgress == null ? 'n/a' : state.targetProgress + '%') + ' · WASM=' + state.wasm.state,
+                'Workers: ' + (workerLabels.length ? workerLabels.join(', ') : 'none observed'),
+                'Sync-pipeline path: requested=' + ADRENO_FIX_ENABLED +
+                    ' · launch=' + (state.fix.launchMessageObserved ? state.fix.appliedToLaunchMessage : 'unobserved') +
+                    ' · loader=' + (state.fix.loaderReceivedSyncPipelines == null ? 'unobserved' : state.fix.loaderReceivedSyncPipelines) +
+                    ' · GPU URL=' + (state.fix.workerSyncPipelines == null ? 'unobserved' : state.fix.workerSyncPipelines) +
+                    ' · createRenderPipeline sync=' + pipelineCalls.createRenderPipeline +
+                    ', async=' + pipelineCalls.createRenderPipelineAsync +
+                    ' · compute sync=' + pipelineCalls.createComputePipeline +
+                    ', async=' + pipelineCalls.createComputePipelineAsync,
+                'Alpha compatibility: ' + compactText(shaderCompatibilityStatus(), 260) +
+                    ' · worker URL=' + (shader.workerUrlConfirmed == null ? 'unobserved' : shader.workerUrlConfirmed) +
+                    ' · first non-vec4=' + compactText(shader.firstNonVec4OutputType || 'unobserved', 80) +
+                    ' · counts reflect shader-variant handling, not pipeline success or pixels.',
+                'GPU: WebGPU=' + state.gpu.webGpuApi + ' · worker adapter=' +
+                    compactText(state.gpu.workerAdapterDetails || state.gpu.adapterDetails || 'unobserved', 220) +
+                    ' · error occurrences=' + state.gpu.errorOccurrences +
+                    ' · device lost=' + (state.gpu.deviceLost ? compactText(state.gpu.deviceLost.reason + ' ' + state.gpu.deviceLost.message, 220) : 'not observed'),
+                'Canvas/render: ' + (Number(canvas.width) || Number(canvas.bitmapWidth) || '?') + 'x' +
+                    (Number(canvas.height) || Number(canvas.bitmapHeight) || '?') +
+                    (canvasConfig.format ? ' · format=' + compactText(canvasConfig.format, 60) : '') +
+                    ' · texture=' + (state.rendering.firstCanvasTextureAt ? 'observed' : 'not observed') +
+                    ' · queue submits=' + state.rendering.queueSubmitCount +
+                    ' · display/pixels=' + (state.rendering.displayPresentationObserved ? 'observed' : 'not measured'),
+                'Recent GPU operations: ' + compactOperationList(state.rendering.recentGpuOperations, 4),
+                'Audio API: ' + (latestAudio ? compactText(latestAudio.constructor + ' state=' + latestAudio.state + ' resume=' + latestAudio.lastResumeResult, 220) : 'no AudioContext observed') +
+                    ' · actual audible output is not measured.',
+                'WASM linear-memory capacity: ' + (latestMemory ? latestMemory.bufferMiB + ' MiB (' + compactText(latestMemory.metric, 100) + ')' : 'not observed')
+            ];
+            if (errors.length) {
+                lines.push('Recent WebGPU errors (up to 3):');
+                errors.forEach(function (group) {
+                    var sources = Object.keys(group.sourceKindCounts || {}).slice(0, 3).join(', ') || group.sourceKind || 'unknown source';
+                    lines.push('- ' + compactText(group.type, 100) + ' x' + group.count + ' [' + compactText(sources, 140) + ']: ' + compactText(group.message, 520));
+                    var context = group.latestContext || group.firstContext || [];
+                    if (context.length) lines.push('  Near: ' + compactOperationList(context, 3));
+                });
+            } else {
+                lines.push('Recent WebGPU errors: none captured (not proof of error-free rendering).');
+            }
+            var exception = state.exceptions.length ? state.exceptions[state.exceptions.length - 1] : null;
+            if (exception) {
+                lines.push('Latest exception: ' + compactText(exception.thread + ' ' + exception.name + ': ' + exception.message, 620));
+                if (exception.stack) lines.push('  Stack head: ' + compactText(exception.stack.split(/\r?\n/).slice(0, 2).join(' | '), 320));
+            } else {
+                lines.push('Latest exception: none captured.');
+            }
+            state.resources.failures.slice(-2).reverse().forEach(function (failure) {
+                lines.push('Resource failure: ' + compactText(failure.source + ' ' + failure.kind + ' status=' + failure.status + ': ' + failure.message, 300));
+            });
+            lines.push('Limit: no full console log or full stack dump is included. Submits, Ready/progress and API counters do not prove a valid non-black displayed frame.');
+            var summary = lines.join('\n');
+            if (summary.length > SHORT_SUMMARY_MAX_CHARS) {
+                summary = summary.slice(0, SHORT_SUMMARY_MAX_CHARS - 48) + '\n[Short summary capped at 5000 characters.]';
+            }
+            return summary;
+        } catch (error) {
+            return 'NewCatroid PlayGTA5 short diagnostics v1\nSummary generation failed: ' + safeText(error, 400);
+        }
     }
 
     function formatWorkerList() {
@@ -1881,6 +2057,8 @@
                 (latestAudio ? ' · last state ' + latestAudio.state + ' · resume ' + latestAudio.lastResumeResult : ' · no context observed'),
             'WASM memory capacity: ' + (latestMemory ? latestMemory.bufferMiB + ' MiB (' + latestMemory.metric + ')' : 'not observed'),
             'Graphics experiment: ' + safeText(state.fix.status),
+            'Scalar alpha fix: ' + safeText(shaderCompatibilityStatus()),
+            'Last GPU error: ' + safeText(state.gpu.lastGpuError || 'none captured', 500),
             'Note: engine Ready/100%, submit, and AudioContext state do not prove visible pixels or audible sound.'
         ];
         return lines.join('\n');
@@ -1959,13 +2137,19 @@
         } catch (ignored) { }
     }
 
-    function showSelectableReport() {
+    function showSelectableReport(isShort) {
         if (!ui || !ui.report) return;
-        ui.report.value = getReport();
+        ui.report.value = isShort ? getShortSummary() : getReport();
         ui.report.hidden = false;
         ui.report.focus();
         ui.report.select();
-        ui.exportStatus.textContent = 'Report selected. Long-press/copy the text; it contains sanitized local diagnostics only.';
+        ui.exportStatus.textContent = isShort
+            ? 'Short summary selected. Share this first; it omits full logs and stacks.'
+            : 'Full report selected. Use the short summary for initial sharing.';
+    }
+
+    function showSelectableSummary() {
+        showSelectableReport(true);
     }
 
     function mountUi() {
@@ -2035,12 +2219,15 @@
         eventsElement.className = 'events';
         var actions = document.createElement('div');
         actions.className = 'actions';
+        var copySummaryButton = document.createElement('button');
+        copySummaryButton.type = 'button';
+        copySummaryButton.textContent = 'Copy short summary';
         var copyButton = document.createElement('button');
         copyButton.type = 'button';
-        copyButton.textContent = 'Copy report';
+        copyButton.textContent = 'Copy full report';
         var selectButton = document.createElement('button');
         selectButton.type = 'button';
-        selectButton.textContent = 'Show/select text';
+        selectButton.textContent = 'Show full report text';
         var refreshButton = document.createElement('button');
         refreshButton.type = 'button';
         refreshButton.textContent = 'Refresh';
@@ -2051,6 +2238,7 @@
         report.hidden = true;
         report.setAttribute('aria-label', 'Sanitized diagnostics report, selectable text');
         report.setAttribute('spellcheck', 'false');
+        actions.appendChild(copySummaryButton);
         actions.appendChild(copyButton);
         actions.appendChild(selectButton);
         actions.appendChild(refreshButton);
@@ -2074,21 +2262,31 @@
             toggle.textContent = collapsed ? 'Show' : 'Hide';
             toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         });
-        selectButton.addEventListener('click', showSelectableReport);
+        selectButton.addEventListener('click', function () { showSelectableReport(false); });
         refreshButton.addEventListener('click', function () {
             sampleDisplayedProgress();
             report.value = getReport();
-            exportStatus.textContent = 'Report refreshed. Select text to copy or use Copy report.';
+            exportStatus.textContent = 'Diagnostics refreshed. Copy short summary for initial sharing; full report remains available.';
             render();
+        });
+        copySummaryButton.addEventListener('click', function () {
+            var text = getShortSummary();
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                Promise.resolve(navigator.clipboard.writeText(text)).then(function () {
+                    exportStatus.textContent = 'Short summary copied (no full log or full stack).';
+                }).catch(showSelectableSummary);
+            } else {
+                showSelectableSummary();
+            }
         });
         copyButton.addEventListener('click', function () {
             var text = getReport();
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                 Promise.resolve(navigator.clipboard.writeText(text)).then(function () {
-                    exportStatus.textContent = 'Sanitized report copied to clipboard.';
-                }).catch(function () { showSelectableReport(); });
+                    exportStatus.textContent = 'Full report copied. The short summary is preferred for initial sharing.';
+                }).catch(function () { showSelectableReport(false); });
             } else {
-                showSelectableReport();
+                showSelectableReport(false);
             }
         });
         render();
@@ -2156,9 +2354,10 @@
 
     function installProbeApi() {
         window.__newcatroidGameDiagnostics = {
-            flags: { debug: DEBUG_ENABLED, adrenoFix: ADRENO_FIX_ENABLED },
+            flags: { debug: DEBUG_ENABLED, adrenoFix: ADRENO_FIX_ENABLED, alphaFix: ALPHA_FIX_ENABLED },
             state: state,
             getReport: getReport,
+            getShortSummary: getShortSummary,
             recordForTest: function (category, message) { recordEvent(category, message); }
         };
     }

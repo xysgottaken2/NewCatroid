@@ -302,6 +302,35 @@ test('GPU hooks preserve uncaptured error text, pipeline context, counts, operat
     assert.ok(messages.some((message) => message.type === 'gpu-device-observed' && message.details.uncapturederrorListenerInstalled));
 });
 
+test('GPU worker reports alpha-fix URL propagation separately from shim and shader-variant counters', () => {
+    const stats = {
+        enabled: true,
+        hookInstalled: true,
+        alphaCoverageVariantsSeen: 7,
+        nonVec4AlphaTestsBypassed: 2,
+        vec4AlphaTestsPreserved: 5,
+        firstNonVec4OutputType: 'f32',
+        lastObservedAt: 12345
+    };
+    const env = createWorkerContext('/wgpu_worker.js?newcatroid_worker_debug=1&syncpipelines=1&newcatroid_alpha_fix=1', {
+        self: { __newcatroidAlphaCompatibility: stats }
+    });
+    const config = env.channel.messages.find((message) => message.type === 'gpu-worker-config');
+    const bootstrap = env.channel.messages.find((message) => message.type === 'worker-bootstrap');
+    assert.equal(config.details.workerUrlSyncPipelines, true);
+    assert.equal(config.details.workerUrlAlphaFix, true);
+    assert.equal(config.details.shaderCompatibility.hookInstalled, true);
+    assert.equal(config.details.shaderCompatibility.alphaCoverageVariantsSeen, 7);
+    assert.equal(config.details.shaderCompatibility.nonVec4AlphaTestsBypassed, 2);
+    assert.equal(bootstrap.details.workerUrlAlphaFix, true);
+    assert.equal(bootstrap.details.shaderCompatibility.firstNonVec4OutputType, 'f32');
+
+    env.intervals[0]();
+    const heartbeat = env.channel.messages.filter((message) => message.type === 'worker-heartbeat').at(-1);
+    assert.equal(heartbeat.details.shaderCompatibility.vec4AlphaTestsPreserved, 5);
+    assert.equal(heartbeat.details.pipeline.workerUrlAlphaFix, true);
+});
+
 test('fetch observer groups audio-like resource status without exporting request URLs or query values', async () => {
     const response = {
         status: 404,

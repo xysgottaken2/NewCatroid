@@ -30,7 +30,21 @@
     var observedMemories = new WeakSet();
     var resourceGroups = new Map();
     var observedGpuDevices = new WeakSet();
-    var workerQuery = { syncPipelines: false };
+    var workerQuery = { syncPipelines: false, alphaFix: false };
+
+    function alphaCompatibilitySnapshot() {
+        var value = self.__newcatroidAlphaCompatibility;
+        if (!value || typeof value !== 'object') return null;
+        return {
+            enabled: value.enabled === true,
+            hookInstalled: value.hookInstalled === true,
+            alphaCoverageVariantsSeen: Math.max(0, Number(value.alphaCoverageVariantsSeen) || 0),
+            nonVec4AlphaTestsBypassed: Math.max(0, Number(value.nonVec4AlphaTestsBypassed) || 0),
+            vec4AlphaTestsPreserved: Math.max(0, Number(value.vec4AlphaTestsPreserved) || 0),
+            firstNonVec4OutputType: safeText(value.firstNonVec4OutputType || '', 80),
+            lastObservedAt: Number(value.lastObservedAt) || null
+        };
+    }
 
     function workerNow() {
         try { return self.performance && typeof self.performance.now === 'function' ? self.performance.now() : Date.now(); }
@@ -593,6 +607,8 @@
     function pipelineImplementationSnapshot() {
         return {
             workerUrlSyncPipelines: workerQuery.syncPipelines,
+            workerUrlAlphaFix: workerQuery.alphaFix,
+            shaderCompatibility: alphaCompatibilitySnapshot(),
             apiCalls: {
                 createRenderPipeline: pipelineApiCalls.createRenderPipeline,
                 createRenderPipelineAsync: pipelineApiCalls.createRenderPipelineAsync,
@@ -1017,6 +1033,8 @@
         try { canCreatePipelineAsync = !!(self.GPUDevice && self.GPUDevice.prototype && typeof self.GPUDevice.prototype.createRenderPipelineAsync === 'function'); } catch (ignored) { }
         send('gpu-worker-config', {
             workerUrlSyncPipelines: workerQuery.syncPipelines,
+            workerUrlAlphaFix: workerQuery.alphaFix,
+            shaderCompatibility: alphaCompatibilitySnapshot(),
             createRenderPipelineAvailable: !!(self.GPUDevice && self.GPUDevice.prototype && typeof self.GPUDevice.prototype.createRenderPipeline === 'function'),
             createRenderPipelineAsyncAvailable: canCreatePipelineAsync,
             installedApiHooks: installed,
@@ -1591,6 +1609,7 @@
                 send('worker-heartbeat', {
                     gapMs: gap,
                     pipeline: component === 'gpu-worker' ? pipelineImplementationSnapshot() : undefined,
+                    shaderCompatibility: component === 'gpu-worker' ? alphaCompatibilitySnapshot() : undefined,
                     gpuOperations: component === 'gpu-worker' ? {
                         counts: gpuOperationCounts,
                         queueSubmitCount: gpuOperationCounts['GPUQueue.submit'] || 0,
@@ -1631,6 +1650,7 @@
     try { pageQuery = new URLSearchParams(self.location.search || ''); }
     catch (ignored) { pageQuery = { get: function () { return null; } }; }
     workerQuery.syncPipelines = pageQuery.get('syncpipelines') === '1';
+    workerQuery.alphaFix = pageQuery.get('newcatroid_alpha_fix') === '1';
     if (pageQuery.get('newcatroid_pipeline_probe') === '1' && pageQuery.get('newcatroid_worker_debug') !== '1') {
         // Fix-only mode: inspect exactly which syncPipelines URL option the
         // existing loader gives to wgpu_worker.js. No logs, heartbeat, WASM
@@ -1652,6 +1672,8 @@
         component: component,
         script: safeUrl(self.location.href),
         workerUrlSyncPipelines: component === 'gpu-worker' ? workerQuery.syncPipelines : null,
+        workerUrlAlphaFix: component === 'gpu-worker' ? workerQuery.alphaFix : null,
+        shaderCompatibility: component === 'gpu-worker' ? alphaCompatibilitySnapshot() : null,
         contextNote: 'worker events are local BroadcastChannel messages; no HTTP telemetry is sent'
     });
 })();

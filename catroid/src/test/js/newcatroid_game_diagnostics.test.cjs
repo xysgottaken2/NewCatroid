@@ -190,7 +190,8 @@ test('only exact independent opt-in values enable their own modes', () => {
     const debugOnly = createPage('?newcatroid_debug=1');
     assert.deepEqual(JSON.parse(JSON.stringify(debugOnly.window.__newcatroidGameDiagnostics.flags)), {
         debug: true,
-        adrenoFix: false
+        adrenoFix: false,
+        alphaFix: false
     });
     const debugWorker = new debugOnly.window.Worker('/loader.js');
     const originalMessage = { canvas: { transfer: true }, args: ['-wgpu'], syncPipelines: false, remoteLog: false };
@@ -255,6 +256,7 @@ test('diagnostics collect progress, WASM, workers, GPU errors and heartbeat with
     assert.ok(api);
     assert.equal(api.flags.debug, true);
     assert.equal(api.flags.adrenoFix, false);
+    assert.equal(api.flags.alphaFix, false);
 
     page.elements.pct.textContent = '80%';
     page.elements.label.textContent = 'Loading the world';
@@ -290,7 +292,7 @@ test('diagnostics collect progress, WASM, workers, GPU errors and heartbeat with
     assert.match(report, /\[REDACTED\]/);
     assert.equal(page.fetchCalls(), 0, 'no diagnostic request is sent');
 
-    const selectButton = page.find((element) => element.textContent === 'Show/select text');
+    const selectButton = page.find((element) => element.textContent === 'Show full report text');
     assert.ok(selectButton);
     selectButton.click();
     const textArea = page.find((element) => element.tagName === 'TEXTAREA');
@@ -300,7 +302,7 @@ test('diagnostics collect progress, WASM, workers, GPU errors and heartbeat with
     assert.equal(textArea.selected, true);
     assert.match(textArea.value, /NewCatroid local game diagnostics/);
 
-    const copyButton = page.find((element) => element.textContent === 'Copy report');
+    const copyButton = page.find((element) => element.textContent === 'Copy full report');
     copyButton.click();
     assert.equal(textArea.selected, true, 'clipboard absence falls back to selectable text');
 });
@@ -395,6 +397,9 @@ test('integrates grouped GPU errors, crash stack, resize, audio, memory, resourc
     assert.equal(report.graphics.errorGroups[0].firstAt, new Date(firstAt).toISOString());
     assert.equal(report.graphics.errorGroups[0].lastAt, new Date(lastAt).toISOString());
     assert.match(report.graphics.errorGroups[0].message, /rgba16float/);
+    assert.equal(report.graphics.errorGroups[0].latestContext[0].operation, 'GPUQueue.submit');
+    assert.equal(report.graphics.errorGroups[0].latestContext[0].count, 2);
+    assert.equal(report.graphics.errorGroups[0].latestContext[0].operationDetails, '{}');
     assert.equal(report.rendering.firstCanvasConfigureAt, new Date(lastAt).toISOString());
     assert.equal(report.rendering.firstCanvasTextureAt, new Date(lastAt + 1).toISOString());
     assert.equal(report.rendering.firstQueueSubmitAt, new Date(lastAt + 2).toISOString());
@@ -432,6 +437,81 @@ test('integrates grouped GPU errors, crash stack, resize, audio, memory, resourc
     assert.ok(report.audio.outputEvents.some((entry) => /Starting audio thread/.test(entry.message)));
     assert.match(report.interpretationNotes.join(' '), /do not prove audible output/);
     assert.doesNotMatch(JSON.stringify(report), /private-query-token/);
+});
+
+test('short summary is bounded, sanitized and the primary copy fallback selects compact text', () => {
+    const page = createPage('?newcatroid_debug=1&newcatroid_adreno_fix=1&newcatroid_alpha_fix=1');
+    const api = page.window.__newcatroidGameDiagnostics;
+    const worker = page.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    const now = Date.now();
+    assert.deepEqual(JSON.parse(JSON.stringify(api.flags)), { debug: true, adrenoFix: true, alphaFix: true });
+
+    worker.emit({ source: 'loader-worker', type: 'loader-init', at: now, details: { hasWgpuArgument: true, syncPipelinesRequested: true } });
+    worker.emit({ source: 'loader-worker', type: 'worker-created', id: 'gpu-short', at: now + 1,
+        details: { role: 'gpu-worker', url: '/wgpu_worker.js', syncPipelines: true } });
+    const shaderCompatibility = {
+        enabled: true, hookInstalled: true, alphaCoverageVariantsSeen: 4,
+        nonVec4AlphaTestsBypassed: 1, vec4AlphaTestsPreserved: 3,
+        firstNonVec4OutputType: 'f32', lastObservedAt: now + 2
+    };
+    worker.emit({ source: 'gpu-worker', type: 'gpu-worker-config', at: now + 2, details: {
+        workerUrlSyncPipelines: true, workerUrlAlphaFix: true, shaderCompatibility,
+        createRenderPipelineAvailable: true, createRenderPipelineAsyncAvailable: true, installedApiHooks: 28
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'pipeline-implementation', at: now + 3, details: {
+        workerUrlSyncPipelines: true, workerUrlAlphaFix: true, shaderCompatibility,
+        apiCalls: { createRenderPipeline: 6, createRenderPipelineAsync: 0, createComputePipeline: 1, createComputePipelineAsync: 0 },
+        recentOperations: [{ sequence: 8, at: now + 3, operation: 'GPUDevice.createRenderPipeline', count: 6,
+            details: { label: 'world-pipeline' } }]
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'webgpu-error-group', at: now + 4, details: {
+        groupId: 'summary-error', type: 'GPUValidationError', sourceKind: 'GPUDevice uncapturederror event',
+        sourceKindCounts: { 'GPUDevice uncapturederror event': 2 }, count: 2, firstAt: now + 3, lastAt: now + 4,
+        message: 'Pipeline validation failed token=short-secret ' + 'x'.repeat(15000),
+        latestContext: [{ at: now + 4, sequence: 9, operation: 'GPUDevice.createShaderModule', count: 1,
+            details: { label: 'world-shader', token: 'context-secret' } }]
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'worker-error', at: now + 5, details: {
+        name: 'GPUWorkerError', message: 'shader operation failed',
+        stack: 'GPUWorkerError: shader operation failed\n    at public-frame\n    at full-private-stack-marker',
+        thread: 'gpu-worker'
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'canvas-configure', at: now + 6, details: {
+        count: 1, format: 'bgra8unorm', canvas: { width: 1152, height: 2160 }
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'gpu-queue-submit-first', at: now + 7, details: { commandBufferCount: 1 } });
+    worker.emit({ source: 'page', type: 'audio-context', at: now + 8, details: {
+        contextId: 'page-audio', constructor: 'AudioContext', state: 'running', sampleRate: 48000,
+        destinationMaxChannelCount: 2
+    } });
+
+    const summary = api.getShortSummary();
+    assert.ok(summary.length <= 5000);
+    assert.match(summary, /newcatroid_adreno_fix=1.*newcatroid_alpha_fix=1/);
+    assert.match(summary, /GPU URL=true.*createRenderPipeline sync=6, async=0/);
+    assert.match(summary, /worker shim confirmed.*non-vec4 bypassed=1/);
+    assert.match(summary, /GPUValidationError x2/);
+    assert.match(summary, /GPUDevice\.createShaderModule/);
+    assert.match(summary, /AudioContext state=running/);
+    assert.match(summary, /display\/pixels=not measured/);
+    assert.doesNotMatch(summary, /short-secret|context-secret|full-private-stack-marker/);
+
+    const report = JSON.parse(api.getReport());
+    assert.equal(report.optIns.newcatroid_alpha_fix, true);
+    assert.equal(report.graphics.shaderCompatibility.workerUrlConfirmed, true);
+    assert.equal(report.graphics.shaderCompatibility.hookInstalled, true);
+    assert.equal(report.graphics.shaderCompatibility.nonVec4AlphaTestsBypassed, 1);
+
+    const copyButton = page.find((element) => element.textContent === 'Copy short summary');
+    assert.ok(copyButton);
+    copyButton.click();
+    const textArea = page.find((element) => element.tagName === 'TEXTAREA');
+    assert.equal(textArea.hidden, false);
+    assert.equal(textArea.readOnly, true);
+    assert.equal(textArea.selected, true);
+    assert.match(textArea.value, /NewCatroid PlayGTA5 short diagnostics v1/);
+    assert.ok(textArea.value.length <= 5000);
+    assert.doesNotMatch(textArea.value, /full-private-stack-marker/);
 });
 
 test('audio observer records context state, user gesture and autoplay rejection without resuming automatically', async () => {

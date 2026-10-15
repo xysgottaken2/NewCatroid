@@ -12,10 +12,37 @@
     // Both normal and remapped variants enter pixelModule. A scalar target has
     // no alpha component: do not synthesize an invalid scalar .w access.
     if (/\/wgpu_worker\.js$/.test(self.location.pathname)) {
+        var alphaCompatibilityStats = {
+            enabled: true,
+            hookInstalled: true,
+            alphaCoverageVariantsSeen: 0,
+            nonVec4AlphaTestsBypassed: 0,
+            vec4AlphaTestsPreserved: 0,
+            firstNonVec4OutputType: '',
+            lastObservedAt: null
+        };
+        self.__newcatroidAlphaCompatibility = alphaCompatibilityStats;
         var originalPixelModule = pixelModule;
         pixelModule = function (program, alphaToCoverage, remap) {
-            var hasAlpha = /\bvar\s*<\s*private\s*>\s+o0\s*:\s*(?:vec4\s*<\s*f32\s*>|vec4f)\s*;/.test(program.text);
-            return originalPixelModule(program, alphaToCoverage && hasAlpha, remap);
+            var useAlphaToCoverage = !!alphaToCoverage;
+            if (useAlphaToCoverage) {
+                var text = program && typeof program.text === 'string' ? program.text : '';
+                var output = /\bvar\s*<\s*private\s*>\s+o0\s*:\s*([^;]+)\s*;/.exec(text);
+                var outputType = output ? output[1].replace(/\s+/g, '') : 'unknown';
+                var hasAlpha = /^(?:vec4<f32>|vec4f)$/.test(outputType);
+                alphaCompatibilityStats.alphaCoverageVariantsSeen++;
+                alphaCompatibilityStats.lastObservedAt = Date.now();
+                if (hasAlpha) {
+                    alphaCompatibilityStats.vec4AlphaTestsPreserved++;
+                } else {
+                    alphaCompatibilityStats.nonVec4AlphaTestsBypassed++;
+                    if (!alphaCompatibilityStats.firstNonVec4OutputType) {
+                        alphaCompatibilityStats.firstNonVec4OutputType = outputType.slice(0, 48);
+                    }
+                }
+                useAlphaToCoverage = hasAlpha;
+            }
+            return originalPixelModule(program, useAlphaToCoverage, remap);
         };
         console.info('[NewCatroid] scalar alpha-test correction applied (reviewed worker)');
         return;

@@ -56,4 +56,12 @@ test('only alpha eligibility changes; program and location-remap identities are 
         context.pixelModule(program,false,remap);
         assert.equal(calls.at(-1)[1],false);
     }
+    const stats = context.self.__newcatroidAlphaCompatibility;
+    assert.equal(stats.enabled, true);
+    assert.equal(stats.hookInstalled, true);
+    assert.equal(stats.alphaCoverageVariantsSeen, 5);
+    assert.equal(stats.nonVec4AlphaTestsBypassed, 3);
+    assert.equal(stats.vec4AlphaTestsPreserved, 2);
+    assert.equal(stats.firstNonVec4OutputType, 'f32');
+    assert.equal(typeof stats.lastObservedAt, 'number');
 });
