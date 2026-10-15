@@ -43,8 +43,9 @@ The checked-out merged branch did not contain `DownloadFileAction.kt` or a `down
 
 ## Verification status
 
-- `node --test catroid/src/test/js/newcatroid_touch_controls.test.cjs` passes locally (5 tests), including a regression for releasing held controls when the editor opens. `git diff --check` is clean.
-- JVM/Gradle unit tests and the APK build have not run locally: this sandbox has no `java` executable and `JAVA_HOME` is unset. The GitHub Actions workflow is configured to run the focused local-web/download tests, the Node suite, and then upload a debug APK artifact after the test job succeeds; no Actions result or artifact exists until that workflow completes.
+- `node --test catroid/src/test/js/newcatroid_touch_controls.test.cjs` passes locally (5 tests), including a regression for releasing held controls when the editor opens. `git diff --check` was clean for the tested source commit.
+- The sandbox has no `java` executable and `JAVA_HOME` is unset, so JVM/Gradle tests and the APK were built by GitHub Actions, not locally. Run [38682348298](https://github.com/xysgottaken2/NewCatroid/actions/runs/38682348298) passed the focused local-web/download JVM tests and the touch-controls Node tests, built the Danvex debug APK, and uploaded artifact `NewCatroid-debug-apk-run63-7c88f872093d960411e168b21e293f50313804dc` (258,169,576 bytes / 246.21 MiB archive; expires 2026-11-14). The source commit tested was `7c88f872093d960411e168b21e293f50313804dc`.
+- The separate informational full-suite job ran to its configured 110-minute timeout and failed with many test failures recorded. The emitted summary lists multiple classes outside the focused test selection, but the failures were not individually root-caused and no causal link to this patch is established. The workflow posted the failing-test summary as a commit comment and uploaded [the test-report artifact](https://github.com/xysgottaken2/NewCatroid/actions/runs/38682348298/artifacts/11952442554), named `NewCatroid-full-test-reports-run63-7c88f872093d960411e168b21e293f50313804dc`. The focused download/server tests and APK jobs succeeded. Downloading the report ZIP from the runner's blob-storage host was blocked by this sandbox's outbound-host restrictions, but the failure summary is available in the commit comment and the artifact is listed in the run.
 
 ## What remains unproven
 
