@@ -304,10 +304,11 @@ Separate observations remain unresolved:
   frames, successful presents, or measured pixels. The report still does not
   measure a visible frame.
 
-The graphics/debug flags remain independently controllable: keep the current
-debug and alpha-fix settings for the next comparable capture, and do not infer
-an Adreno Fix effect without an equivalent on/off comparison. No format or shader change
-is made in this follow-up; the next step is to use the new capture to identify
+Keep `newcatroid_debug=1`, `newcatroid_alpha_fix=1`, and the current
+`newcatroid_adreno_fix=1` setting unchanged for the next comparable capture; do
+not infer that any flag solved the symptom. The earlier v2 report had Adreno Fix
+off, so it is not a controlled on/off comparison with a capture using it. No
+format or shader change is made in this follow-up; use the new trace to identify
 the affected resource and shader/pass before choosing a narrowly scoped fix.
 
 Sources: [pinned PlayGTA5 worker](https://github.com/shadany7824/playgta5/blob/2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js),
@@ -377,13 +378,15 @@ visual test ran on the Galaxy S23 Ultra.
 Append `newcatroid_alpha_fix=1` to the existing local game URL. For example:
 
 ```text
-http://127.0.0.1:<port>/<existing-page>?newcatroid_debug=1&newcatroid_alpha_fix=1
+http://127.0.0.1:<port>/<existing-page>?newcatroid_debug=1&newcatroid_alpha_fix=1&newcatroid_adreno_fix=1
 ```
 
-Use `&` if the URL already contains `?`. Keep the same scene, options, data and
-orientation in the baseline and corrected runs. Initially omit
-`newcatroid_adreno_fix` from **both** runs to isolate the shader correction.
-If comparing sync pipelines later, enable it in both members of that comparison.
+Use `&` if the URL already contains `?`. For the next capture, keep the
+current `newcatroid_debug=1`, `newcatroid_alpha_fix=1`, and
+`newcatroid_adreno_fix=1` flags unchanged, with the same scene, options, data,
+and orientation. Do not disable or toggle a flag during this binding-44 pass;
+the earlier v2 capture had Adreno Fix off, so it is not a like-for-like
+comparison. Do not assume any flag fixes the visual symptom.
 
 The server appends the correction only to the exact reviewed GPU-worker bytes.
 With `newcatroid_debug=1` as well, the worker receives a structured local
