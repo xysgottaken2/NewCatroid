@@ -114,7 +114,7 @@ function createPage(search = '', overrides = {}) {
     };
     const windowListeners = Object.create(null);
     const origin = 'http://local.test:8080';
-    const window = {
+    const window = Object.assign({
         location: { href: origin + '/index.html' + search, search, origin },
         document,
         Worker: FakeWorker,
@@ -124,7 +124,7 @@ function createPage(search = '', overrides = {}) {
         performance: { now: () => 100 },
         addEventListener(type, listener) { (windowListeners[type] || (windowListeners[type] = [])).push(listener); },
         dispatch(type, event) { for (const listener of windowListeners[type] || []) listener(event || {}); }
-    };
+    }, overrides.window || {});
     const navigator = Object.assign({ maxTouchPoints: 0 }, overrides.navigator || {});
     let timerId = 0;
     let fetchCalls = 0;
@@ -222,7 +222,7 @@ test('only exact independent opt-in values enable their own modes', () => {
     fixOnly.getChannels()[0].emit({
         source: 'loader-worker', type: 'pipeline-mode', details: { gpuWorkerCreated: true, syncPipelines: true }
     });
-    assert.match(fixOnly.find((element) => element.className === 'badge').textContent, /URL carried syncpipelines=1/);
+    assert.match(fixOnly.find((element) => element.className === 'badge').textContent, /syncPipelines=true reached the GPU worker URL/);
 });
 
 test('the experimental option is applied only to the loader launch and never changes touch controls', () => {
@@ -282,7 +282,8 @@ test('diagnostics collect progress, WASM, workers, GPU errors and heartbeat with
     assert.match(parsed.graphics.adapterInformation, /Qualcomm/);
     assert.match(parsed.graphics.adapterFeatures, /timestamp-query/);
     assert.match(parsed.graphics.adapterLimits, /maxTextureDimension2D=8192/);
-    assert.equal(parsed.experimentalGraphicsMode.loaderGpuWorkerUrlConfirmedSyncPipelines, true);
+    assert.equal(parsed.experimentalGraphicsMode.syncPipelinesOnGpuWorkerUrl, true);
+    assert.equal(parsed.experimentalGraphicsMode.loaderReceivedSyncPipelines, null, 'the test observed worker URL only, not a loader init message');
     assert.match(parsed.graphics.lastShaderOrPipelineError, /validation error/);
     assert.match(report, /heartbeat/i);
     assert.doesNotMatch(report, /do-not-export|secret-value|abc|key123|private-user|private@example\.com|url-secret|private\/path|save\.dat/);
@@ -302,4 +303,173 @@ test('diagnostics collect progress, WASM, workers, GPU errors and heartbeat with
     const copyButton = page.find((element) => element.textContent === 'Copy report');
     copyButton.click();
     assert.equal(textArea.selected, true, 'clipboard absence falls back to selectable text');
+});
+
+test('integrates grouped GPU errors, crash stack, resize, audio, memory, resources and engine milestones', () => {
+    const page = createPage('?newcatroid_debug=1&token=private-query-token');
+    const api = page.window.__newcatroidGameDiagnostics;
+    const worker = page.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    const progress = page.getChannels().find((channel) => channel.name === 'game-progress');
+    const crash = page.getChannels().find((channel) => channel.name === 'game-crash');
+    const firstAt = Date.now() - 2500;
+    const lastAt = Date.now() - 100;
+    const errorDetails = {
+        groupId: 'gpu-error-7',
+        type: 'GPUValidationError',
+        sourceKind: 'GPUDevice uncapturederror event',
+        message: 'Attachment format rgba16float is not supported for this pipeline.',
+        count: 1,
+        firstAt,
+        lastAt: firstAt,
+        firstContext: [{ at: firstAt, sequence: 8, operation: 'GPUDevice.createRenderPipeline', count: 1,
+            details: { fragmentTargetFormats: ['rgba16float'] } }],
+        latestContext: [{ at: firstAt, sequence: 8, operation: 'GPUDevice.createRenderPipeline', count: 1,
+            details: { fragmentTargetFormats: ['rgba16float'] } }],
+        firstOperationCounts: { 'GPUDevice.createRenderPipeline': 1 },
+        latestOperationCounts: { 'GPUDevice.createRenderPipeline': 1 }
+    };
+    worker.emit({ source: 'gpu-worker', sessionId: 'gpu-worker-1', type: 'webgpu-error-group', at: firstAt, details: errorDetails });
+    worker.emit({ source: 'gpu-worker', sessionId: 'gpu-worker-1', type: 'webgpu-error-group', at: lastAt, details: Object.assign({}, errorDetails, {
+        count: 3, lastAt, latestContext: [{ at: lastAt, sequence: 14, operation: 'GPUQueue.submit', count: 2, details: {} }],
+        latestOperationCounts: { 'GPUQueue.submit': 2 }
+    }) });
+    worker.emit({ source: 'gpu-worker', type: 'pipeline-implementation', at: lastAt, details: {
+        workerUrlSyncPipelines: true,
+        apiCalls: { createRenderPipeline: 2, createRenderPipelineAsync: 1, createComputePipeline: 0, createComputePipelineAsync: 0 },
+        recentOperations: [
+            { sequence: 12, at: lastAt, operation: 'GPURenderPassEncoder.setViewport', count: 1, details: { values: [0, 0, 1152, 2160] } },
+            { sequence: 13, at: lastAt, operation: 'GPURenderPassEncoder.setScissorRect', count: 1, details: { values: [0, 0, 1152, 2160] } }
+        ]
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'canvas-configure', at: lastAt, details: {
+        count: 1, format: 'bgra8unorm', alphaMode: 'opaque', canvas: { width: 1152, height: 2160, cssWidth: null, cssHeight: null }
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'canvas-texture-first', at: lastAt + 1, details: {
+        canvas: { width: 1152, height: 2160 }, texture: { width: 1152, height: 2160 }
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'gpu-queue-submit-first', at: lastAt + 2, details: { commandBufferCount: 1 } });
+    worker.emit({ source: 'gpu-worker', type: 'worker-heartbeat', at: lastAt + 3, details: {
+        gapMs: 5000,
+        gpuOperations: { counts: { 'GPUQueue.submit': 5, 'GPURenderPassEncoder.draw': 20 }, queueSubmitCount: 5,
+            canvasConfigureCount: 1, canvasTextureCount: 2, canvasSize: { width: 1152, height: 2160 },
+            recentOperations: [{ sequence: 20, at: lastAt, operation: 'GPURenderPassEncoder.draw', count: 20, details: { vertexCount: 3 } }] }
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'wasm-memory', at: lastAt + 4, details: {
+        origin: 'GPU worker initialization message', metric: 'WebAssembly.Memory.buffer.byteLength capacity',
+        bufferBytes: 2684354560, bufferMiB: 2560, shared: true
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'wasm-memory-growth', at: lastAt + 5, details: {
+        deltaPages: '1024', previousBufferBytes: 2684354560, currentBufferBytes: 2751463424,
+        metric: 'WebAssembly linear-memory capacity; not allocator-used bytes or physical RAM'
+    } });
+    worker.emit({ source: 'io-worker', type: 'resource-fetch-failure', at: lastAt + 6, details: {
+        kind: 'audio-resource', method: 'GET', status: 404, contentType: 'text/plain', contentLength: 12, durationMs: 40
+    } });
+    worker.emit({ source: 'loader-worker', type: 'audio-capability', at: lastAt + 7, details: {
+        environment: 'loader-worker', audioContextAvailable: false, audioWorkletNodeAvailable: false,
+        autoplayUserActivationAvailable: false, note: 'worker capability only'
+    } });
+    worker.emit({ source: 'loader-worker', type: 'audio-context', at: lastAt + 8, details: {
+        contextId: 'worker-audio-1', constructor: 'AudioContext', state: 'suspended', sampleRate: 48000,
+        destinationMaxChannelCount: 2
+    } });
+    worker.emit({ source: 'loader-worker', type: 'audio-playback-attempt', at: lastAt + 9, details: {
+        contextId: 'worker-audio-1', operation: 'AudioContext.resume', outcome: 'rejected', name: 'NotAllowedError',
+        message: 'The request is not allowed by autoplay policy.'
+    } });
+    progress.emit({ lines: [
+        '[wasm] window resized to 1152x2160 (was 1838x658)',
+        '[mem] wasm memory 2560 MB (main)',
+        'arena allocator: 2560 MB reserved, 2400 MB reported used',
+        'Assert: net_leaderboard_mgr encountered an error',
+        '[wasm] Starting audio thread'
+    ] });
+    crash.emit({ kind: 'error', thread: 'main',
+        text: 'THREAD ERROR (main): RuntimeError: unreachable\n    at wasm-function[4132]:0x1a23bc\n    at mainLoop (game.js:1:91234)',
+        heap: 2560, tail: ['[wasm] Loading the world', 'Assert: net_leaderboard_mgr encountered an error', '[wasm] Starting audio thread'] });
+
+    const report = JSON.parse(api.getReport());
+    assert.equal(report.graphics.totalErrorOccurrences, 3);
+    assert.equal(report.graphics.errorGroups.length, 1);
+    assert.equal(report.graphics.errorGroups[0].count, 3);
+    assert.equal(report.graphics.errorGroups[0].firstAt, new Date(firstAt).toISOString());
+    assert.equal(report.graphics.errorGroups[0].lastAt, new Date(lastAt).toISOString());
+    assert.match(report.graphics.errorGroups[0].message, /rgba16float/);
+    assert.equal(report.rendering.firstCanvasConfigureAt, new Date(lastAt).toISOString());
+    assert.equal(report.rendering.firstCanvasTextureAt, new Date(lastAt + 1).toISOString());
+    assert.equal(report.rendering.firstQueueSubmitAt, new Date(lastAt + 2).toISOString());
+    assert.equal(report.rendering.queueSubmitCount, 5);
+    assert.equal(report.rendering.displayPresentationObserved, false);
+    assert.equal(report.rendering.pipelineApiCalls.createRenderPipeline, 2);
+    assert.equal(report.rendering.pipelineApiCalls.createRenderPipelineAsync, 1);
+    assert.match(report.rendering.recentGpuOperations[0].operation, /setViewport|setScissorRect|draw/);
+
+    assert.equal(report.viewport.engineResizeMessages[0].width, 1152);
+    assert.equal(report.viewport.engineResizeMessages[0].previousWidth, 1838);
+    assert.match(report.viewport.engineResizeMessages[0].message, /was 1838x658/);
+    assert.equal(report.memory.latestWasmLinearMemory.bufferMiB, 2560);
+    assert.equal(report.memory.wasmGrowthEvents[0].currentBufferBytes, 2751463424);
+    assert.ok(report.memory.engineMemoryMessages.some((entry) => /2400 MB reported used/.test(entry.message)));
+    assert.ok(report.recentEvents.some((event) => /net_leaderboard_mgr/.test(event.message)));
+
+    const exception = report.exceptions.find((entry) => /RuntimeError/.test(entry.name));
+    assert.ok(exception);
+    assert.equal(exception.thread, 'main');
+    assert.match(exception.message, /unreachable/);
+    assert.match(exception.stack, /wasm-function\[4132\]/);
+    assert.match(exception.stack, /mainLoop/);
+    assert.equal(exception.wasmLinearMemoryBufferMiBAtCrash, 2560);
+    assert.match(exception.wasmMemoryMetric, /not allocator-used bytes/);
+    assert.deepEqual(exception.recentMessages, ['[wasm] Loading the world', 'Assert: net_leaderboard_mgr encountered an error', '[wasm] Starting audio thread']);
+    assert.match(exception.timestampSource, /payload did not supply a crash timestamp/);
+
+    assert.equal(report.resources.failures[0].kind, 'audio-resource');
+    assert.equal(report.resources.failures[0].status, 404);
+    assert.equal(report.audio.capabilities[0].audioContextAvailable, false);
+    assert.equal(report.audio.contexts[0].state, 'suspended');
+    assert.equal(report.audio.playAttempts[0].outcome, 'rejected');
+    assert.match(report.audio.playAttempts[0].error, /autoplay policy/);
+    assert.ok(report.audio.outputEvents.some((entry) => /Starting audio thread/.test(entry.message)));
+    assert.match(report.interpretationNotes.join(' '), /do not prove audible output/);
+    assert.doesNotMatch(JSON.stringify(report), /private-query-token/);
+});
+
+test('audio observer records context state, user gesture and autoplay rejection without resuming automatically', async () => {
+    class FakeAudioContext {
+        constructor() {
+            this.state = 'suspended';
+            this.sampleRate = 48000;
+            this.baseLatency = 0.01;
+            this.outputLatency = 0.03;
+            this.destination = { maxChannelCount: 2 };
+            this.listeners = Object.create(null);
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+        resume() { return Promise.reject(Object.assign(new Error('autoplay blocked'), { name: 'NotAllowedError' })); }
+        suspend() { return Promise.resolve(); }
+        close() { return Promise.resolve(); }
+        emit(type) { for (const listener of this.listeners[type] || []) listener(); }
+    }
+    const page = createPage('?newcatroid_debug=1', {
+        window: { AudioContext: FakeAudioContext },
+        navigator: { userActivation: { isActive: true, hasBeenActive: true } }
+    });
+    page.window.dispatch('pointerdown');
+    const context = new page.window.AudioContext();
+    assert.equal(context.state, 'suspended');
+    await assert.rejects(context.resume(), /autoplay blocked/);
+    context.state = 'running';
+    context.emit('statechange');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const report = JSON.parse(page.window.__newcatroidGameDiagnostics.getReport());
+    assert.equal(report.audio.contexts.length, 1);
+    assert.equal(report.audio.contexts[0].state, 'running');
+    assert.equal(report.audio.contexts[0].sampleRate, 48000);
+    assert.equal(report.audio.contexts[0].resumeAttempts, 1);
+    assert.match(report.audio.contexts[0].lastResumeResult, /rejected.*NotAllowedError/);
+    assert.ok(report.audio.userGestureAt);
+    assert.equal(report.audio.playAttempts.some((attempt) => attempt.outcome === 'rejected' && /autoplay blocked/.test(attempt.error)), true);
+    assert.equal(report.audio.playAttempts.at(-1).userActivation.hasBeenActive, true);
+    assert.equal(page.fetchCalls(), 0);
 });

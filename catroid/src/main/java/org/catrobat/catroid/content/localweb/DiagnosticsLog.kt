@@ -31,8 +31,10 @@ import java.util.Locale
 /**
  * One entry of the HTTP request log: what was requested, what the server
  * answered, how many body bytes were sent, how long it took, and a detail
- * string for redirects, listings, errors and aborts. Never contains file
- * contents - only paths, statuses, sizes and failure reasons.
+ * string for redirects, listings, errors and aborts. Request-target query
+ * strings are redacted from log paths/details; the HTTP engine still forwards
+ * the original query on actual redirects. Never contains file contents - only
+ * paths, statuses, sizes and failure reasons.
  */
 data class RequestLogEntry(
     val timestampMs: Long,

@@ -33,13 +33,13 @@ class FakeWorker {
     emit(type, data) { for (const listener of this.listeners[type] || []) listener(data); }
 }
 
-function createWorkerContext(scriptPath = '/loader.js?newcatroid_worker_debug=1') {
+function createWorkerContext(scriptPath = '/loader.js?newcatroid_worker_debug=1', options = {}) {
     FakeBroadcastChannel.instances = [];
     const listeners = Object.create(null);
     const intervalCallbacks = [];
     let clock = 10;
     const origin = 'http://local.test:8080';
-    const self = {
+    const self = Object.assign({
         location: {
             href: origin + scriptPath,
             origin,
@@ -53,7 +53,7 @@ function createWorkerContext(scriptPath = '/loader.js?newcatroid_worker_debug=1'
         addEventListener(type, listener) { (listeners[type] || (listeners[type] = [])).push(listener); },
         dispatch(type, event) { for (const listener of listeners[type] || []) listener(event || {}); },
         setInterval(callback) { intervalCallbacks.push(callback); return intervalCallbacks.length; }
-    };
+    }, options.self || {});
     const offscreenPrototype = {
         getContext(type) { return type === 'webgpu' ? { kind: type } : null; }
     };
@@ -66,7 +66,7 @@ function createWorkerContext(scriptPath = '/loader.js?newcatroid_worker_debug=1'
         compileStreaming() { return Promise.resolve({}); },
         compile() { return Promise.resolve({}); }
     };
-    const context = {
+    const context = Object.assign({
         self,
         URL,
         URLSearchParams,
@@ -86,7 +86,7 @@ function createWorkerContext(scriptPath = '/loader.js?newcatroid_worker_debug=1'
         Reflect,
         Proxy,
         isFinite
-    };
+    }, options.context || {});
     vm.runInNewContext(source, context, { filename: 'newcatroid_worker_diagnostics.js' });
     return {
         context,
@@ -181,4 +181,143 @@ test('GPU worker bootstrap runs without touching unrelated network or credential
     assert.equal(env.context.fetch, undefined);
     assert.equal(env.context.XMLHttpRequest, undefined);
     assert.doesNotMatch(source, /fetch\s*\(|XMLHttpRequest|\/log/);
+});
+
+test('GPU hooks preserve uncaptured error text, pipeline context, counts, operation order and existing error-scope usage', async () => {
+    class FakeGpuDevice {
+        constructor() {
+            this.features = new Set(['texture-compression-bc']);
+            this.limits = { maxBindGroups: 4 };
+            this.listeners = Object.create(null);
+            this.lost = new Promise(() => {});
+            this.pushCalls = 0;
+            this.popCalls = 0;
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+        createRenderPipeline() {
+            const error = new Error('Invalid fragment target format rgba16float');
+            error.name = 'GPUValidationError';
+            throw error;
+        }
+        createRenderPipelineAsync() { return Promise.reject(Object.assign(new Error('async pipeline validation failed'), { name: 'GPUValidationError' })); }
+        pushErrorScope() { this.pushCalls++; }
+        popErrorScope() { this.popCalls++; return Promise.resolve(null); }
+    }
+    class FakeGpuQueue {
+        submit(commandBuffers) { this.lastCount = commandBuffers.length; }
+    }
+    class FakeGpuTextureView {
+        constructor(descriptor) { this.label = descriptor.label || 'color-view'; }
+    }
+    class FakeGpuTexture {
+        constructor() {
+            this.label = 'color-texture'; this.width = 1152; this.height = 2160; this.depthOrArrayLayers = 1;
+            this.mipLevelCount = 1; this.sampleCount = 1; this.dimension = '2d'; this.format = 'rgba16float'; this.usage = 16;
+        }
+        createView(descriptor) { return new FakeGpuTextureView(descriptor || {}); }
+        destroy() {}
+    }
+    class FakeRenderPassEncoder {
+        setViewport() {}
+        setScissorRect() {}
+        draw() {}
+    }
+    class FakeCommandEncoder {
+        beginRenderPass() { return new FakeRenderPassEncoder(); }
+        finish() { return { label: 'commands' }; }
+    }
+    class FakeGpuAdapter {
+        requestDevice() { return Promise.resolve(device); }
+    }
+    const device = new FakeGpuDevice();
+    const adapter = new FakeGpuAdapter();
+    const gpu = { requestAdapter() { return Promise.resolve(adapter); } };
+    const env = createWorkerContext('/wgpu_worker.js?newcatroid_worker_debug=1', {
+        self: { GPUDevice: FakeGpuDevice, GPUQueue: FakeGpuQueue, GPUAdapter: FakeGpuAdapter,
+            GPUTexture: FakeGpuTexture, GPUCommandEncoder: FakeCommandEncoder, GPURenderPassEncoder: FakeRenderPassEncoder,
+            navigator: { gpu } }
+    });
+
+    const selectedAdapter = await env.self.navigator.gpu.requestAdapter();
+    const selectedDevice = await selectedAdapter.requestDevice();
+    assert.equal(selectedDevice, device);
+
+    const shaderModule = { label: 'test-fragment', getCompilationInfo: () => Promise.resolve({ messages: [
+        { type: 'error', message: 'entry point has no matching return type', lineNum: 8, linePos: 4 }
+    ] }) };
+    const descriptor = {
+        label: 'test-pipeline',
+        vertex: { module: { label: 'test-vertex' }, entryPoint: 'main', buffers: [{ arrayStride: 12, stepMode: 'vertex', attributes: [
+            { format: 'float32x3', offset: 0, shaderLocation: 0 }
+        ] }] },
+        fragment: { module: shaderModule, entryPoint: 'main', targets: [{ format: 'rgba16float' }] },
+        primitive: { topology: 'triangle-list', cullMode: 'back' }
+    };
+    assert.throws(() => device.createRenderPipeline(descriptor), /Invalid fragment target format/);
+    const queue = new FakeGpuQueue();
+    queue.submit([{}]);
+    const texture = new FakeGpuTexture();
+    const view = texture.createView({ label: 'color-view', format: 'rgba16float', dimension: '2d' });
+    const encoder = new FakeCommandEncoder();
+    const pass = encoder.beginRenderPass({ label: 'world-pass', colorAttachments: [
+        { view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }
+    ] });
+    pass.setViewport(0, 0, 1152, 2160, 0, 1);
+    pass.setScissorRect(0, 0, 1152, 2160);
+    pass.draw(3, 1, 0, 0);
+    await assert.rejects(device.createRenderPipelineAsync(descriptor), /async pipeline validation failed/);
+    for (const listener of device.listeners.uncapturederror || []) {
+        listener({ error: Object.assign(new Error('Invalid fragment target format rgba16float'), { name: 'GPUValidationError' }) });
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const messages = env.channel.messages;
+    const errors = messages.filter((message) => message.type === 'webgpu-error-group');
+    assert.ok(errors.some((message) => /rgba16float/.test(message.details.message)));
+    assert.ok(errors.some((message) => /entry point has no matching return type/.test(message.details.message)));
+    const repeated = errors.filter((message) => /rgba16float/.test(message.details.message)).at(-1);
+    assert.equal(repeated.details.count, 2, 'throw and uncapturederror messages with the same type/text are grouped');
+    assert.deepEqual(JSON.parse(JSON.stringify(repeated.details.sourceKinds)), [
+        'thrown by GPUDevice.createRenderPipeline', 'GPUDevice uncapturederror event'
+    ]);
+    assert.ok(repeated.details.firstAt <= repeated.details.lastAt);
+    assert.ok(repeated.details.firstContext.some((operation) => /createRenderPipeline/.test(operation.operation)));
+    const pipelineOperation = repeated.details.firstContext.find((operation) => /createRenderPipeline/.test(operation.operation));
+    assert.equal(pipelineOperation.details.colorTargetFormats[0], 'rgba16float');
+    assert.equal(pipelineOperation.details.vertexBufferLayouts[0].attributes[0].format, 'float32x3');
+    assert.equal(pipelineOperation.details.primitive.cullMode, 'back');
+    assert.ok(repeated.details.latestContext.some((operation) => /GPUQueue.submit/.test(operation.operation)));
+    const renderPassOperation = repeated.details.latestContext.find((operation) => /GPUCommandEncoder.beginRenderPass/.test(operation.operation));
+    assert.equal(renderPassOperation.details.colorAttachments[0].texture.texture.format, 'rgba16float');
+    assert.equal(renderPassOperation.details.colorAttachments[0].loadOp, 'clear');
+    assert.ok(repeated.details.latestContext.some((operation) => /setViewport/.test(operation.operation)));
+    assert.ok(repeated.details.latestContext.some((operation) => /setScissorRect/.test(operation.operation)));
+    assert.ok(messages.some((message) => message.type === 'gpu-queue-submit-first'));
+    const pipelineImplementation = messages.filter((message) => message.type === 'pipeline-implementation').at(-1);
+    assert.equal(pipelineImplementation.details.apiCalls.createRenderPipeline, 1);
+    assert.equal(pipelineImplementation.details.apiCalls.createRenderPipelineAsync, 1);
+    assert.equal(pipelineImplementation.details.workerUrlSyncPipelines, false);
+    assert.equal(device.pushCalls, 0, 'diagnostics never push error scopes');
+    assert.equal(device.popCalls, 0, 'diagnostics do not change the game’s error-scope balance');
+    assert.ok(messages.some((message) => message.type === 'gpu-device-observed' && message.details.uncapturederrorListenerInstalled));
+});
+
+test('fetch observer groups audio-like resource status without exporting request URLs or query values', async () => {
+    const response = {
+        status: 404,
+        ok: false,
+        headers: { get(name) { return name === 'content-type' ? 'text/plain' : name === 'content-length' ? '18' : null; } }
+    };
+    const env = createWorkerContext('/io_worker.js?newcatroid_worker_debug=1', {
+        self: { fetch() { return Promise.resolve(response); } }
+    });
+    await env.self.fetch('http://local.test:8080/audio/music.ogg?token=private-query');
+    const failure = env.channel.messages.find((message) => message.type === 'resource-fetch-failure');
+    assert.ok(failure);
+    assert.equal(failure.details.kind, 'audio-resource');
+    assert.equal(failure.details.status, 404);
+    assert.doesNotMatch(JSON.stringify(failure), /music\.ogg|private-query|token=/);
+    env.intervals[0]();
+    const heartbeat = env.channel.messages.filter((message) => message.type === 'worker-heartbeat').at(-1);
+    assert.ok(heartbeat.details.resourceGroups.some((group) => group.kind === 'audio-resource' && group.status === 404 && group.count === 1));
 });

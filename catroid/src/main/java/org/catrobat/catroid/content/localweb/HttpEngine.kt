@@ -88,6 +88,12 @@ class HttpEngine(
     private var suffixSearcher: PathSuffixSearcher? = null
     private var suffixSearcherStore: DocumentStore? = null
 
+    /** Redacts query strings in diagnostics while leaving the HTTP target untouched. */
+    private fun sanitizedLogTarget(rawTarget: String): String {
+        val queryDelimiter = rawTarget.indexOf('?')
+        return if (queryDelimiter < 0) rawTarget else rawTarget.substring(0, queryDelimiter) + "?[query redacted]"
+    }
+
     /**
      * Handles a single HTTP request and writes the full response (status line,
      * headers and, for GET, the body) to [out]. Never throws for expected
@@ -106,7 +112,8 @@ class HttpEngine(
         body: ByteArray? = null
     ) {
         val response = ResponseStream(out)
-        val record = RequestRecord(method, rawTarget)
+        val loggedTarget = sanitizedLogTarget(rawTarget)
+        val record = RequestRecord(method, loggedTarget)
         val startedAt = System.nanoTime()
         try {
             handleInternal(method, rawTarget, headers, body, response, record)
@@ -114,7 +121,7 @@ class HttpEngine(
             if (!response.started) {
                 record.status = 500
                 record.detail = "internal error: ${e.message}"
-                logger(LogLevel.ERROR, "$method $rawTarget -> request failed before any response was sent", e)
+                logger(LogLevel.ERROR, "$method $loggedTarget -> request failed before any response was sent", e)
                 try {
                     response.writeSimpleError(500, "Internal Server Error", "500 Internal Server Error")
                 } catch (ignored: Exception) {
@@ -130,7 +137,7 @@ class HttpEngine(
                     is java.io.IOException -> "connection failed while writing (client closed early?)"
                     else -> "unexpected error: ${e.message}"
                 }
-                logger(LogLevel.ERROR, "$method $rawTarget -> response aborted mid-stream (${record.detail}, ${response.bytesWritten} body bytes sent)", e)
+                logger(LogLevel.ERROR, "$method $loggedTarget -> response aborted mid-stream (${record.detail}, ${response.bytesWritten} body bytes sent)", e)
             }
         } finally {
             try {
@@ -214,6 +221,7 @@ class HttpEngine(
     ) {
         val rawPath = rawTarget.substringBefore('?').ifEmpty { "/" }
         val query = if ('?' in rawTarget) rawTarget.substringAfter('?') else ""
+        val loggedTarget = sanitizedLogTarget(rawTarget)
 
         val normalizedEarly = HttpPaths.normalize(rawPath)
 
@@ -236,7 +244,7 @@ class HttpEngine(
             out.writeSimpleError(405, "Method Not Allowed", "405 Method Not Allowed", extraHeaders = listOf("Allow" to "GET, HEAD"))
             record.status = 405
             record.detail = "method not allowed"
-            logger(LogLevel.INFO, "$method $rawTarget -> 405 method not allowed", null)
+            logger(LogLevel.INFO, "$method $loggedTarget -> 405 method not allowed", null)
             return
         }
 
@@ -376,8 +384,9 @@ class HttpEngine(
                 extraHeaders = listOf("Location" to location)
             )
             record.status = 301
-            record.detail = "slash redirect to $location"
-            logger(LogLevel.INFO, "GET $rawPath -> 301 directory slash redirect to $location", null)
+            val loggedLocation = sanitizedLogTarget(location)
+            record.detail = "slash redirect to $loggedLocation"
+            logger(LogLevel.INFO, "GET $rawPath -> 301 directory slash redirect to $loggedLocation", null)
             return
         }
 
@@ -404,8 +413,9 @@ class HttpEngine(
             }
             writeEntryRedirect(out, location, isHead)
             record.status = 302
-            record.detail = "entry point redirect to $location"
-            logger(LogLevel.INFO, "GET $rawPath -> 302 entry point redirect to $location", null)
+            val loggedLocation = sanitizedLogTarget(location)
+            record.detail = "entry point redirect to $loggedLocation"
+            logger(LogLevel.INFO, "GET $rawPath -> 302 entry point redirect to $loggedLocation", null)
             return
         }
 

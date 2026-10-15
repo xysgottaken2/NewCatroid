@@ -30,6 +30,7 @@ import org.catrobat.catroid.content.localweb.HttpServerEngine
 import org.catrobat.catroid.content.localweb.RequestLog
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -52,6 +53,7 @@ class HttpEngineRequestLogTest {
 
     private lateinit var rootDir: File
     private lateinit var requestLog: RequestLog
+    private val loggedMessages = mutableListOf<String>()
     private var engine: HttpServerEngine? = null
     private var port = -1
 
@@ -59,6 +61,7 @@ class HttpEngineRequestLogTest {
     fun setUp() {
         rootDir = java.nio.file.Files.createTempDirectory("request-log-test").toFile()
         requestLog = RequestLog(capacity = 100)
+        loggedMessages.clear()
     }
 
     @After
@@ -72,6 +75,7 @@ class HttpEngineRequestLogTest {
         val newEngine = HttpServerEngine(
             storeProvider = { store },
             urlPrefixProvider = { "/" },
+            logger = { _, message, _ -> loggedMessages += message },
             requestLog = requestLog
         )
         val result = newEngine.start(0)
@@ -144,6 +148,34 @@ class HttpEngineRequestLogTest {
         rawHttpRequest(port, "GET", "/")
         assertEquals(302, lastEntry().status)
         assertTrue(lastEntry().detail!!.contains("entry point redirect"))
+    }
+
+    @Test
+    fun `redirects preserve query on the wire but redact it from logs`() {
+        write("play/index.html", "<html>play</html>")
+        write("game.html", "<html>game</html>")
+        startServer()
+        val secret = "private-token-123"
+
+        val slashRedirect = rawHttpRequest(port, "GET", "/play?token=$secret&newcatroid_debug=1")
+        assertEquals(301, slashRedirect.statusCode)
+        assertEquals("/play/?token=$secret&newcatroid_debug=1", slashRedirect.headers["location"])
+        val slashEntry = lastEntry()
+        assertEquals("/play?[query redacted]", slashEntry.path)
+        assertTrue(slashEntry.detail!!.contains("slash redirect"))
+        assertFalse(slashEntry.path.contains(secret))
+        assertFalse(slashEntry.detail!!.contains(secret))
+        File(rootDir, "play").deleteRecursively()
+
+        val entryRedirect = rawHttpRequest(port, "GET", "/?session_key=$secret")
+        assertEquals(302, entryRedirect.statusCode)
+        assertEquals("/game.html?session_key=$secret", entryRedirect.headers["location"])
+        val entry = lastEntry()
+        assertEquals("/?[query redacted]", entry.path)
+        assertTrue(entry.detail!!.contains("entry point redirect"))
+        assertFalse(entry.detail!!.contains(secret))
+        assertTrue(loggedMessages.isNotEmpty())
+        assertFalse(loggedMessages.any { it.contains(secret) || it.contains("session_key=") || it.contains("token=") })
     }
 
     @Test
