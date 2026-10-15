@@ -291,13 +291,14 @@ object NewCatroidHttpManager {
 
         try {
             if (state.status == DownloadStatus.CANCELLED) return
+            val resumeForRequest = resume
             val requestBuilder = Request.Builder()
                 .url(state.url)
                 .header("Accept-Encoding", "identity")
                 .get()
-            if (resume != null && offset > 0L) {
+            if (resumeForRequest != null && offset > 0L) {
                 requestBuilder.header("Range", "bytes=$offset-")
-                    .header("If-Range", resume.validatorValue)
+                    .header("If-Range", resumeForRequest.validatorValue)
             }
             val call = downloadClient.newCall(requestBuilder.build())
             state.activeCall = call
@@ -327,8 +328,10 @@ object NewCatroidHttpManager {
                 var validator: ResumeMetadata? = null
 
                 if (response.code == 206) {
-                    if (resume == null || offset <= 0L) {
-                        throw IOException("Server returned HTTP 206 without a validated Range request")
+                    val rangeResume = resumeForRequest
+                        ?: throw IOException("Server returned HTTP 206 without a validated Range request")
+                    if (offset <= 0L) {
+                        throw IOException("Server returned HTTP 206 without a positive Range offset")
                     }
                     val range = parseContentRange(response.header("Content-Range"))
                         ?: throw IOException("HTTP 206 has an invalid or missing Content-Range header")
@@ -337,14 +340,14 @@ object NewCatroidHttpManager {
                     }
                     val total = range.total
                         ?: throw IOException("HTTP 206 Content-Range does not declare the complete resource length")
-                    if (resume.totalBytes >= 0L && resume.totalBytes != total) {
-                        throw IOException("Resource length changed while resuming (${resume.totalBytes} to $total bytes)")
+                    if (rangeResume.totalBytes >= 0L && rangeResume.totalBytes != total) {
+                        throw IOException("Resource length changed while resuming (${rangeResume.totalBytes} to $total bytes)")
                     }
                     if (range.end < range.start || range.end != total - 1L) {
                         throw IOException("HTTP 206 returned an incomplete range ending at byte ${range.end} of $total")
                     }
-                    val receivedValidator = response.header(resume.validatorHeader)
-                    if (receivedValidator != null && receivedValidator != resume.validatorValue) {
+                    val receivedValidator = response.header(rangeResume.validatorHeader)
+                    if (receivedValidator != null && receivedValidator != rangeResume.validatorValue) {
                         throw IOException("Resource validator changed while resuming")
                     }
                     val rangeLength = range.end - range.start + 1L
@@ -354,7 +357,7 @@ object NewCatroidHttpManager {
                     expectedBodyLength = rangeLength
                     expectedTotalLength = total
                     append = true
-                    validator = resume.copy(totalBytes = total)
+                    validator = rangeResume.copy(totalBytes = total)
                     canKeepPartial = true
                 } else {
                     // If-Range failed or the server ignored Range. A complete
