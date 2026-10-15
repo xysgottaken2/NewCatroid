@@ -438,6 +438,165 @@ test('GPU diagnostics identify RGBA32Float bind-group resources, layouts, sample
     assert.equal(textureCreate.details.resourceId, textureBinding.resource.texture.texture.resourceId);
 });
 
+test('GPU binding 44 trace links direct WGSL use, sampler, layout, texture, pipeline and draw target', async () => {
+    class FakeGpuTextureView {
+        constructor(descriptor) { this.label = descriptor.label || ''; }
+    }
+    Object.defineProperty(FakeGpuTextureView.prototype, Symbol.toStringTag, { value: 'GPUTextureView' });
+    class FakeGpuSampler {
+        constructor(descriptor) { this.label = descriptor.label || ''; }
+    }
+    Object.defineProperty(FakeGpuSampler.prototype, Symbol.toStringTag, { value: 'GPUSampler' });
+    class FakeGpuTexture {
+        constructor(descriptor) {
+            this.label = descriptor.label || '';
+            this.width = descriptor.size.width;
+            this.height = descriptor.size.height;
+            this.depthOrArrayLayers = descriptor.size.depthOrArrayLayers || 1;
+            this.mipLevelCount = descriptor.mipLevelCount || 1;
+            this.sampleCount = descriptor.sampleCount || 1;
+            this.dimension = descriptor.dimension || '2d';
+            this.format = descriptor.format;
+            this.usage = descriptor.usage || 0;
+        }
+        createView(descriptor) { return new FakeGpuTextureView(descriptor || {}); }
+    }
+    class FakeGpuRenderPassEncoder {
+        setPipeline() {}
+        setBindGroup() {}
+        draw() {}
+        drawIndexed() {}
+        end() {}
+    }
+    class FakeGpuCommandEncoder {
+        beginRenderPass() { return new FakeGpuRenderPassEncoder(); }
+    }
+    class FakeGpuDevice {
+        constructor() {
+            this.features = new Set();
+            this.limits = { maxBindGroups: 4 };
+            this.listeners = Object.create(null);
+            this.lost = new Promise(() => {});
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+        createTexture(descriptor) { return new FakeGpuTexture(descriptor); }
+        createSampler(descriptor) { return new FakeGpuSampler(descriptor || {}); }
+        createBindGroupLayout(descriptor) { return { label: descriptor.label || '' }; }
+        createBindGroup(descriptor) { return { label: descriptor.label || '' }; }
+        createShaderModule(descriptor) { return { label: descriptor.label || '', code: descriptor.code }; }
+        createPipelineLayout(descriptor) { return { label: descriptor.label || '' }; }
+        createRenderPipeline(descriptor) { return { label: descriptor.label || '' }; }
+        createCommandEncoder(descriptor) { return new FakeGpuCommandEncoder(descriptor || {}); }
+    }
+    class FakeGpuAdapter {
+        constructor() { this.features = new Set(); this.limits = { maxTextureDimension2D: 8192 }; this.info = {}; }
+        requestDevice() { return Promise.resolve(device); }
+    }
+    const device = new FakeGpuDevice();
+    const adapter = new FakeGpuAdapter();
+    const env = createWorkerContext('/wgpu_worker.js?newcatroid_worker_debug=1', {
+        self: {
+            GPUDevice: FakeGpuDevice,
+            GPUAdapter: FakeGpuAdapter,
+            GPUTexture: FakeGpuTexture,
+            GPUTextureView: FakeGpuTextureView,
+            GPU: function () {},
+            GPUCommandEncoder: FakeGpuCommandEncoder,
+            GPURenderPassEncoder: FakeGpuRenderPassEncoder,
+            navigator: { gpu: { requestAdapter() { return Promise.resolve(adapter); } } }
+        }
+    });
+    await (await env.self.navigator.gpu.requestAdapter()).requestDevice({});
+
+    const sampledShader = device.createShaderModule({ label: 'fragment-b44-linear', code: [
+        '@group(1) @binding(44) var heightTexture: texture_2d<f32>;',
+        '@group(1) @binding(28) var heightSampler: sampler;',
+        '@fragment fn fsMain(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {',
+        '  let height = textureSample(heightTexture, heightSampler, uv).r;',
+        '  return vec4<f32>(height, height, height, 1.0);',
+        '}'
+    ].join('\n') });
+    const emptyLayout = device.createBindGroupLayout({ label: 'group-0-layout', entries: [] });
+    const layout = device.createBindGroupLayout({ label: 'fragment-b44-layout', entries: [
+        { binding: 44, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d', multisampled: false } },
+        { binding: 28, visibility: 2, sampler: { type: 'filtering' } }
+    ] });
+    const heightTexture = device.createTexture({ label: 'r32-height', size: { width: 256, height: 128, depthOrArrayLayers: 1 },
+        format: 'r32float', usage: 4 });
+    const heightView = heightTexture.createView({ format: 'r32float', dimension: '2d' });
+    const heightSampler = device.createSampler({ minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'nearest' });
+    const bindGroup = device.createBindGroup({ label: 'fragment-b44-group', layout, entries: [
+        { binding: 44, resource: heightView }, { binding: 28, resource: heightSampler }
+    ] });
+    const pipelineLayout = device.createPipelineLayout({ label: 'world-layout', bindGroupLayouts: [emptyLayout, layout] });
+    const pipeline = device.createRenderPipeline({ label: 'world-b44-pipeline', layout: pipelineLayout,
+        vertex: { module: sampledShader, entryPoint: 'vsMain' },
+        fragment: { module: sampledShader, entryPoint: 'fsMain', targets: [{ format: 'bgra8unorm' }] }
+    });
+    const target = device.createTexture({ label: 'world-color', size: { width: 720, height: 1280, depthOrArrayLayers: 1 },
+        format: 'bgra8unorm', usage: 16 });
+    const targetView = target.createView({ format: 'bgra8unorm', dimension: '2d' });
+    const pass = device.createCommandEncoder({ label: 'world-command-encoder' }).beginRenderPass({
+        label: 'world-render-pass', colorAttachments: [{ view: targetView, loadOp: 'clear', storeOp: 'store' }]
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(1, bindGroup);
+    pass.draw(6, 1, 0, 0);
+    device.createShaderModule({ label: 'fragment-b44-load-only', code: [
+        '@group(1) @binding(44) var heightTexture: texture_2d<f32>;',
+        '@fragment fn fsLoad() -> @location(0) vec4<f32> {',
+        '  return textureLoad(heightTexture, vec2<i32>(0, 0), 0);',
+        '}'
+    ].join('\n') });
+    pass.end();
+
+    const validation = Object.assign(new Error('None of the supported sample types (UnfilterableFloat) of Texture R32Float match expected sample type Float'), {
+        name: 'GPUValidationError'
+    });
+    for (const listener of device.listeners.uncapturederror || []) listener({ error: validation });
+
+    const messages = env.channel.messages;
+    const traceEvent = messages.find((message) => message.type === 'gpu-binding-trace');
+    assert.ok(traceEvent, 'the direct draw should produce a targeted binding 44 trace');
+    const trace = traceEvent.details;
+    assert.equal(trace.binding44.group, 1);
+    assert.equal(trace.binding44.binding, 44);
+    assert.equal(trace.binding44.wgslName, 'heightTexture');
+    assert.equal(trace.binding44.wgslType, 'texture_2d<f32>');
+    assert.equal(trace.binding44.textureLoadCount, 0);
+    assert.equal(trace.binding44.sampleCounts.textureSample, 1);
+    assert.equal(trace.binding44.layoutSampleType, 'float');
+    assert.equal(trace.binding44.resource.format, 'r32float');
+    assert.equal(trace.binding44.resource.width, 256);
+    assert.equal(trace.binding44.samplers[0].binding, 28);
+    assert.equal(trace.binding44.samplers[0].layoutType, 'filtering');
+    assert.equal(trace.binding44.samplers[0].minFilter, 'linear');
+    assert.equal(trace.bindGroup.layoutMatchesPipeline, true);
+    assert.equal(trace.pipeline.label, 'world-b44-pipeline');
+    assert.equal(trace.pass.colorAttachments[0].format, 'bgra8unorm');
+    assert.equal(trace.pass.colorAttachments[0].width, 720);
+    assert.equal(trace.command.operation, 'GPURenderPassEncoder.draw');
+    assert.equal(trace.command.apiCallReturned, true);
+
+    const errorGroup = messages.find((message) => message.type === 'webgpu-error-group' && /R32Float/.test(message.details.message));
+    assert.ok(errorGroup);
+    const context = errorGroup.details.firstContext;
+    const shaderModule = context.find((operation) => /createShaderModule/.test(operation.operation) && operation.details.label === 'fragment-b44-load-only');
+    assert.equal(shaderModule.details.binding44.textureLoadCount, 1);
+    assert.equal(shaderModule.details.binding44.sampleCallCount, 0);
+    const layoutOperation = context.find((operation) => /createBindGroupLayout/.test(operation.operation) && operation.details.label === 'fragment-b44-layout');
+    assert.equal(layoutOperation.details.binding44Layout.texture.sampleType, 'float');
+    assert.equal(layoutOperation.details.binding44Layout.visibility, 2);
+    const bindGroupOperation = context.find((operation) => /createBindGroup$/.test(operation.operation));
+    assert.equal(bindGroupOperation.details.binding44Resource.resource.texture.texture.format, 'r32float');
+    const pipelineOperation = context.find((operation) => /createRenderPipeline$/.test(operation.operation));
+    assert.equal(pipelineOperation.details.fragmentBinding44.sampleCounts.textureSample, 1);
+    const drawOperation = context.find((operation) => /GPURenderPassEncoder.draw$/.test(operation.operation));
+    assert.equal(drawOperation.details.commandTrace.binding44.resource.format, 'r32float');
+    assert.equal(drawOperation.details.commandTrace.bindGroup.layoutMatchesPipeline, true);
+    assert.equal(drawOperation.details.commandTrace.pass.colorAttachments[0].format, 'bgra8unorm');
+});
+
 test('GPU worker reports alpha-fix URL propagation separately from shim and shader-variant counters', () => {
     const stats = {
         enabled: true,

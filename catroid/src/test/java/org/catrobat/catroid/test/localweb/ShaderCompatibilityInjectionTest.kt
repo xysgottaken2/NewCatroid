@@ -24,6 +24,7 @@
 package org.catrobat.catroid.test.localweb
 
 import org.catrobat.catroid.content.localweb.FileDocumentStore
+import org.catrobat.catroid.content.localweb.HttpEngine
 import org.catrobat.catroid.content.localweb.HttpServerEngine
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -79,6 +80,13 @@ class ShaderCompatibilityInjectionTest {
     @Test fun `unknown renderer is never patched and script endpoint supports HEAD`() {
         val original = File(root, "wgpu_worker.js").readText()
         assertEquals(original, rawHttpRequest(port, "GET", "/game/wgpu_worker.js?newcatroid_alpha_fix=1").bodyText())
+        val unknownWithDiagnostics = rawHttpRequest(
+            port, "GET", "/game/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1"
+        ).bodyText()
+        assertFalse(unknownWithDiagnostics.contains(bootstrap))
+        assertTrue(unknownWithDiagnostics.contains("expectedSha256:\"${HttpEngine.ALPHA_FIX_WORKER_SHA256}\""))
+        assertTrue(unknownWithDiagnostics.contains("hashMatches:false,shimInjected:false"))
+        assertTrue(unknownWithDiagnostics.endsWith("\nself.diagnostics = true;\n"))
         val response = rawHttpRequest(port, "GET", "/game/__newcatroid_shader_compat.js")
         assertEquals(bootstrap, response.bodyText())
         assertEquals("no-store", response.headers["cache-control"])
@@ -92,20 +100,27 @@ class ShaderCompatibilityInjectionTest {
         val sourcePath = System.getenv("PLAYGTA5_WORKER_SOURCE")
         org.junit.Assume.assumeTrue("Set PLAYGTA5_WORKER_SOURCE for the pinned-client integration test", sourcePath != null)
         val original = File(sourcePath!!).readBytes()
+        val originalSha256 = java.security.MessageDigest.getInstance("SHA-256").digest(original)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        assertEquals(HttpEngine.ALPHA_FIX_WORKER_SHA256, originalSha256)
         File(root, "wgpu_worker.js").writeBytes(original)
         val plain = rawHttpRequest(port, "GET", "/game/wgpu_worker.js")
         assertArrayEquals(original, plain.body)
         val patched = rawHttpRequest(port, "GET", "/game/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1")
         assertEquals(200, patched.statusCode)
-        assertEquals(String(original, Charsets.UTF_8) + "\n$bootstrap\n\nself.diagnostics = true;\n", patched.bodyText())
+        val verification = "self.__newcatroidAlphaFixServerVerification = " +
+            "{requested:true,expectedSha256:\"${HttpEngine.ALPHA_FIX_WORKER_SHA256}\",actualSha256:\"$originalSha256\"," +
+            "hashMatches:true,shimInjected:true};"
+        assertEquals(String(original, Charsets.UTF_8) + "\n$bootstrap\n\n$verification\nself.diagnostics = true;\n", patched.bodyText())
         assertEquals(patched.body.size.toString(), patched.headers["content-length"])
         assertEquals("no-store", patched.headers["cache-control"])
         val head = rawHttpRequest(port, "HEAD", "/game/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1")
         assertTrue(head.body.isEmpty())
         assertEquals(patched.headers["content-length"], head.headers["content-length"])
-        // One changed byte must prevent a version-dependent renderer hook.
+        // One changed byte must prevent a version-dependent renderer hook while preserving hash diagnostics.
         File(root, "wgpu_worker.js").appendText("\n")
-        val unknown = rawHttpRequest(port, "GET", "/game/wgpu_worker.js?newcatroid_alpha_fix=1")
+        val unknown = rawHttpRequest(port, "GET", "/game/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1")
         assertFalse(unknown.bodyText().contains(bootstrap))
+        assertTrue(unknown.bodyText().contains("hashMatches:false,shimInjected:false"))
     }
 }

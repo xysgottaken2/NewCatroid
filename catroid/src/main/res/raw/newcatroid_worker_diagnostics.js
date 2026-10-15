@@ -28,6 +28,14 @@
     var memorySnapshots = new WeakMap();
     var gpuTextureViewSnapshots = new WeakMap();
     var gpuSamplerSnapshots = new WeakMap();
+    var gpuShaderBindingFacts = new WeakMap();
+    var gpuBindGroupLayoutSnapshots = new WeakMap();
+    var gpuBindGroupSnapshots = new WeakMap();
+    var gpuPipelineLayoutSnapshots = new WeakMap();
+    var gpuPipelineSnapshots = new WeakMap();
+    var gpuRenderPassSnapshots = new WeakMap();
+    var gpuBindingTraceSignatures = new Set();
+    var gpuRenderPassSequence = 0;
     var gpuResourceIds = new WeakMap();
     var gpuResourceSequence = 0;
     var observedMemories = new WeakSet();
@@ -47,6 +55,22 @@
             firstNonVec4OutputType: safeText(value.firstNonVec4OutputType || '', 80),
             lastObservedAt: Number(value.lastObservedAt) || null
         };
+    }
+
+    function alphaFixServerVerificationSnapshot() {
+        try {
+            var value = self.__newcatroidAlphaFixServerVerification;
+            if (!value || typeof value !== 'object') return null;
+            return {
+                requested: value.requested === true,
+                expectedSha256: safeText(value.expectedSha256 || '', 64),
+                actualSha256: safeText(value.actualSha256 || '', 64),
+                hashMatches: typeof value.hashMatches === 'boolean' ? value.hashMatches : null,
+                shimInjected: typeof value.shimInjected === 'boolean' ? value.shimInjected : null
+            };
+        } catch (ignored) {
+            return null;
+        }
     }
 
     function workerNow() {
@@ -310,6 +334,81 @@
         }
     }
 
+    function shaderBinding44Facts(code) {
+        if (typeof code !== 'string') return null;
+        var source = code.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\r\n]*/g, ' ');
+        var declarations = [];
+        var declarationPattern = /((?:@[A-Za-z_]\w*\s*\([^)]*\)\s*)+)var(?:\s*<[^>]+>)?\s*([A-Za-z_]\w*)\s*:\s*([^;]+);/g;
+        var declaration;
+        while ((declaration = declarationPattern.exec(source))) {
+            var groupMatch = /@group\s*\(\s*(\d+)\s*\)/.exec(declaration[1]);
+            var bindingMatch = /@binding\s*\(\s*(\d+)\s*\)/.exec(declaration[1]);
+            if (!groupMatch || !bindingMatch) continue;
+            declarations.push({
+                group: Number(groupMatch[1]),
+                binding: Number(bindingMatch[1]),
+                name: safeText(declaration[2], 100),
+                type: safeText(declaration[3].replace(/\s+/g, ' ').trim(), 120)
+            });
+        }
+        var texture = declarations.find(function (item) { return item.binding === 44; });
+        if (!texture) return null;
+        var sampleBuiltins = [
+            'textureSample', 'textureSampleBias', 'textureSampleCompare', 'textureSampleCompareLevel',
+            'textureSampleGrad', 'textureSampleLevel'
+        ];
+        var sampleCalls = [];
+        var sampleCounts = Object.create(null);
+        var escapedName = texture.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        sampleBuiltins.forEach(function (builtin) {
+            var pattern = new RegExp('\\b' + builtin + '\\s*\\(\\s*' + escapedName + '\\s*,\\s*([A-Za-z_]\\w*)', 'g');
+            var call;
+            while ((call = pattern.exec(source))) {
+                sampleCounts[builtin] = (sampleCounts[builtin] || 0) + 1;
+                sampleCalls.push({ builtin: builtin, samplerName: safeText(call[1], 100) });
+            }
+        });
+        var gatherPattern = new RegExp('\\btextureGather\\s*\\(\\s*(?:[^,()]+\\s*,\\s*)?' + escapedName + '\\s*,\\s*([A-Za-z_]\\w*)', 'g');
+        var gatherCall;
+        while ((gatherCall = gatherPattern.exec(source))) {
+            sampleCounts.textureGather = (sampleCounts.textureGather || 0) + 1;
+            sampleCalls.push({ builtin: 'textureGather', samplerName: safeText(gatherCall[1], 100) });
+        }
+        var loadPattern = new RegExp('\\btextureLoad\\s*\\(\\s*' + escapedName + '\\b', 'g');
+        var loadMatches = source.match(loadPattern);
+        var samplerDeclarations = declarations.filter(function (item) { return item.type.indexOf('sampler') === 0; });
+        var pairedSamplers = [];
+        sampleCalls.forEach(function (call) {
+            var sampler = samplerDeclarations.find(function (item) { return item.name === call.samplerName; });
+            var pair = {
+                builtin: call.builtin,
+                name: call.samplerName,
+                group: sampler ? sampler.group : null,
+                binding: sampler ? sampler.binding : null,
+                type: sampler ? sampler.type : 'unresolved'
+            };
+            if (!pairedSamplers.some(function (item) {
+                return item.name === pair.name && item.group === pair.group && item.binding === pair.binding;
+            })) pairedSamplers.push(pair);
+        });
+        return {
+            group: texture.group,
+            binding: texture.binding,
+            name: texture.name,
+            type: texture.type,
+            textureLoadCount: loadMatches ? loadMatches.length : 0,
+            sampleCounts: sampleCounts,
+            sampleCallCount: sampleCalls.length,
+            samplerBindings: pairedSamplers.slice(0, 8),
+            analysisScope: 'direct WGSL builtin calls only; aliases and helper-function flow are not followed'
+        };
+    }
+
+    function shaderModuleBinding44Snapshot(module) {
+        try { return module && gpuShaderBindingFacts ? gpuShaderBindingFacts.get(module) || null : null; }
+        catch (ignored) { return null; }
+    }
+
     function bindGroupLayoutEntrySummary(entry) {
         var result = {
             binding: Number(entry && entry.binding),
@@ -363,6 +462,7 @@
         if (methodName === 'createShaderModule') {
             detail.label = objectLabel(descriptor);
             detail.codeLength = typeof descriptor.code === 'string' ? descriptor.code.length : null;
+            detail.binding44 = shaderBinding44Facts(descriptor.code);
         } else if (/create(Render|Compute)Pipeline/.test(methodName)) {
             detail.label = objectLabel(descriptor);
             detail.layout = typeof descriptor.layout === 'string' ? descriptor.layout : descriptor.layout ? 'explicit' : 'not reported';
@@ -388,6 +488,7 @@
                 detail.fragmentEntryPoint = safeText(descriptor.fragment.entryPoint || '', 120);
                 detail.fragmentShaderLabel = objectLabel(descriptor.fragment.module);
                 detail.fragmentShaderResourceId = gpuResourceId(descriptor.fragment.module, 'shader-module');
+                detail.fragmentBinding44 = shaderModuleBinding44Snapshot(descriptor.fragment.module);
                 detail.colorTargetFormats = (descriptor.fragment.targets || []).slice(0, 12).map(function (target) {
                     return safeText(target && target.format || 'unknown', 100);
                 });
@@ -435,6 +536,7 @@
             detail.layoutResourceId = descriptor.layout ? gpuResourceId(descriptor.layout, 'bind-layout') : '';
             detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
             detail.textureBindings = bindSummaries.filter(function (entry) { return entry.resource && entry.resource.kind === 'texture view'; }).slice(0, 12);
+            detail.binding44Resource = bindSummaries.find(function (entry) { return Number(entry.binding) === 44; }) || null;
             detail.samplerBindings = bindSummaries.filter(function (entry) { return entry.resource && entry.resource.kind === 'sampler'; }).slice(0, 12);
             detail.otherBindings = bindSummaries.filter(function (entry) { return !entry.resource || (entry.resource.kind !== 'texture view' && entry.resource.kind !== 'sampler'); }).slice(0, 8);
         } else if (methodName === 'createBindGroupLayout') {
@@ -442,6 +544,7 @@
             detail.label = objectLabel(descriptor);
             detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
             detail.textureBindings = layoutEntries.filter(function (entry) { return !!entry.texture; }).slice(0, 12);
+            detail.binding44Layout = layoutEntries.find(function (entry) { return Number(entry.binding) === 44; }) || null;
             detail.samplerBindings = layoutEntries.filter(function (entry) { return !!entry.sampler; }).slice(0, 12);
             detail.otherBindings = layoutEntries.filter(function (entry) { return !entry.texture && !entry.sampler; }).slice(0, 8);
         } else if (methodName === 'createPipelineLayout') {
@@ -600,6 +703,175 @@
         return detail;
     }
 
+    function storeGpuPipelineSnapshot(pipeline, descriptor, details) {
+        if (!pipeline || typeof pipeline !== 'object') return;
+        descriptor = descriptor || {};
+        details = details || {};
+        try {
+            gpuPipelineSnapshots.set(pipeline, {
+                resourceId: gpuResourceId(pipeline, 'pipeline'),
+                label: objectLabel(descriptor),
+                layout: descriptor.layout && typeof descriptor.layout === 'object' ? descriptor.layout : null,
+                pipelineLayoutResourceId: details.pipelineLayoutResourceId || '',
+                fragmentShaderResourceId: details.fragmentShaderResourceId || '',
+                fragmentShaderLabel: details.fragmentShaderLabel || '',
+                fragmentEntryPoint: details.fragmentEntryPoint || '',
+                fragmentBinding44: details.fragmentBinding44 ||
+                    shaderModuleBinding44Snapshot(descriptor.fragment && descriptor.fragment.module),
+                colorTargetFormats: details.colorTargetFormats || []
+            });
+        } catch (ignored) { }
+    }
+
+    function traceAttachmentSummary(attachment) {
+        if (!attachment) return null;
+        var viewSnapshot = attachment.texture || {};
+        var texture = viewSnapshot.texture || {};
+        var view = viewSnapshot.view || {};
+        return {
+            index: Number(attachment.index) || 0,
+            label: safeText(attachment.viewLabel || '', 100),
+            format: safeText(view.format || texture.format || '', 80),
+            width: Number(texture.width) || null,
+            height: Number(texture.height) || null,
+            textureResourceId: safeText(texture.resourceId || '', 40),
+            viewResourceId: safeText(viewSnapshot.resourceId || '', 40),
+            loadOp: safeText(attachment.loadOp || '', 32),
+            storeOp: safeText(attachment.storeOp || '', 32)
+        };
+    }
+
+    function gpuRenderCommandBinding44Trace(pass, methodName, args) {
+        var passSnapshot = null;
+        try { passSnapshot = gpuRenderPassSnapshots.get(pass) || null; } catch (ignored) { }
+        if (!passSnapshot || !passSnapshot.pipeline) return null;
+        var pipeline = null;
+        try { pipeline = gpuPipelineSnapshots.get(passSnapshot.pipeline) || null; } catch (ignored) { }
+        if (!pipeline || !pipeline.fragmentBinding44) return null;
+        var shaderBinding = pipeline.fragmentBinding44;
+        var groupIndex = Number(shaderBinding.group);
+        if (!isFinite(groupIndex) || groupIndex < 0) return null;
+        var bindGroup = passSnapshot.bindGroups[groupIndex];
+        if (!bindGroup) return null;
+        var bindGroupSnapshot = null;
+        try { bindGroupSnapshot = gpuBindGroupSnapshots.get(bindGroup) || null; } catch (ignored) { }
+        if (!bindGroupSnapshot || !bindGroupSnapshot.binding44Resource) return null;
+        var bindGroupLayoutSnapshot = null;
+        try { bindGroupLayoutSnapshot = gpuBindGroupLayoutSnapshots.get(bindGroupSnapshot.layout) || null; } catch (ignored) { }
+        var bindingLayout = bindGroupLayoutSnapshot && bindGroupLayoutSnapshot.binding44Layout;
+        var bindingResource = bindGroupSnapshot.binding44Resource;
+        var resource = bindingResource.resource || {};
+        var viewSnapshot = resource.texture || {};
+        var texture = viewSnapshot.texture || {};
+        var view = viewSnapshot.view || {};
+        var samplerFacts = (shaderBinding.samplerBindings || []).map(function (pair) {
+            var samplerGroupIndex = pair.group == null ? groupIndex : Number(pair.group);
+            var samplerGroup = passSnapshot.bindGroups[samplerGroupIndex];
+            var samplerGroupSnapshot = null;
+            try { samplerGroupSnapshot = samplerGroup && gpuBindGroupSnapshots.get(samplerGroup) || null; } catch (ignored) { }
+            var binding = Number(pair.binding);
+            var samplerEntry = samplerGroupSnapshot && (samplerGroupSnapshot.samplerBindings || []).find(function (entry) {
+                return Number(entry.binding) === binding;
+            });
+            var samplerLayout = null;
+            var samplerLayoutSnapshot = null;
+            try { samplerLayoutSnapshot = samplerGroupSnapshot && gpuBindGroupLayoutSnapshots.get(samplerGroupSnapshot.layout) || null; } catch (ignored) { }
+            if (samplerLayoutSnapshot) samplerLayout = samplerLayoutSnapshot.samplerBindings.find(function (entry) {
+                return Number(entry.binding) === binding;
+            }) || null;
+            var sampler = samplerEntry && samplerEntry.resource && samplerEntry.resource.sampler || {};
+            return {
+                builtin: safeText(pair.builtin || '', 40),
+                name: safeText(pair.name || '', 80),
+                group: samplerGroupIndex,
+                binding: binding,
+                wgslType: safeText(pair.type || '', 80),
+                layoutType: safeText(samplerLayout && samplerLayout.sampler && samplerLayout.sampler.type || '', 40),
+                resourceId: safeText(sampler.resourceId || '', 40),
+                minFilter: safeText(sampler.minFilter || '', 32),
+                magFilter: safeText(sampler.magFilter || '', 32),
+                mipmapFilter: safeText(sampler.mipmapFilter || '', 32)
+            };
+        }).slice(0, 8);
+        var pipelineLayoutSnapshot = null;
+        try { pipelineLayoutSnapshot = pipeline.layout && gpuPipelineLayoutSnapshots.get(pipeline.layout) || null; } catch (ignored) { }
+        var expectedBindLayout = pipelineLayoutSnapshot && pipelineLayoutSnapshot.bindGroupLayoutResourceIds[groupIndex] || '';
+        var actualBindLayout = bindGroupSnapshot.layoutResourceId || '';
+        var drawArguments = {};
+        if (methodName === 'draw') {
+            drawArguments = { vertexCount: Number(args[0]) || 0, instanceCount: args.length > 1 ? Number(args[1]) || 0 : 1,
+                firstVertex: args.length > 2 ? Number(args[2]) || 0 : 0, firstInstance: args.length > 3 ? Number(args[3]) || 0 : 0 };
+        } else if (methodName === 'drawIndexed') {
+            drawArguments = { indexCount: Number(args[0]) || 0, instanceCount: args.length > 1 ? Number(args[1]) || 0 : 1,
+                firstIndex: args.length > 2 ? Number(args[2]) || 0 : 0, baseVertex: args.length > 3 ? Number(args[3]) || 0 : 0,
+                firstInstance: args.length > 4 ? Number(args[4]) || 0 : 0 };
+        } else {
+            drawArguments = { indirectBufferLabel: objectLabel(args[0]), indirectOffset: Number(args[1]) || 0 };
+        }
+        var textureResource = {
+            kind: safeText(bindingResource.resource && bindingResource.resource.kind || '', 40),
+            format: safeText(view.format || texture.format || '', 80),
+            width: Number(texture.width) || null,
+            height: Number(texture.height) || null,
+            textureResourceId: safeText(texture.resourceId || '', 40),
+            viewResourceId: safeText(bindingResource.resource.resourceId || viewSnapshot.resourceId || '', 40),
+            mipLevelCount: Number(texture.mipLevelCount) || null,
+            viewBaseMipLevel: Number(view.baseMipLevel) || 0,
+            viewMipLevelCount: Number(view.mipLevelCount) || null
+        };
+        var trace = {
+            pass: {
+                sequence: passSnapshot.sequence,
+                label: passSnapshot.label,
+                colorAttachments: (passSnapshot.colorAttachments || []).map(traceAttachmentSummary).filter(Boolean).slice(0, 4),
+                depthAttachment: traceAttachmentSummary(passSnapshot.depthStencilAttachment)
+            },
+            command: { operation: 'GPURenderPassEncoder.' + methodName, arguments: drawArguments, apiCallReturned: false },
+            pipeline: {
+                resourceId: pipeline.resourceId,
+                label: pipeline.label,
+                layoutResourceId: pipeline.pipelineLayoutResourceId,
+                fragmentShaderResourceId: pipeline.fragmentShaderResourceId,
+                fragmentShaderLabel: pipeline.fragmentShaderLabel,
+                fragmentEntryPoint: pipeline.fragmentEntryPoint,
+                colorTargetFormats: pipeline.colorTargetFormats.slice(0, 4)
+            },
+            bindGroup: {
+                index: groupIndex,
+                resourceId: bindGroupSnapshot.resourceId,
+                layoutResourceId: actualBindLayout,
+                pipelineLayoutExpectedLayoutResourceId: expectedBindLayout,
+                layoutMatchesPipeline: expectedBindLayout && actualBindLayout ? expectedBindLayout === actualBindLayout : null
+            },
+            binding44: {
+                group: Number(shaderBinding.group),
+                binding: 44,
+                wgslName: shaderBinding.name,
+                wgslType: shaderBinding.type,
+                textureLoadCount: Number(shaderBinding.textureLoadCount) || 0,
+                sampleCounts: shaderBinding.sampleCounts || {},
+                sampleCallCount: Number(shaderBinding.sampleCallCount) || 0,
+                analysisScope: shaderBinding.analysisScope,
+                layoutSampleType: safeText(bindingLayout && bindingLayout.texture && bindingLayout.texture.sampleType || '', 40),
+                layoutViewDimension: safeText(bindingLayout && bindingLayout.texture && bindingLayout.texture.viewDimension || '', 40),
+                layoutVisibility: Number(bindingLayout && bindingLayout.visibility) || 0,
+                resource: textureResource,
+                samplers: samplerFacts
+            }
+        };
+        trace.traceId = JSON.stringify([pipeline.resourceId, bindGroupSnapshot.resourceId, textureResource.textureResourceId,
+            textureResource.viewResourceId, expectedBindLayout, textureResource.format,
+            trace.pass.colorAttachments.map(function (attachment) { return attachment.viewResourceId; })]);
+        return trace;
+    }
+
+    function rememberGpuBinding44Trace(trace) {
+        if (!trace || gpuBindingTraceSignatures.has(trace.traceId) || gpuBindingTraceSignatures.size >= 16) return;
+        gpuBindingTraceSignatures.add(trace.traceId);
+        trace.observedAt = Date.now();
+        send('gpu-binding-trace', trace);
+    }
+
     function snapshotGpuOperations() {
         return recentGpuOperations.slice(-16).map(function (entry) {
             return {
@@ -662,6 +934,7 @@
             workerUrlSyncPipelines: workerQuery.syncPipelines,
             workerUrlAlphaFix: workerQuery.alphaFix,
             shaderCompatibility: alphaCompatibilitySnapshot(),
+            alphaFixServerVerification: alphaFixServerVerificationSnapshot(),
             apiCalls: {
                 createRenderPipeline: pipelineApiCalls.createRenderPipeline,
                 createRenderPipelineAsync: pipelineApiCalls.createRenderPipelineAsync,
@@ -891,19 +1164,36 @@
                 return function () {
                     var args = arguments;
                     var entry = noteGpuOperation(globalName, methodName, args, this);
+                    var drawBindingTrace = null;
+                    if (globalName === 'GPURenderPassEncoder' && /^draw/.test(methodName)) {
+                        try { drawBindingTrace = gpuRenderCommandBinding44Trace(this, methodName, args); } catch (ignored) { }
+                        if (drawBindingTrace && entry && entry.details) entry.details.commandTrace = drawBindingTrace;
+                    }
                     var result;
                     try {
                         result = Reflect.apply(original, this, args);
                     } catch (error) {
+                        if (drawBindingTrace) {
+                            drawBindingTrace.command.apiCallReturned = false;
+                            if (entry && entry.details) entry.details.commandTrace = drawBindingTrace;
+                        }
                         recordGpuError(error, 'thrown by ' + globalName + '.' + methodName, entry);
                         if (/create(Render|Compute)Pipeline/.test(methodName)) inspectShaderCompilation(args[0], 'synchronous pipeline creation failure', entry);
                         throw error;
+                    }
+                    if (drawBindingTrace) {
+                        drawBindingTrace.command.apiCallReturned = true;
+                        if (entry && entry.details) entry.details.commandTrace = drawBindingTrace;
+                        rememberGpuBinding44Trace(drawBindingTrace);
                     }
                     if ((methodName === 'createRenderPipelineAsync' || methodName === 'createComputePipelineAsync') && result && typeof result.then === 'function') {
                         try {
                             result.then(function (pipeline) {
                                 var pipelineId = gpuResourceId(pipeline, 'pipeline');
                                 if (entry && entry.details && pipelineId) entry.details.resourceId = pipelineId;
+                                if (globalName === 'GPUDevice' && /create(Render|Compute)PipelineAsync/.test(methodName)) {
+                                    storeGpuPipelineSnapshot(pipeline, args[0] || {}, entry && entry.details || {});
+                                }
                             }, function (error) {
                                 recordGpuError(error, 'rejected ' + globalName + '.' + methodName, entry);
                                 inspectShaderCompilation(args[0], 'asynchronous pipeline creation rejection', entry);
@@ -945,18 +1235,59 @@
                     } else if (globalName === 'GPUDevice' && methodName === 'createBindGroupLayout' && result) {
                         var bindLayoutId = gpuResourceId(result, 'bind-layout');
                         if (entry && entry.details && bindLayoutId) entry.details.resourceId = bindLayoutId;
+                        var bindLayoutDetails = entry && entry.details || {};
+                        gpuBindGroupLayoutSnapshots.set(result, {
+                            resourceId: bindLayoutId,
+                            binding44Layout: bindLayoutDetails.binding44Layout || null,
+                            samplerBindings: bindLayoutDetails.samplerBindings || []
+                        });
                     } else if (globalName === 'GPUDevice' && methodName === 'createPipelineLayout' && result) {
                         var pipelineLayoutId = gpuResourceId(result, 'pipeline-layout');
                         if (entry && entry.details && pipelineLayoutId) entry.details.resourceId = pipelineLayoutId;
+                        var pipelineLayoutDetails = entry && entry.details || {};
+                        gpuPipelineLayoutSnapshots.set(result, {
+                            resourceId: pipelineLayoutId,
+                            bindGroupLayoutResourceIds: pipelineLayoutDetails.bindGroupLayoutResourceIds || []
+                        });
                     } else if (globalName === 'GPUDevice' && methodName === 'createBindGroup' && result) {
                         var bindGroupId = gpuResourceId(result, 'bind-group');
                         if (entry && entry.details && bindGroupId) entry.details.resourceId = bindGroupId;
+                        var bindGroupDetails = entry && entry.details || {};
+                        gpuBindGroupSnapshots.set(result, {
+                            resourceId: bindGroupId,
+                            layout: (args[0] || {}).layout || null,
+                            layoutResourceId: bindGroupDetails.layoutResourceId || '',
+                            binding44Resource: bindGroupDetails.binding44Resource || null,
+                            textureBindings: bindGroupDetails.textureBindings || [],
+                            samplerBindings: bindGroupDetails.samplerBindings || []
+                        });
                     } else if (globalName === 'GPUDevice' && methodName === 'createShaderModule' && result) {
                         var shaderModuleId = gpuResourceId(result, 'shader-module');
                         if (entry && entry.details && shaderModuleId) entry.details.resourceId = shaderModuleId;
+                        try { gpuShaderBindingFacts.set(result, entry && entry.details && entry.details.binding44 || null); } catch (ignored) { }
                     } else if (globalName === 'GPUDevice' && /create(Render|Compute)Pipeline$/.test(methodName) && result) {
                         var pipelineId = gpuResourceId(result, 'pipeline');
                         if (entry && entry.details && pipelineId) entry.details.resourceId = pipelineId;
+                        storeGpuPipelineSnapshot(result, args[0] || {}, entry && entry.details || {});
+                    }
+                    if (globalName === 'GPUCommandEncoder' && methodName === 'beginRenderPass' && result) {
+                        var passDetails = entry && entry.details || {};
+                        gpuRenderPassSnapshots.set(result, {
+                            sequence: ++gpuRenderPassSequence,
+                            label: passDetails.label || '',
+                            colorAttachments: passDetails.colorAttachments || [],
+                            depthStencilAttachment: passDetails.depthStencilAttachment || null,
+                            pipeline: null,
+                            bindGroups: Object.create(null)
+                        });
+                    } else if (globalName === 'GPURenderPassEncoder') {
+                        var passSnapshot = null;
+                        try { passSnapshot = gpuRenderPassSnapshots.get(this) || null; } catch (ignored) { }
+                        if (passSnapshot && methodName === 'setPipeline') passSnapshot.pipeline = args[0] || null;
+                        if (passSnapshot && methodName === 'setBindGroup') passSnapshot.bindGroups[Number(args[0])] = args[1] || null;
+                        if (passSnapshot && methodName === 'end') {
+                            try { gpuRenderPassSnapshots.delete(this); } catch (ignored) { }
+                        }
                     }
                     if (globalName === 'GPUTexture' && methodName === 'createView' && result && gpuTextureViewSnapshots) {
                         try {
@@ -1158,6 +1489,7 @@
             workerUrlSyncPipelines: workerQuery.syncPipelines,
             workerUrlAlphaFix: workerQuery.alphaFix,
             shaderCompatibility: alphaCompatibilitySnapshot(),
+            alphaFixServerVerification: alphaFixServerVerificationSnapshot(),
             createRenderPipelineAvailable: !!(self.GPUDevice && self.GPUDevice.prototype && typeof self.GPUDevice.prototype.createRenderPipeline === 'function'),
             createRenderPipelineAsyncAvailable: canCreatePipelineAsync,
             installedApiHooks: installed,
@@ -1797,6 +2129,7 @@
         workerUrlSyncPipelines: component === 'gpu-worker' ? workerQuery.syncPipelines : null,
         workerUrlAlphaFix: component === 'gpu-worker' ? workerQuery.alphaFix : null,
         shaderCompatibility: component === 'gpu-worker' ? alphaCompatibilitySnapshot() : null,
+        alphaFixServerVerification: component === 'gpu-worker' ? alphaFixServerVerificationSnapshot() : null,
         contextNote: 'worker events are local BroadcastChannel messages; no HTTP telemetry is sent'
     });
 })();

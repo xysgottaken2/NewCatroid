@@ -726,6 +726,7 @@ class HttpEngine(
                     var outBytes = bytes
                     val injected = mutableListOf<String>()
                     val isHtml = contentType.startsWith("text/html")
+                    var alphaFixWorkerVerificationBootstrap: String? = null
 
                     // The diagnostics and graphics experiment are independent
                     // opt-ins. Their shared bootstrap only observes the game
@@ -742,28 +743,40 @@ class HttpEngine(
                     }
 
                     if (hasQueryFlag(query, ALPHA_FIX_QUERY)) {
-                        val compatibilityScript = shaderCompatibilityScriptProvider?.invoke()
-                        if (compatibilityScript != null) {
-                            when {
-                                isHtml -> {
+                        when {
+                            isHtml -> {
+                                if (shaderCompatibilityScriptProvider?.invoke() != null) {
                                     outBytes = injectGameDiagnosticsScript(outBytes, SHADER_COMPATIBILITY_PATH)
                                     injected += "scalar alpha-test page bootstrap"
                                 }
-                                entry.name == "loader.js" -> {
+                            }
+                            entry.name == "loader.js" -> {
+                                shaderCompatibilityScriptProvider?.invoke()?.let { compatibilityScript ->
                                     outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript)
                                     injected += "scalar alpha-test loader bootstrap"
                                 }
-                                entry.name == "wgpu_worker.js" -> {
-                                    // Check the original bytes before diagnostics or other suffixes.
-                                    // Never reinterpret an unknown engine's lexical symbols.
-                                    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-                                        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-                                    if (digest == ALPHA_FIX_WORKER_SHA256) {
-                                        outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript)
-                                        injected += "scalar alpha-test renderer correction"
-                                    } else {
-                                        logger(LogLevel.WARN, "Scalar alpha-test correction not applied: unreviewed worker SHA-256 $digest", null)
-                                    }
+                            }
+                            entry.name == "wgpu_worker.js" -> {
+                                // Verify the original bytes before diagnostics or other suffixes.
+                                // Never reinterpret an unknown engine's lexical symbols.
+                                val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                                val hashMatches = digest == ALPHA_FIX_WORKER_SHA256
+                                val compatibilityScript = shaderCompatibilityScriptProvider?.invoke()
+                                val shimInjected = hashMatches && compatibilityScript != null
+                                alphaFixWorkerVerificationBootstrap = buildAlphaFixWorkerVerificationBootstrap(
+                                    digest = digest,
+                                    hashMatches = hashMatches,
+                                    shimInjected = shimInjected
+                                )
+                                if (shimInjected) {
+                                    outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript!!)
+                                    injected += "scalar alpha-test renderer correction"
+                                    logger(LogLevel.INFO, "Scalar alpha-test worker SHA-256 verified; shim appended", null)
+                                } else if (!hashMatches) {
+                                    logger(LogLevel.WARN, "Scalar alpha-test correction not applied: unreviewed worker SHA-256 $digest", null)
+                                } else {
+                                    logger(LogLevel.WARN, "Scalar alpha-test correction not applied: compatibility script unavailable for verified worker SHA-256 $digest", null)
                                 }
                             }
                         }
@@ -780,7 +793,9 @@ class HttpEngine(
                     if (fullWorkerDiagnostics || pipelineSelectionProbe) {
                         val workerScript = workerDiagnosticsBootstrapProvider?.invoke()
                         if (workerScript != null) {
-                            outBytes = appendWorkerDiagnosticsBootstrap(outBytes, workerScript)
+                            val verification = if (workerName == "wgpu_worker.js") alphaFixWorkerVerificationBootstrap else null
+                            outBytes = appendWorkerDiagnosticsBootstrap(outBytes, workerScript, verification)
+                            if (verification != null) injected += "scalar alpha-test worker hash verification"
                             injected += "worker diagnostics bootstrap"
                         }
                     }
@@ -1140,9 +1155,22 @@ class HttpEngine(
         return injected.toByteArray(StandardCharsets.UTF_8)
     }
 
+    private fun buildAlphaFixWorkerVerificationBootstrap(
+        digest: String,
+        hashMatches: Boolean,
+        shimInjected: Boolean
+    ): String = "self.__newcatroidAlphaFixServerVerification = " +
+        "{requested:true,expectedSha256:\"$ALPHA_FIX_WORKER_SHA256\",actualSha256:\"$digest\"," +
+        "hashMatches:$hashMatches,shimInjected:$shimInjected};"
+
     /** Appends observational hooks so an original worker's strict directive remains effective. */
-    private fun appendWorkerDiagnosticsBootstrap(script: ByteArray, bootstrap: String): ByteArray {
-        val suffix = ("\n" + bootstrap + "\n").toByteArray(StandardCharsets.UTF_8)
+    private fun appendWorkerDiagnosticsBootstrap(
+        script: ByteArray,
+        bootstrap: String,
+        prelude: String? = null
+    ): ByteArray {
+        val suffixText = "\n" + (prelude?.let { "$it\n" } ?: "") + bootstrap + "\n"
+        val suffix = suffixText.toByteArray(StandardCharsets.UTF_8)
         return ByteArray(script.size + suffix.size).also {
             System.arraycopy(script, 0, it, 0, script.size)
             System.arraycopy(suffix, 0, it, script.size, suffix.size)

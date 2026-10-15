@@ -87,6 +87,7 @@
             displayPresentationObserved: false,
             gpuOperationCounts: {},
             recentGpuOperations: [],
+            binding44Traces: [],
             pipelineApiCalls: { createRenderPipeline: 0, createRenderPipelineAsync: 0, createComputePipeline: 0, createComputePipelineAsync: 0 },
             lastGraphicsSampleAt: null,
             sceneHints: [],
@@ -128,6 +129,7 @@
             shaderCompatibility: {
                 requested: ALPHA_FIX_ENABLED,
                 workerUrlConfirmed: null,
+                serverVerification: null,
                 hookInstalled: null,
                 alphaCoverageVariantsSeen: 0,
                 nonVec4AlphaTestsBypassed: 0,
@@ -303,9 +305,84 @@
         }
     }
 
+    function binding44ShaderFact(value) {
+        if (!value || typeof value !== 'object') return null;
+        return {
+            group: Number(value.group), binding: Number(value.binding), name: safeText(value.name || '', 100),
+            type: safeText(value.type || '', 120), textureLoadCount: Number(value.textureLoadCount) || 0,
+            sampleCallCount: Number(value.sampleCallCount) || 0, sampleCounts: copyNumberMap(value.sampleCounts),
+            analysisScope: safeText(value.analysisScope || '', 180),
+            samplerBindings: (Array.isArray(value.samplerBindings) ? value.samplerBindings : []).slice(0, 8).map(function (sampler) {
+                return { builtin: safeText(sampler && sampler.builtin || '', 40), name: safeText(sampler && sampler.name || '', 80),
+                    group: Number(sampler && sampler.group), binding: Number(sampler && sampler.binding), type: safeText(sampler && sampler.type || '', 80) };
+            })
+        };
+    }
+
+    function binding44LayoutFact(value) {
+        if (!value || typeof value !== 'object') return null;
+        var texture = value.texture || {};
+        return {
+            binding: Number(value.binding), visibility: Number(value.visibility) || 0,
+            sampleType: safeText(texture.sampleType || '', 40), viewDimension: safeText(texture.viewDimension || '', 40),
+            multisampled: safeText(texture.multisampled, 8)
+        };
+    }
+
+    function binding44ResourceFact(entry) {
+        if (!entry || typeof entry !== 'object') return null;
+        var resource = entry.resource || {};
+        var viewInfo = resource.texture || {};
+        var texture = viewInfo.texture || {};
+        var view = viewInfo.view || {};
+        return {
+            binding: Number(entry.binding), kind: safeText(resource.kind || '', 40),
+            viewId: safeText(resource.resourceId || viewInfo.resourceId || '', 40),
+            textureId: safeText(texture.resourceId || '', 40),
+            format: safeText(view.format || texture.format || '', 80),
+            width: Number(texture.width) || null, height: Number(texture.height) || null,
+            mipLevelCount: Number(texture.mipLevelCount) || 0, viewBaseMipLevel: Number(view.baseMipLevel) || 0,
+            viewMipLevelCount: Number(view.mipLevelCount) || 0
+        };
+    }
+
+    function commandTraceFact(value) {
+        if (!value || typeof value !== 'object') return null;
+        var binding = value.binding44 || {};
+        var resource = binding.resource || {};
+        return {
+            command: safeText(value.command && value.command.operation || '', 100),
+            apiCallReturned: value.command && value.command.apiCallReturned === true,
+            pipelineId: safeText(value.pipeline && value.pipeline.resourceId || '', 40),
+            pipelineLabel: safeText(value.pipeline && value.pipeline.label || '', 100),
+            bindGroupIndex: Number(value.bindGroup && value.bindGroup.index),
+            bindGroupId: safeText(value.bindGroup && value.bindGroup.resourceId || '', 40),
+            layoutMatchesPipeline: typeof (value.bindGroup && value.bindGroup.layoutMatchesPipeline) === 'boolean'
+                ? value.bindGroup.layoutMatchesPipeline : null,
+            wgsl: binding44ShaderFact({
+                group: binding.group, binding: binding.binding, name: binding.wgslName, type: binding.wgslType,
+                textureLoadCount: binding.textureLoadCount, sampleCallCount: binding.sampleCallCount,
+                sampleCounts: binding.sampleCounts, analysisScope: binding.analysisScope, samplerBindings: binding.samplers
+            }),
+            layoutSampleType: safeText(binding.layoutSampleType || '', 40),
+            texture: { format: safeText(resource.format || '', 80), width: Number(resource.width) || null, height: Number(resource.height) || null,
+                textureId: safeText(resource.textureResourceId || '', 40), viewId: safeText(resource.viewResourceId || '', 40) },
+            samplers: (Array.isArray(binding.samplers) ? binding.samplers : []).slice(0, 8).map(function (sampler) {
+                return { group: Number(sampler && sampler.group), binding: Number(sampler && sampler.binding),
+                    name: safeText(sampler && sampler.name || '', 80), builtin: safeText(sampler && sampler.builtin || '', 40),
+                    layoutType: safeText(sampler && sampler.layoutType || '', 40), minFilter: safeText(sampler && sampler.minFilter || '', 32),
+                    magFilter: safeText(sampler && sampler.magFilter || '', 32), mipmapFilter: safeText(sampler && sampler.mipmapFilter || '', 32) };
+            }),
+            targets: (Array.isArray(value.pass && value.pass.colorAttachments) ? value.pass.colorAttachments : []).slice(0, 4).map(function (target) {
+                return { format: safeText(target && target.format || '', 80), width: Number(target && target.width) || null,
+                    height: Number(target && target.height) || null, viewId: safeText(target && target.viewResourceId || '', 40) };
+            })
+        };
+    }
+
     function summarizeOperationFacts(operation, rawDetails) {
         var operationName = String(operation || '');
-        if (!/\.(?:createBindGroup(?:Layout)?|createPipelineLayout|create(?:Render|Compute)Pipeline(?:Async)?|createShaderModule)$/.test(operationName)) return null;
+        if (!/\.(?:createBindGroup(?:Layout)?|createPipelineLayout|create(?:Render|Compute)Pipeline(?:Async)?|createShaderModule|draw(?:Indexed|Indirect|IndexedIndirect)?)$/.test(operationName)) return null;
         var details = operationDetailObject(rawDetails);
         if (!details) return null;
         var facts = {};
@@ -315,11 +392,16 @@
                 var texture = entry && entry.texture || {};
                 return {
                     binding: Number(entry && entry.binding) || 0,
+                    visibility: Number(entry && entry.visibility) || 0,
                     sampleType: safeText(texture.sampleType || '', 40),
                     viewDimension: safeText(texture.viewDimension || '', 40),
                     multisampled: safeText(texture.multisampled, 8)
                 };
             });
+            facts.binding44Layout = binding44LayoutFact(details.binding44Layout);
+            if (facts.binding44Layout && !facts.textureLayouts.some(function (entry) { return entry.binding === 44; })) {
+                facts.textureLayouts.push(facts.binding44Layout);
+            }
             facts.samplerLayouts = (Array.isArray(details.samplerBindings) ? details.samplerBindings : []).slice(0, 8).map(function (entry) {
                 return { binding: Number(entry && entry.binding) || 0, type: safeText(entry && entry.sampler && entry.sampler.type || '', 40) };
             });
@@ -357,6 +439,7 @@
                     mipmapFilter: safeText(resource.mipmapFilter || '', 32)
                 };
             });
+            facts.binding44Resource = binding44ResourceFact(details.binding44Resource);
         } else if (/\.createPipelineLayout$/.test(operationName)) {
             facts.pipelineLayoutResourceId = safeText(details.resourceId || '', 32);
             facts.bindGroupLayoutResourceIds = Array.isArray(details.bindGroupLayoutResourceIds)
@@ -370,13 +453,18 @@
             facts.vertexShaderLabel = safeText(details.vertexShaderLabel || '', 80);
             facts.fragmentShaderLabel = safeText(details.fragmentShaderLabel || '', 80);
             facts.computeShaderLabel = safeText(details.computeShaderLabel || '', 80);
+            facts.fragmentBinding44 = binding44ShaderFact(details.fragmentBinding44);
             facts.entryPoints = [details.vertexEntryPoint, details.fragmentEntryPoint, details.computeEntryPoint]
                 .filter(Boolean).slice(0, 3).map(function (entryPoint) { return safeText(entryPoint, 80); });
         } else if (/\.createShaderModule$/.test(operationName)) {
             facts.shaderModuleResourceId = safeText(details.resourceId || '', 32);
             facts.shaderLabel = safeText(details.label || '', 80);
             facts.codeLength = Number(details.codeLength) || 0;
+            facts.binding44 = binding44ShaderFact(details.binding44);
+        } else if (details.commandTrace) {
+            facts.commandTrace = commandTraceFact(details.commandTrace);
         }
+        if (details.commandTrace && !facts.commandTrace) facts.commandTrace = commandTraceFact(details.commandTrace);
         return facts;
     }
 
@@ -423,6 +511,103 @@
             return (Date.parse(left.lastAt) || 0) - (Date.parse(right.lastAt) || 0);
         });
         state.gpu.errorGroups = retained;
+    }
+
+    function captureGpuBinding44Trace(details, timestamp) {
+        details = details && typeof details === 'object' ? details : {};
+        var binding = details.binding44 && typeof details.binding44 === 'object' ? details.binding44 : {};
+        if (Number(binding.binding) !== 44) return;
+        var traceId = safeText(details.traceId || '', 240);
+        if (traceId && state.rendering.binding44Traces.some(function (item) { return item.traceId === traceId; })) return;
+        var pass = details.pass && typeof details.pass === 'object' ? details.pass : {};
+        var command = details.command && typeof details.command === 'object' ? details.command : {};
+        var pipeline = details.pipeline && typeof details.pipeline === 'object' ? details.pipeline : {};
+        var bindGroup = details.bindGroup && typeof details.bindGroup === 'object' ? details.bindGroup : {};
+        var resource = binding.resource && typeof binding.resource === 'object' ? binding.resource : {};
+        var trace = {
+            traceId: traceId,
+            observedAt: isoTime(Number(details.observedAt) || Number(timestamp) || Date.now()),
+            pass: {
+                sequence: Number(pass.sequence) || null,
+                label: safeText(pass.label || '', 120),
+                colorAttachments: (Array.isArray(pass.colorAttachments) ? pass.colorAttachments : []).slice(0, 4).map(function (attachment) {
+                    return {
+                        index: Number(attachment && attachment.index) || 0,
+                        format: safeText(attachment && attachment.format || '', 80),
+                        width: Number(attachment && attachment.width) || null,
+                        height: Number(attachment && attachment.height) || null,
+                        textureResourceId: safeText(attachment && attachment.textureResourceId || '', 40),
+                        viewResourceId: safeText(attachment && attachment.viewResourceId || '', 40),
+                        loadOp: safeText(attachment && attachment.loadOp || '', 32),
+                        storeOp: safeText(attachment && attachment.storeOp || '', 32)
+                    };
+                }),
+                depthAttachment: pass.depthAttachment || null
+            },
+            command: {
+                operation: safeText(command.operation || '', 100),
+                apiCallReturned: command.apiCallReturned === true,
+                arguments: command.arguments && typeof command.arguments === 'object' ? command.arguments : {}
+            },
+            pipeline: {
+                resourceId: safeText(pipeline.resourceId || '', 40),
+                label: safeText(pipeline.label || '', 120),
+                layoutResourceId: safeText(pipeline.layoutResourceId || '', 40),
+                fragmentShaderResourceId: safeText(pipeline.fragmentShaderResourceId || '', 40),
+                fragmentShaderLabel: safeText(pipeline.fragmentShaderLabel || '', 120),
+                fragmentEntryPoint: safeText(pipeline.fragmentEntryPoint || '', 100),
+                colorTargetFormats: (Array.isArray(pipeline.colorTargetFormats) ? pipeline.colorTargetFormats : []).slice(0, 4).map(function (format) { return safeText(format, 80); })
+            },
+            bindGroup: {
+                index: Number(bindGroup.index),
+                resourceId: safeText(bindGroup.resourceId || '', 40),
+                layoutResourceId: safeText(bindGroup.layoutResourceId || '', 40),
+                pipelineLayoutExpectedLayoutResourceId: safeText(bindGroup.pipelineLayoutExpectedLayoutResourceId || '', 40),
+                layoutMatchesPipeline: typeof bindGroup.layoutMatchesPipeline === 'boolean' ? bindGroup.layoutMatchesPipeline : null
+            },
+            binding44: {
+                group: Number(binding.group),
+                binding: 44,
+                wgslName: safeText(binding.wgslName || '', 100),
+                wgslType: safeText(binding.wgslType || '', 120),
+                textureLoadCount: Number(binding.textureLoadCount) || 0,
+                sampleCounts: copyNumberMap(binding.sampleCounts),
+                sampleCallCount: Number(binding.sampleCallCount) || 0,
+                analysisScope: safeText(binding.analysisScope || '', 180),
+                layoutSampleType: safeText(binding.layoutSampleType || '', 40),
+                layoutViewDimension: safeText(binding.layoutViewDimension || '', 40),
+                layoutVisibility: Number(binding.layoutVisibility) || 0,
+                resource: {
+                    kind: safeText(resource.kind || '', 40),
+                    format: safeText(resource.format || '', 80),
+                    width: Number(resource.width) || null,
+                    height: Number(resource.height) || null,
+                    textureResourceId: safeText(resource.textureResourceId || '', 40),
+                    viewResourceId: safeText(resource.viewResourceId || '', 40),
+                    mipLevelCount: Number(resource.mipLevelCount) || null,
+                    viewBaseMipLevel: Number(resource.viewBaseMipLevel) || 0,
+                    viewMipLevelCount: Number(resource.viewMipLevelCount) || null
+                },
+                samplers: (Array.isArray(binding.samplers) ? binding.samplers : []).slice(0, 8).map(function (sampler) {
+                    return {
+                        builtin: safeText(sampler && sampler.builtin || '', 40),
+                        name: safeText(sampler && sampler.name || '', 80),
+                        group: Number(sampler && sampler.group),
+                        binding: Number(sampler && sampler.binding),
+                        wgslType: safeText(sampler && sampler.wgslType || '', 80),
+                        layoutType: safeText(sampler && sampler.layoutType || '', 40),
+                        resourceId: safeText(sampler && sampler.resourceId || '', 40),
+                        minFilter: safeText(sampler && sampler.minFilter || '', 32),
+                        magFilter: safeText(sampler && sampler.magFilter || '', 32),
+                        mipmapFilter: safeText(sampler && sampler.mipmapFilter || '', 32)
+                    };
+                })
+            }
+        };
+        boundedPush(state.rendering.binding44Traces, trace, 16);
+        recordEvent('GPU binding 44 trace', 'R32Float/other texture at binding 44: ' + trace.binding44.resource.format +
+            ', direct sample calls=' + trace.binding44.sampleCallCount + ', direct textureLoad=' + trace.binding44.textureLoadCount +
+            ', pipeline=' + (trace.pipeline.label || trace.pipeline.resourceId) + ', command=' + trace.command.operation);
     }
 
     function captureWebGpuErrorGroup(data) {
@@ -977,6 +1162,8 @@
                 destinationMaxChannelCount: null,
                 resumeAttempts: 0,
                 lastResumeResult: 'not observed',
+                suspendAttempts: 0,
+                closeAttempts: 0,
                 stateChanges: 0
             };
             try { if (audioContextRecords) audioContextRecords.set(context, record); } catch (ignored) { }
@@ -1111,7 +1298,9 @@
                     if (typeof original !== 'function' || original.__newcatroidAudioObserver) return;
                     var wrapped = function () {
                         var record = observeContext(this, name);
-                        if (methodName === 'resume' && record) record.resumeAttempts++;
+                        if (record && methodName === 'resume') record.resumeAttempts++;
+                        else if (record && methodName === 'suspend') record.suspendAttempts++;
+                        else if (record && methodName === 'close') record.closeAttempts++;
                         recordAudioPlayAttempt('AudioContext.' + methodName, 'called', '', record && record.id);
                         var result;
                         try { result = Reflect.apply(original, this, arguments); }
@@ -1387,6 +1576,20 @@
         if (!details || typeof details !== 'object') return;
         var status = state.gpu.shaderCompatibility;
         if (typeof details.workerUrlAlphaFix === 'boolean') status.workerUrlConfirmed = details.workerUrlAlphaFix;
+        var serverVerification = details.alphaFixServerVerification;
+        if (!serverVerification && details.pipeline && typeof details.pipeline === 'object') {
+            serverVerification = details.pipeline.alphaFixServerVerification;
+        }
+        if (serverVerification && typeof serverVerification === 'object') {
+            status.serverVerification = {
+                requested: serverVerification.requested === true,
+                expectedSha256: safeText(serverVerification.expectedSha256 || '', 64),
+                actualSha256: safeText(serverVerification.actualSha256 || '', 64),
+                hashMatches: typeof serverVerification.hashMatches === 'boolean' ? serverVerification.hashMatches : null,
+                shimInjected: typeof serverVerification.shimInjected === 'boolean' ? serverVerification.shimInjected : null,
+                observedAt: isoTime(Number(timestamp) || Date.now())
+            };
+        }
         var hasSnapshot = Object.prototype.hasOwnProperty.call(details, 'shaderCompatibility');
         var snapshot = details.shaderCompatibility;
         if (!snapshot && details.pipeline && typeof details.pipeline === 'object') {
@@ -1414,15 +1617,27 @@
     function shaderCompatibilityStatus() {
         var shader = state.gpu.shaderCompatibility;
         if (!shader.requested) return 'not requested';
+        var verification = shader.serverVerification;
+        var serverText = verification
+            ? 'server SHA match=' + verification.hashMatches + ' expected=' + verification.expectedSha256 +
+                ' actual=' + verification.actualSha256 + ' shim appended=' + verification.shimInjected
+            : 'server SHA not observed';
         if (shader.hookInstalled === true) {
-            return 'worker shim confirmed; alpha variants=' + shader.alphaCoverageVariantsSeen +
+            return 'worker shim confirmed; ' + serverText + '; alpha variants=' + shader.alphaCoverageVariantsSeen +
                 ', non-vec4 bypassed=' + shader.nonVec4AlphaTestsBypassed +
                 ', vec4 preserved=' + shader.vec4AlphaTestsPreserved;
         }
-        if (shader.workerUrlConfirmed === false) return 'flag not seen on GPU worker URL';
-        if (shader.hookInstalled === false) return 'GPU worker observed, shim not confirmed';
-        if (shader.workerUrlConfirmed === true) return 'flag reached GPU worker URL; shim confirmation pending';
-        return 'waiting for GPU worker confirmation';
+        if (verification && verification.hashMatches === false) return 'worker hash mismatch; shim not injected; ' + serverText;
+        if (verification && verification.hashMatches === true && verification.shimInjected === false) {
+            return 'worker hash matched but shim was not appended; ' + serverText;
+        }
+        if (verification && verification.hashMatches === true && verification.shimInjected === true) {
+            return 'worker hash matched and shim was appended; runtime hook not observed; ' + serverText;
+        }
+        if (shader.workerUrlConfirmed === false) return 'flag not seen on GPU worker URL; ' + serverText;
+        if (shader.hookInstalled === false) return 'GPU worker observed, shim not confirmed; ' + serverText;
+        if (shader.workerUrlConfirmed === true) return 'flag reached GPU worker URL; shim confirmation pending; ' + serverText;
+        return 'waiting for GPU worker confirmation; ' + serverText;
     }
 
     function updateGraphicsSnapshot(details, timestamp) {
@@ -1516,6 +1731,10 @@
 
         if (type === 'webgpu-error-group') {
             if (DEBUG_ENABLED) captureWebGpuErrorGroup(data);
+            return;
+        }
+        if (type === 'gpu-binding-trace' && source === 'gpu-worker') {
+            if (DEBUG_ENABLED) captureGpuBinding44Trace(details, at);
             return;
         }
         if (type === 'pipeline-mode') {
@@ -1684,7 +1903,8 @@
                 }
             }
             if (!audioRecord) {
-                audioRecord = { id: contextId, source: source, constructor: safeText(details.constructor || 'AudioContext', 120), createdAt: details.createdAt || isoTime(at), resumeAttempts: 0, stateChanges: 0 };
+                audioRecord = { id: contextId, source: source, constructor: safeText(details.constructor || 'AudioContext', 120), createdAt: details.createdAt || isoTime(at),
+                    resumeAttempts: 0, lastResumeResult: 'not observed', suspendAttempts: 0, closeAttempts: 0, stateChanges: 0 };
                 boundedPush(state.audio.contexts, audioRecord, 30);
             } else {
                 audioRecord.stateChanges++;
@@ -1704,6 +1924,25 @@
                 error: safeText(details.message || '', 2000),
                 userActivation: 'not exposed to worker'
             };
+            var workerAudioContext = state.audio.contexts.find(function (context) {
+                return context.source === source && context.id === audioAttempt.contextId;
+            });
+            if (workerAudioContext && audioAttempt.kind === 'AudioContext.resume') {
+                if (audioAttempt.outcome === 'called') {
+                    workerAudioContext.resumeAttempts++;
+                    workerAudioContext.lastResumeAt = audioAttempt.at;
+                } else if (audioAttempt.outcome === 'fulfilled') {
+                    workerAudioContext.lastResumeResult = 'fulfilled';
+                } else if (audioAttempt.outcome === 'rejected' || audioAttempt.outcome === 'threw') {
+                    workerAudioContext.lastResumeResult = audioAttempt.outcome +
+                        (details.name ? ' ' + safeText(details.name, 100) : '') +
+                        (audioAttempt.error ? ': ' + audioAttempt.error : '');
+                }
+            } else if (workerAudioContext && audioAttempt.kind === 'AudioContext.suspend' && audioAttempt.outcome === 'called') {
+                workerAudioContext.suspendAttempts++;
+            } else if (workerAudioContext && audioAttempt.kind === 'AudioContext.close' && audioAttempt.outcome === 'called') {
+                workerAudioContext.closeAttempts++;
+            }
             boundedPush(state.audio.playAttempts, audioAttempt, 100);
             recordEvent('audio playback attempt', audioAttempt.kind + ' ' + audioAttempt.outcome + (audioAttempt.error ? ': ' + audioAttempt.error : ''));
         } else if (type === 'audio-worklet-module') {
@@ -2004,6 +2243,7 @@
             firstCanvasTexture: state.rendering.firstCanvasTexture || null,
             gpuOperationCounts: state.rendering.gpuOperationCounts,
             recentGpuOperations: state.rendering.recentGpuOperations,
+            binding44Traces: state.rendering.binding44Traces,
             pipelineApiCalls: state.rendering.pipelineApiCalls,
             lastGraphicsSampleAt: state.rendering.lastGraphicsSampleAt,
             sceneHints: state.rendering.sceneHints.slice(-100),
@@ -2131,10 +2371,28 @@
         if (facts.shaderModuleResourceId) parts.push('shader-module=' + facts.shaderModuleResourceId +
             (facts.shaderLabel ? ' ' + facts.shaderLabel : '') + (facts.codeLength ? ' chars=' + facts.codeLength : ''));
         if (facts.entryPoints && facts.entryPoints.length) parts.push('entry=[' + facts.entryPoints.join(',') + ']');
+        var wgslBinding44 = facts.fragmentBinding44 || facts.binding44;
+        if (wgslBinding44) {
+            var sampleUse = Object.keys(wgslBinding44.sampleCounts || {}).map(function (name) {
+                return name + 'x' + wgslBinding44.sampleCounts[name];
+            }).join(',') || 'none';
+            var pairedSamplers = (wgslBinding44.samplerBindings || []).map(function (sampler) {
+                return 'g' + sampler.group + ':b' + sampler.binding + '(' + sampler.type + ')';
+            }).join(',');
+            parts.push('WGSL b44 g' + wgslBinding44.group + ' ' + wgslBinding44.name + ':' + wgslBinding44.type +
+                ' load=' + wgslBinding44.textureLoadCount + ' sample=' + sampleUse +
+                (pairedSamplers ? ' sampler=' + pairedSamplers : '') + ' [' + wgslBinding44.analysisScope + ']');
+        }
         if (Array.isArray(facts.textureLayouts) && facts.textureLayouts.length) {
             parts.push('texture layout ' + facts.textureLayouts.slice(0, 4).map(function (entry) {
-                return 'b' + entry.binding + '=' + (entry.sampleType || '?') + '/' + (entry.viewDimension || '?');
+                return 'b' + entry.binding + '=' + (entry.sampleType || '?') + '/' + (entry.viewDimension || '?') +
+                    (entry.visibility ? '@stageMask' + entry.visibility : '');
             }).join(','));
+        }
+        if (facts.binding44Layout) {
+            parts.push('b44 BGL sampleType=' + (facts.binding44Layout.sampleType || '?') +
+                ' dimension=' + (facts.binding44Layout.viewDimension || '?') +
+                ' visibility=' + facts.binding44Layout.visibility);
         }
         if (Array.isArray(facts.textures) && facts.textures.length) {
             parts.push('texture ' + facts.textures.slice(0, 4).map(function (entry) {
@@ -2146,6 +2404,12 @@
                     (entry.arrayLayerCount > 0 ? ' layers=' + entry.baseArrayLayer + '+' + entry.arrayLayerCount : '');
             }).join(','));
         }
+        if (facts.binding44Resource) {
+            parts.push('b44 resource=' + facts.binding44Resource.format +
+                (facts.binding44Resource.width && facts.binding44Resource.height ? ' ' + facts.binding44Resource.width + 'x' + facts.binding44Resource.height : '') +
+                (facts.binding44Resource.textureId || facts.binding44Resource.viewId
+                    ? ' ' + [facts.binding44Resource.textureId, facts.binding44Resource.viewId].filter(Boolean).join('/') : ''));
+        }
         if (Array.isArray(facts.samplerLayouts) && facts.samplerLayouts.length) {
             parts.push('sampler layout ' + facts.samplerLayouts.slice(0, 4).map(function (entry) {
                 return 'b' + entry.binding + '=' + (entry.type || '?');
@@ -2156,6 +2420,22 @@
                 var filter = [entry.minFilter, entry.magFilter, entry.mipmapFilter].filter(Boolean).join('/');
                 return 'b' + entry.binding + (filter ? '=' + filter : '') + (entry.resourceId ? ' ' + entry.resourceId : '');
             }).join(','));
+        }
+        if (facts.commandTrace) {
+            var trace = facts.commandTrace;
+            var tracedSamplers = (trace.samplers || []).slice(0, 4).map(function (sampler) {
+                return 'g' + sampler.group + ':b' + sampler.binding + '=' + sampler.layoutType + '/' +
+                    [sampler.minFilter, sampler.magFilter, sampler.mipmapFilter].filter(Boolean).join('/');
+            }).join(',');
+            var targets = (trace.targets || []).slice(0, 3).map(function (target) {
+                return target.format + (target.width && target.height ? '@' + target.width + 'x' + target.height : '');
+            }).join(',');
+            parts.push('draw trace ' + trace.command + ' returned=' + trace.apiCallReturned +
+                ' pipeline=' + trace.pipelineId + (trace.pipelineLabel ? '(' + compactText(trace.pipelineLabel, 40) + ')' : '') +
+                ' group=' + trace.bindGroupIndex + ':' + trace.bindGroupId + ' layoutMatch=' + trace.layoutMatchesPipeline +
+                ' b44=' + (trace.texture && trace.texture.format || '?') +
+                (trace.layoutSampleType ? '/' + trace.layoutSampleType : '') +
+                ' target=' + (targets || 'unknown') + (tracedSamplers ? ' samplers=[' + tracedSamplers + ']' : ''));
         }
         return parts.join('; ');
     }
@@ -2172,6 +2452,31 @@
         }).join(' <- ');
     }
 
+    function compactBinding44Trace(trace) {
+        if (!trace || typeof trace !== 'object') return 'not observed';
+        var binding = trace.binding44 || {};
+        var resource = binding.resource || {};
+        var sampleUse = Object.keys(binding.sampleCounts || {}).map(function (name) {
+            return name + 'x' + binding.sampleCounts[name];
+        }).join(',') || 'none';
+        var samplers = (binding.samplers || []).slice(0, 4).map(function (sampler) {
+            return 'g' + sampler.group + ':b' + sampler.binding + ' ' + sampler.layoutType + ' ' +
+                [sampler.minFilter, sampler.magFilter, sampler.mipmapFilter].filter(Boolean).join('/');
+        }).join(',') || 'none resolved';
+        var targets = (trace.pass && trace.pass.colorAttachments || []).slice(0, 3).map(function (target) {
+            return target.format + (target.width && target.height ? ' ' + target.width + 'x' + target.height : '');
+        }).join(',') || 'unknown';
+        return 'group=' + binding.group + ' b44=' + binding.wgslName + ':' + binding.wgslType +
+            ' direct textureLoad=' + binding.textureLoadCount + ' sample=' + sampleUse +
+            ' BGL=' + binding.layoutSampleType + '/' + binding.layoutViewDimension +
+            ' resource=' + resource.format + (resource.width && resource.height ? ' ' + resource.width + 'x' + resource.height : '') +
+            ' samplers=[' + samplers + '] pipeline=' + (trace.pipeline && (trace.pipeline.label || trace.pipeline.resourceId) || 'unknown') +
+            ' group-layout-match=' + (trace.bindGroup && trace.bindGroup.layoutMatchesPipeline) +
+            ' command=' + (trace.command && trace.command.operation || 'unknown') +
+            ' API-returned=' + !!(trace.command && trace.command.apiCallReturned) + ' target=' + targets +
+            ' (' + binding.analysisScope + '; API return is not proof of GPU command validity)';
+    }
+
     function getShortSummary() {
         try {
             var now = Date.now();
@@ -2179,6 +2484,19 @@
             var canvasConfig = state.rendering.canvasConfiguration || {};
             var latestMemory = state.memory.latestWasmLinearMemory;
             var latestAudio = state.audio.contexts.length ? state.audio.contexts[state.audio.contexts.length - 1] : null;
+            var latestBinding44Trace = state.rendering.binding44Traces.length
+                ? state.rendering.binding44Traces[state.rendering.binding44Traces.length - 1] : null;
+            var audioResumeCalls = state.audio.playAttempts.filter(function (attempt) {
+                return attempt.kind === 'AudioContext.resume' && attempt.outcome === 'called';
+            }).length;
+            var audioSourceStartCalls = state.audio.playAttempts.filter(function (attempt) {
+                return attempt.kind === 'AudioBufferSourceNode.start' && attempt.outcome === 'called';
+            }).length;
+            var audioMediaPlayCalls = state.audio.playAttempts.filter(function (attempt) {
+                return /\.play$/.test(attempt.kind) && attempt.outcome === 'called';
+            }).length;
+            var audioWorkletLoaded = state.audio.workletModules.filter(function (module) { return module.status === 'loaded'; }).length;
+            var audioWorkletRejected = state.audio.workletModules.filter(function (module) { return module.status === 'rejected'; }).length;
             var pipelineCalls = state.rendering.pipelineApiCalls;
             var shader = state.gpu.shaderCompatibility;
             var adapterFeatures = state.gpu.workerAdapterFeatures;
@@ -2220,7 +2538,7 @@
             addSelectedErrors(firstErrors, 'first');
             addSelectedErrors(latestErrors, 'latest');
             var lines = [
-                'NewCatroid PlayGTA5 short diagnostics v2',
+                'NewCatroid PlayGTA5 short diagnostics v3',
                 'Captured: ' + isoTime(now) + ' · page: ' + safeUrl(window.location.href),
                 'Browser: Chrome/Chromium ' + compactText(state.browser.chromiumVersion, 40) +
                     ' · OS ' + compactText(platformDisplayName, 32) + ' ' + compactText(platformDisplayVersion, 32) +
@@ -2265,8 +2583,13 @@
                     ' · queue submits=' + state.rendering.queueSubmitCount +
                     ' · display/pixels=' + (state.rendering.displayPresentationObserved ? 'observed' : 'not measured'),
                 'Recent GPU operations: ' + compactOperationList(state.rendering.recentGpuOperations, 4),
-                'Audio API: ' + (latestAudio ? compactText(latestAudio.constructor + ' state=' + latestAudio.state + ' resume=' + latestAudio.lastResumeResult, 220) : 'no AudioContext observed') +
-                    ' · actual audible output is not measured.',
+                'Binding 44 draw trace: ' + compactText(compactBinding44Trace(latestBinding44Trace), 1000),
+                'Audio API: ' + (latestAudio ? compactText(latestAudio.constructor + ' state=' + latestAudio.state +
+                    ' stateChanges=' + (Number(latestAudio.stateChanges) || 0) + ' resume=' + latestAudio.lastResumeResult, 220) : 'no AudioContext observed') +
+                    ' · resume calls=' + audioResumeCalls + ' · AudioBufferSourceNode.start calls=' + audioSourceStartCalls +
+                    ' · media play calls=' + audioMediaPlayCalls + ' · worklets loaded/rejected=' + audioWorkletLoaded + '/' + audioWorkletRejected +
+                    ' · AudioWorkletNode=' + state.audio.nodes.length + ' · worker audio message=' + state.audio.audioDataMessageReceived +
+                    ' · last gesture=' + (state.audio.userGestureAt || 'not observed') + ' · actual audible output is not measured.',
                 'WASM linear-memory capacity: ' + (latestMemory ? latestMemory.bufferMiB + ' MiB (' + compactText(latestMemory.metric, 100) + ')' : 'not observed')
             ];
             if (errors.length) {
@@ -2304,7 +2627,7 @@
             }
             return summary;
         } catch (error) {
-            return 'NewCatroid PlayGTA5 short diagnostics v2\nSummary generation failed: ' + safeText(error, 400);
+            return 'NewCatroid PlayGTA5 short diagnostics v3\nSummary generation failed: ' + safeText(error, 400);
         }
     }
 

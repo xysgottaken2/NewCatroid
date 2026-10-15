@@ -133,18 +133,26 @@ accesses, not browser Emscripten JS. Neither that patch nor its memory budget
 was transplanted. Applying them here without a matching failure would change
 unrelated behavior and would not validate an Adreno driver fix.
 
-## Galaxy S23 report: RGBA32Float sample-type mismatch
+## Galaxy S23 report: float32 sample-type validation and binding 44
 
-The latest capture was produced in **Chrome on Android** (not presumed to be an
+An earlier capture was produced in **Chrome on Android** (not presumed to be an
 Android WebView), with `newcatroid_debug=1&newcatroid_alpha_fix=1` and
 `newcatroid_adreno_fix` off. It identifies WebGPU and a Qualcomm / Adreno 7xx
-adapter, but does not include the exact Chrome build or the adapter/device
-feature lists. The reported 4,153 WebGPU error occurrences include 994
-`createRenderPipelineAsync` and 4 `createRenderPipeline` calls. The alpha-shim
-installation is not confirmed, 6,466 queue submits were counted, the runtime
-reported `RuntimeError: null function`, and some audio/other fetches failed.
-These observations are evidence from the run; they do not identify the black
-world's cause.
+adapter, but does not establish the exact Chrome/Dawn revision. The reported
+4,153 WebGPU error occurrences include 994 `createRenderPipelineAsync` and 4
+`createRenderPipeline` calls. The alpha-shim installation was not confirmed;
+6,466 queue submits were counted; the runtime reported
+`RuntimeError: null function`; and some audio/other fetches failed. Those
+observations do not identify the black world's cause.
+
+The later v2 clue is a validation mismatch for **`R32Float` at Fragment
+`binding 44`**, with expected sample type `Float`; the reported GPU device did
+not have `float32-filterable` enabled. That is compatible with Dawn reporting
+`UnfilterableFloat` for this format. It establishes an incompatible resource /
+layout combination in that validation path—not that the corresponding draw is
+for the world pass, that all rendering failed, or that it caused the black
+screen. The earlier `RGBA32Float` report is a separate observation; it must not
+be silently treated as the same texture, bind group, shader, or render operation.
 
 The message `None of the supported sample types (UnfilterableFloat) of Texture
 RGBA32Float match the expected sample types (Float)` demonstrates a resource /
@@ -153,25 +161,71 @@ BindGroup/CommandBuffer errors may be consequences, but the report did not
 correlate the first error with a particular world-rendering pass. It therefore
 does **not** establish that this mismatch alone caused the black scene.
 
-In the reviewed `wgpu_worker.js` pinned at `2fb671ad`, the DXGI
-`R32G32B32A32_FLOAT` format maps to WebGPU `rgba32float`. Its WGSL type parser
-maps a float texture to layout sample type `Float`; the worker builds an
-explicit bind-group layout. The worker conditionally adds `float32-filterable`
-to `requiredFeatures` only when the adapter advertises it. That feature is
-optional in WebGPU; adapter support and device enablement are separate facts.
-The next report now records adapter support, the `requiredFeatures` requested
-at `requestDevice`, and the created device's enabled features independently.
-A missing list must remain “unobserved,” not be interpreted as a feature being
-absent.
+The pinned worker's static mapping narrows the v2 clue but does not reveal the
+runtime shader's use. `mapFormat` maps DXGI `R32_FLOAT` (41) to `r32float`
+(`wgpu_worker.js` lines 69–86). `parseWgsl` maps `texture_2d<f32>` to sample
+`Float` (around lines 230–247), and `layoutEntry` passes that sample type into
+the explicit texture layout while assigning ordinary samplers type `filtering`
+(lines 264–277). The Fragment stage is visibility bit 2; pipeline layout places
+group 1 at index 1 (lines 264–275 and 1208–1216). In `stageBindGroup`, a texture
+at binding 44 is resolved from `S.srv[stage][44 - 32]`, i.e. SRV slot `t12`,
+while sampler bindings use `S.smp[stage][binding - 16]` (lines 1557–1593).
 
-A second plausible path is `GenerateMips`: the pinned worker uses
-`textureSampleLevel` with a linear sampler. That matters only if this operation
-was run on the reported float32 texture; the capture has not established that
-association. A shader that requires filtered sampling of `rgba32float` needs
-filterable-float support or a deliberate compatible fallback. A texture used
-only with unfiltered access may permit a different layout, but its actual WGSL
-use, numeric precision, sampling/filtering requirements, and downstream passes
-must be checked first. No blanket conversion of `rgba32float` is justified.
+This is **not** the worker's separate `GenerateMips` helper: that internal path
+uses group 0, texture binding 0, sampler binding 1, and a linear
+`textureSampleLevel` call (lines 2294–2323). The v2 report did not name the
+shader module or draw, so the resource at fragment binding 44 cannot yet be
+attributed to mip generation or to the 3D world pass. The next capture now
+records the shader module's direct WGSL built-in uses, paired sampler bindings,
+actual texture/view, explicit layout, pipeline-layout group, render pass target,
+and the draw call that had that state. The lexical probe intentionally does not
+follow aliases or calls hidden in helper functions; it is evidence to guide
+inspection, not a complete WGSL AST or proof of draw validity.
+
+Dawn upstream source at commit
+[`51e8b9d0`](https://github.com/google/dawn/commit/51e8b9d0ce4efb50a86bb684bfca5b6fc62dd861)
+sets the supported sample type of 32-bit float formats to `UnfilterableFloat`
+without `Feature::Float32Filterable` (`Format.cpp` lines 488–490), and applies
+that to `R32Float` (line 536). The bind-group validator then checks the layout's
+required sample-type bit against the texture format's supported bits
+(`BindGroup.cpp` lines 240–250). This matches the reported validation mismatch.
+It is upstream Dawn `main`, not yet proven to be the exact Dawn revision bundled
+in the user's Chrome build; the device report must include its Chrome version
+before claiming that exact source revision.
+
+No layout or format has been changed. The WebGPU rules make the actual sampler
+important: the default pipeline layout infers `sampleType: "float"` for an
+`f32` texture statically used by a texture builtin that also takes a sampler,
+and `"unfilterable-float"` otherwise (§10.1.1). Interface validation permits a
+WGSL `sampler` with either texture sample type, but a bind-group sampler layout
+of type `"filtering"` requires texture `sampleType: "float"` (§10.1.2). A
+`"non-filtering"` sampler layout instead requires an actual sampler whose
+filters are all non-linear (§§7.1.1, 8.2.1). Thus a WGSL `textureSample*` call
+alone does **not** prove that linear filtering is required; inspect the bound
+sampler's `minFilter`, `magFilter`, and `mipmapFilter` and the shader's intended
+result. With nearest-only sampling, an explicit
+`unfilterable-float`/`non-filtering` layout pair can be compatible with
+`texture_2d<f32>` and sampler-based texture built-ins. The worker's present
+explicit layout generator instead assigns `Float` and `filtering`, so that pair
+would require a narrowly scoped layout change and device-side validation. An
+`auto` layout may still infer `Float` when a sampler-based texture builtin is
+statically used. For `textureLoad` alone, no sampler is needed, though the
+texture layout still has to match its format.
+
+If the trace shows linear filtering is genuinely required, first check whether
+the **adapter** advertises `float32-filterable`. The inspected pinned worker's
+existing `want` list already includes this optional feature and filters it
+against `adapter.features` before `requestDevice`; when that exact worker is in
+use, it requests the feature if the adapter advertises it. The v2 report only
+says the feature was not enabled on the device; without the new worker hash and
+adapter/requested/device feature lists, it does not prove whether the adapter
+lacks support or whether the captured worker matched this reviewed version. If
+the adapter does not support the feature, scoped alternatives are manual
+filtering with `textureLoad` (preserving address, mip and LOD semantics) or a
+resource-specific lower-precision format such as `r16float` if its precision is
+acceptable. Neither fallback is applied without the runtime use and
+visual/numeric consequences being established. No blanket format conversion
+is justified.
 
 The comparable `gtav-native` snapshot also uses `Float` for `f32` textures,
 conditionally requests the float32-filterable feature, and samples linearly in
@@ -180,34 +234,61 @@ Chrome behavior or a transferable Adreno fix. Related WebGPU/wgpu discussions
 about inferred layouts and filterability are useful background, but do not
 replace inspecting this worker's explicit layout and actual resource use.
 
-The next device summary adds ephemeral per-worker IDs to correlate textures,
-views, samplers, bind-group layouts/groups, pipeline layouts, shader modules and
-pipelines; texture format/dimensions/mip ranges; explicit sampler filters (and
-WebGPU defaults); layout sample type/view dimension; Chrome full-version and OS
-platform-version hints when available (falling back to `navigator.userAgent`);
-and the actual adapter, requested-device and enabled-device feature lists. Its
-v2 compact format retains the first two and latest two distinct error groups
-with occurrence counts, timestamps, source, and nearby operations, within the
-existing 5,000-character cap. The in-page cache keeps the two earliest groups
-and latest 198 when more than 200 distinct groups are seen; the occurrence total
-continues to include all grouped errors. This should help distinguish the
-earliest validation failure from later cascades without requesting a full log.
+The v3 short summary keeps the 5,000-character cap and earlier browser/device
+feature and first/latest-error evidence, and adds a targeted Fragment binding 44
+trace: direct `textureLoad`/`textureSample*` counts, WGSL variable/type, mapped
+sampler binding and actual filters, `Float`/`UnfilterableFloat` layout facts,
+texture/view IDs and format, pipeline-layout group match, render target, and
+`draw`/`drawIndexed` call. Error contexts also compactly summarize those facts,
+so the first error can be compared with nearby operations without exporting a
+full log. The worker's HTTP server now puts the expected and actual SHA-256,
+hash-match result, and whether it appended the shim into the local diagnostic
+bootstrap. This distinguishes server verification/injection from the separate
+runtime hook counter. Full SHA-256 values are reported only in this local
+short-summary export; no diagnostic HTTP telemetry is sent.
+
+The audio summary now reports observed `AudioContext` state changes and
+`resume()` attempts, `AudioBufferSourceNode.start()` and media `.play()` calls,
+loaded/rejected worklet modules, `AudioWorkletNode` count, worker audio-message
+presence, and the last page gesture. Worker-side context resume outcomes update
+the same summary. A suspended context with `resume=not observed` is not, by
+itself, proof of an autoplay rejection or of why an earlier session was
+audible. The earlier audible report and this later API-state observation do not
+establish that they came from the same context, session, or output route; the
+prior capture does not provide a like-for-like count of all these audio signals.
+Chrome documents that a context created before interaction may be suspended
+until `resume()` is called after a gesture; it may also resume after a gesture
+when `start()` is called on a connected node. Neither this telemetry nor an API
+state proves audible output.
 
 Separate observations remain unresolved:
 
-- **Alpha shim:** the flag being requested does not prove the server changed the
-  worker or that its hook installed. The report distinguishes URL propagation,
-  shim installation and shader variants seen; the local HTTP checksum warning
-  must also be considered. The current missing confirmation does not by itself
-  establish why the shim was absent or whether any alpha variant was relevant.
+- **Alpha shim:** the old v2 capture predates the server-verification marker,
+  so it cannot tell whether the flag was lost before the worker request, the
+  source hash mismatched, the provider was unavailable, or the shim appended
+  but its runtime hook was not observed. The next capture distinguishes the
+  GPU-worker URL flag, expected/actual SHA-256, hash match, shim append, runtime
+  hook, and alpha variants seen. A fresh read of the reviewed upstream worker
+  at `2fb671a` hashes to
+  `e1b83d2b10a98d29d8f7ac45a4e42f68486144a8046df688667891af034716c7`, matching
+  the server constant and integration-test expectation; this verifies the
+  reference file, not the bytes delivered to the Galaxy. Only a device report
+  with `hashMatches=true` and `shimInjected=true` confirms the server-side
+  step, and `hookInstalled=true` separately confirms the runtime hook. None of
+  these claims that an alpha variant was relevant or fixed the black world.
 - **`RuntimeError: null function`:** consistent with a WebAssembly runtime trap,
   potentially an indirect call through an uninitialized function-table entry.
   Without the original stack/offset and preceding events, its origin cannot be
   located or causally linked to WebGPU validation or fetch failures.
-- **`Failed to fetch`:** audio-classified failures may explain missing audio
-  resources. They affect the 3D world only if a relevant shader/data/WASM
-  request is shown to have failed; the current report does not identify that
-  relationship. Request URLs remain excluded from the compact export.
+- **Audio:** an earlier audible session and a later suspended context with no
+  observed `resume()` are not necessarily contradictory and do not prove a
+  common context/session. The earlier report did not provide a comparable set
+  of state-change, resume/start/play, worklet, node, and worker-message counts.
+  The new short summary records these API observations and worker resume
+  outcomes; Chrome autoplay policy remains a plausible context, not a
+  demonstrated cause. Audio-classified fetch failures may explain missing audio
+  assets, but URLs remain excluded and this does not explain the 3D world
+  without a linked shader/data/WASM failure.
 - **Adreno Fix:** it was off in this capture. When requested, it selects the
   existing synchronous *render*-pipeline path; it does not disable validation
   or select compute pipelines. The 994 asynchronous and 4 synchronous API-call
@@ -223,7 +304,14 @@ is made in this follow-up; the next step is to use the new capture to identify
 the affected resource and shader/pass before choosing a narrowly scoped fix.
 
 Sources: [pinned PlayGTA5 worker](https://github.com/shadany7824/playgta5/blob/2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js),
-[WebGPU specification](https://www.w3.org/TR/webgpu/),
+[WebGPU default pipeline-layout inference](https://www.w3.org/TR/webgpu/#abstract-opdef-default-pipeline-layout),
+[WebGPU shader/layout validation](https://www.w3.org/TR/webgpu/#abstract-opdef-validating-gpuprogrammablestage),
+[WebGPU sampler and bind-group rules](https://www.w3.org/TR/webgpu/#dictdef-gpusamplerbindinglayout),
+[WebGPU `float32-filterable` feature](https://www.w3.org/TR/webgpu/#float32-filterable),
+[Dawn `Format.cpp` float32 capabilities at commit `51e8b9d0`](https://github.com/google/dawn/blob/51e8b9d0ce4efb50a86bb684bfca5b6fc62dd861/src/dawn/native/Format.cpp#L488-L490),
+[Dawn `R32Float` mapping at that commit](https://github.com/google/dawn/blob/51e8b9d0ce4efb50a86bb684bfca5b6fc62dd861/src/dawn/native/Format.cpp#L536-L538),
+[Dawn bind-group validation at the same commit](https://github.com/google/dawn/blob/51e8b9d0ce4efb50a86bb684bfca5b6fc62dd861/src/dawn/native/BindGroup.cpp#L240-L250),
+[Chrome autoplay policy for Web Audio](https://developer.chrome.com/blog/autoplay),
 [Chrome 119 WebGPU feature notes](https://developer.chrome.com/blog/new-in-webgpu-119),
 [WebGPU supported features](https://developer.mozilla.org/en-US/docs/Web/API/GPUSupportedFeatures),
 [UA Client Hints version fields](https://developer.mozilla.org/en-US/docs/Web/API/NavigatorUAData/getHighEntropyValues),
@@ -260,18 +348,20 @@ loads the **entire original worker**, calls its `pixelModule`, and uses pinned
 Local result: 8 cases. The two original scalar variants genuinely fail with
 `cannot index into expression of type 'f32'`. Original RGBA and all four
 corrected variants pass WGSL compilation and synchronous **and** asynchronous
-render-pipeline validation. The prior 21-test JavaScript suite passed before
-this diagnostics follow-up. This follow-up adds four regression tests; the two
-affected diagnostics files now run 18/18 passing tests. The full 25-test JS
-suite was not rerun in this pass. These checks are not synthetic WebGPU error
-events, but are also not the full game's render workload.
+render-pipeline validation. The full 27-test JavaScript suite passes 27/27 in
+this follow-up, including synthetic binding-44, hash-verification and audio
+summary coverage. These tests are not real WebGPU error events and do not run
+the full game's render workload.
 
 `ShaderCompatibilityInjectionTest` covers the server's independent opt-in,
 unchanged default bytes, same-prefix resource, HEAD/Content-Length, unknown
 worker rejection, and the pinned full worker combined with diagnostics. CI
 supplies `PLAYGTA5_WORKER_SOURCE` for the full-worker integration case. Without
 that environment variable only that case is explicitly skipped, never counted
-as a real snapshot pass. Gradle/APK validation runs in Actions, not locally.
+as a real snapshot pass. The local Kotlin test could not start because this
+environment has neither `JAVA_HOME` nor a `java` command; no local Kotlin result
+or APK was produced. Gradle tests and APK generation must therefore be checked
+in the updated GitHub Actions run.
 
 ## Applying and distinguishing the experiment on the S23 Ultra
 
@@ -287,26 +377,28 @@ orientation in the baseline and corrected runs. Initially omit
 If comparing sync pipelines later, enable it in both members of that comparison.
 
 The server appends the correction only to the exact reviewed GPU-worker bytes.
-The existing HTTP log records `scalar alpha-test renderer correction`; a
-checksum mismatch produces a warning and the original worker is served
-unchanged. With `newcatroid_debug=1` as well, the short diagnostics report
-separates `newcatroid_alpha_fix=1` requested, the flag on the GPU-worker URL,
-shim installation, alpha-test variants seen, non-vec4 bypasses and vec4
-preservation. If the URL flag is present but shim installation is not confirmed,
-that is not evidence the correction ran; check the local HTTP warning. Variant
+With `newcatroid_debug=1` as well, the worker receives a structured local
+verification record containing the expected and actual SHA-256, match result,
+and whether the shim was appended; the separate runtime hook snapshot reports
+whether the shim actually installed. A hash mismatch leaves the original worker
+unchanged and is also logged locally. The short summary distinguishes
+`newcatroid_alpha_fix=1` requested, the flag on the GPU-worker URL, server hash
+verification, shim append, runtime hook and alpha-test variants seen. Variant
 counts mean the wrapper handled shader-generation calls, not that a pipeline
 validated or pixels were displayed. Do not bypass the hash check: review the
 actual different client first. Hosted game files are not modified, and disabling
 the parameter restores the original response.
 
 The panel's primary `Copy short summary` action is capped at 5,000 characters.
-Version 2 includes browser/platform version evidence, worker adapter/requested/
-enabled device features, up to two earliest and two latest distinct WebGPU
-error groups with counts/timestamps and nearby operation context, active flags,
-texture/layout/sampler facts when present, canvas/submission observations and
-audio API state. It excludes the full console log and full stack; URLs/query
-values and common private fields are sanitized. Share that short summary first;
-the longer `Copy full report` remains optional.
+Version 3 includes browser/platform version evidence, worker
+adapter/requested/enabled-device features, first/latest WebGPU error groups and
+nearby operation context, targeted `binding 44` WGSL/layout/texture/sampler/
+pipeline/draw evidence, server worker-hash status, active flags,
+canvas/submission observations, and audio context/state-change/gesture/
+resume/start/play/worklet/node/worker-message signals. It excludes the full
+console log and full stack; URLs/query values and common private fields are
+sanitized. Share only the compact summary first; the longer `Copy full report`
+remains optional.
 
 Required acceptance evidence: visible world with correct geometry/textures over
 multiple frames, continued input after pause/resume, matching capture without

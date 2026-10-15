@@ -509,9 +509,73 @@ test('short summary is bounded, sanitized and the primary copy fallback selects 
     assert.equal(textArea.hidden, false);
     assert.equal(textArea.readOnly, true);
     assert.equal(textArea.selected, true);
-    assert.match(textArea.value, /NewCatroid PlayGTA5 short diagnostics v2/);
+    assert.match(textArea.value, /NewCatroid PlayGTA5 short diagnostics v3/);
     assert.ok(textArea.value.length <= 5000);
     assert.doesNotMatch(textArea.value, /full-private-stack-marker/);
+});
+
+test('short diagnostics distinguish server hash, binding 44 draw evidence and suspended-audio attempts', () => {
+    const page = createPage('?newcatroid_debug=1&newcatroid_alpha_fix=1');
+    const api = page.window.__newcatroidGameDiagnostics;
+    const worker = page.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    const hash = 'a'.repeat(64);
+    const now = Date.now();
+    worker.emit({ source: 'gpu-worker', type: 'worker-bootstrap', at: now, details: {
+        workerUrlAlphaFix: true,
+        alphaFixServerVerification: { requested: true, expectedSha256: hash, actualSha256: hash, hashMatches: true, shimInjected: true },
+        shaderCompatibility: { hookInstalled: false, alphaCoverageVariantsSeen: 0, nonVec4AlphaTestsBypassed: 0, vec4AlphaTestsPreserved: 0 }
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'gpu-binding-trace', at: now + 1, details: {
+        traceId: 'binding44-test-trace',
+        pass: { sequence: 3, label: 'world-pass', colorAttachments: [{ index: 0, format: 'bgra8unorm', width: 720, height: 1280, viewResourceId: 'view-target' }] },
+        command: { operation: 'GPURenderPassEncoder.drawIndexed', apiCallReturned: true, arguments: { indexCount: 6 } },
+        pipeline: { resourceId: 'pipeline-3', label: 'world-terrain', layoutResourceId: 'pipeline-layout-2',
+            fragmentShaderResourceId: 'shader-module-1', fragmentShaderLabel: 'terrain-fs', fragmentEntryPoint: 'fsMain', colorTargetFormats: ['bgra8unorm'] },
+        bindGroup: { index: 1, resourceId: 'bind-group-4', layoutResourceId: 'bind-layout-2',
+            pipelineLayoutExpectedLayoutResourceId: 'bind-layout-2', layoutMatchesPipeline: true },
+        binding44: { group: 1, binding: 44, wgslName: 'heightTexture', wgslType: 'texture_2d<f32>',
+            textureLoadCount: 0, sampleCounts: { textureSampleLevel: 1 }, sampleCallCount: 1,
+            analysisScope: 'direct WGSL builtin calls only; aliases and helper-function flow are not followed',
+            layoutSampleType: 'float', layoutViewDimension: '2d', layoutVisibility: 2,
+            resource: { kind: 'texture view', format: 'r32float', width: 256, height: 128,
+                textureResourceId: 'texture-4', viewResourceId: 'view-4', mipLevelCount: 1 },
+            samplers: [{ builtin: 'textureSampleLevel', name: 'heightSampler', group: 1, binding: 28,
+                wgslType: 'sampler', layoutType: 'filtering', resourceId: 'sampler-2',
+                minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'nearest' }] }
+    } });
+    worker.emit({ source: 'loader-worker', type: 'audio-context', at: now + 2, details: {
+        contextId: 'worker-audio-1', constructor: 'AudioContext', state: 'suspended', sampleRate: 48000
+    } });
+    worker.emit({ source: 'loader-worker', type: 'audio-playback-attempt', at: now + 3, details: {
+        contextId: 'worker-audio-1', operation: 'AudioContext.resume', outcome: 'called'
+    } });
+    worker.emit({ source: 'loader-worker', type: 'audio-playback-attempt', at: now + 4, details: {
+        contextId: 'worker-audio-1', operation: 'AudioContext.resume', outcome: 'rejected', name: 'NotAllowedError', message: 'autoplay blocked'
+    } });
+
+    const summary = api.getShortSummary();
+    assert.match(summary, /server SHA match=true.*shim appended=true/);
+    assert.match(summary, /runtime hook not observed/);
+    assert.match(summary, /Binding 44 draw trace: group=1 b44=heightTexture:texture_2d<f32>/);
+    assert.match(summary, /direct textureLoad=0 sample=textureSampleLevelx1/);
+    assert.match(summary, /BGL=float\/2d resource=r32float/);
+    assert.match(summary, /heightSampler|b28/);
+    assert.match(summary, /target=bgra8unorm 720x1280/);
+    assert.match(summary, /AudioContext state=suspended stateChanges=0 resume=rejected NotAllowedError/);
+    assert.match(summary, /resume calls=1/);
+    assert.match(summary, /worklets loaded\/rejected=0\/0 · AudioWorkletNode=0 · worker audio message=false/);
+    assert.match(summary, /display\/pixels=not measured/);
+
+    const report = JSON.parse(api.getReport());
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.requested, true);
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.expectedSha256, hash);
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.actualSha256, hash);
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.hashMatches, true);
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.shimInjected, true);
+    assert.equal(report.rendering.binding44Traces[0].binding44.resource.format, 'r32float');
+    assert.equal(report.rendering.binding44Traces[0].bindGroup.layoutMatchesPipeline, true);
+    assert.equal(report.audio.contexts[0].resumeAttempts, 1);
+    assert.match(report.audio.contexts[0].lastResumeResult, /rejected NotAllowedError/);
 });
 
 test('short diagnostics preserve first and latest distinct GPU errors with texture and layout facts', () => {
