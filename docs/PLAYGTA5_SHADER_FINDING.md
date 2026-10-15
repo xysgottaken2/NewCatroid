@@ -31,13 +31,18 @@ claim of visible world rendering, corrected audio, or a resolved `unreachable`.
   the user's S23 Ultra test; the same symptom also occurs in mobile Chrome.
   Audio and a few interface elements remain visible, which is consistent with
   separate rendering paths but does not identify the failing 3D stage.
-- Run [38790036910](https://github.com/xysgottaken2/NewCatroid/actions/runs/38790036910)
-  passed the focused local-web/download tests, pinned-worker Dawn/Tint regression,
-  and debug APK build/upload. The full unit-test suite was skipped. Dawn uses a
-  null backend and does not render pixels or emulate Adreno.
-- The APK artifact was uploaded by that run; its successful build is not a
-  device test. No independent hardware capture, full game assets, translated
-  shader set, or `game.wasm` was available in this environment.
+- This follow-up was committed as `ab296a12` on the same branch and pushed to
+  PR #3 (still open). Actions run
+  [38813369221](https://github.com/xysgottaken2/NewCatroid/actions/runs/38813369221)
+  passed the focused local-web/download Kotlin tests, browser-diagnostics JS
+  tests, pinned-worker Dawn/Tint regression, and debug APK build/upload. The
+  full optional unit-test suite was skipped. Dawn uses a null backend and does
+  not render pixels or emulate Adreno.
+- The new APK artifact is
+  `NewCatroid-debug-apk-run71-ab296a1248a5dc067b5dda4a37b51cf0b1c73be6` in that
+  Actions run. Its successful build is not a device test. No independent
+  hardware capture, full game assets, translated shader set, or `game.wasm` was
+  available in this environment.
 
 No visual fix is claimed. The reproducible WGSL failure is one real defect in
 this renderer snapshot; it remains unproven as the cause of the S23 black world.
@@ -360,8 +365,10 @@ supplies `PLAYGTA5_WORKER_SOURCE` for the full-worker integration case. Without
 that environment variable only that case is explicitly skipped, never counted
 as a real snapshot pass. The local Kotlin test could not start because this
 environment has neither `JAVA_HOME` nor a `java` command; no local Kotlin result
-or APK was produced. Gradle tests and APK generation must therefore be checked
-in the updated GitHub Actions run.
+or APK was produced. The updated [Actions run 38813369221](https://github.com/xysgottaken2/NewCatroid/actions/runs/38813369221)
+ran the focused Kotlin and JavaScript tests, Dawn/Tint regression, and debug APK
+build/upload successfully. Its optional full unit-test suite was skipped; no
+visual test ran on the Galaxy S23 Ultra.
 
 ## Applying and distinguishing the experiment on the S23 Ultra
 
