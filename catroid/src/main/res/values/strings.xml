@@ -3112,6 +3112,27 @@
     <string formatted="false" name="brick_connect_server">Connect to local server</string>
     <string formatted="false" name="brick_stop_server">Stop local server</string>
     <string formatted="false" name="brick_start_server">Start local lerver with port</string>
+    <string formatted="false" name="brick_select_directory">Select directory and store in</string>
+    <string formatted="false" name="brick_select_folder_and_host">Select folder, save to variable and host</string>
+    <string formatted="false" name="brick_select_directory2">initial directory (optional)</string>
+    <string formatted="false" name="brick_select_file">Select file and store in</string>
+    <string formatted="false" name="brick_select_file2">MIME type (e.g. image/*)</string>
+    <string formatted="false" name="brick_start_http_server">Start local HTTP server on port</string>
+    <string formatted="false" name="brick_start_http_server_localhost">Start local HTTP server on port (localhost)</string>
+    <string formatted="false" name="brick_start_http_server2">bind address (default 127.0.0.1)</string>
+    <string formatted="false" name="brick_stop_http_server">Stop local HTTP server</string>
+    <string formatted="false" name="brick_show_http_diagnostics">Show HTTP diagnostics</string>
+    <string formatted="false" name="brick_host_directory">Host directory at</string>
+    <string formatted="false" name="brick_host_directory2">URL prefix (optional)</string>
+    <string formatted="false" name="brick_open_web_page">Open web page at</string>
+    <string formatted="false" name="brick_open_web_page2">target (optional)</string>
+    <string formatted="false" name="formula_editor_function_http_server_running">local HTTP server running?</string>
+    <string formatted="false" name="formula_editor_function_http_server_url">local HTTP server URL</string>
+    <string formatted="false" name="formula_editor_function_http_server_error">local HTTP server error</string>
+    <string formatted="false" name="formula_editor_function_saf_display_name">display name of selected item</string>
+    <string formatted="false" name="formula_editor_function_saf_display_name_parameter">(\'uri\')</string>
+    <string formatted="false" name="formula_editor_function_saf_item_uri">selected item URI</string>
+    <string formatted="false" name="formula_editor_function_saf_item_uri_parameter">(\'uri\')</string>
     <string formatted="false" name="brick_screenshot">Take screenshot and store it as look</string>
     <string formatted="false" name="formula_editor_function_distance">levenshtein distance</string>
     <string formatted="false" name="formula_editor_function_distance_parameter">(\'panda\', \'lavanda\')</string>

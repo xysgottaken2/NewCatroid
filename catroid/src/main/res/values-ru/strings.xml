@@ -3022,6 +3022,27 @@
     <string formatted="false" name="brick_connect_server">Подключиться к локальному серверу</string>
     <string formatted="false" name="brick_stop_server">Остановить локальный сервер</string>
     <string formatted="false" name="brick_start_server">Запустить локальный сервер с портом</string>
+    <string formatted="false" name="brick_select_directory">Выбрать папку и сохранить в</string>
+    <string formatted="false" name="brick_select_folder_and_host">Выбрать папку, сохранить в переменную и разместить</string>
+    <string formatted="false" name="brick_select_directory2">начальная папка (необязательно)</string>
+    <string formatted="false" name="brick_select_file">Выбрать файл и сохранить в</string>
+    <string formatted="false" name="brick_select_file2">MIME-тип (например image/*)</string>
+    <string formatted="false" name="brick_start_http_server">Запустить локальный HTTP-сервер на порту</string>
+    <string formatted="false" name="brick_start_http_server_localhost">Запустить локальный HTTP-сервер на порту (localhost)</string>
+    <string formatted="false" name="brick_start_http_server2">адрес привязки (по умолчанию 127.0.0.1)</string>
+    <string formatted="false" name="brick_stop_http_server">Остановить локальный HTTP-сервер</string>
+    <string formatted="false" name="brick_show_http_diagnostics">Показать диагностику HTTP</string>
+    <string formatted="false" name="brick_host_directory">Раздавать папку</string>
+    <string formatted="false" name="brick_host_directory2">префикс URL (необязательно)</string>
+    <string formatted="false" name="brick_open_web_page">Открыть веб-страницу</string>
+    <string formatted="false" name="brick_open_web_page2">цель (необязательно)</string>
+    <string formatted="false" name="formula_editor_function_http_server_running">локальный HTTP-сервер запущен?</string>
+    <string formatted="false" name="formula_editor_function_http_server_url">URL локального HTTP-сервера</string>
+    <string formatted="false" name="formula_editor_function_http_server_error">ошибка локального HTTP-сервера</string>
+    <string formatted="false" name="formula_editor_function_saf_display_name">имя выбранного элемента</string>
+    <string formatted="false" name="formula_editor_function_saf_display_name_parameter">(\'uri\')</string>
+    <string formatted="false" name="formula_editor_function_saf_item_uri">URI выбранного элемента</string>
+    <string formatted="false" name="formula_editor_function_saf_item_uri_parameter">(\'uri\')</string>
     <string formatted="false" name="brick_screenshot">Сделать скриншот и использовать как образ</string>
     <string formatted="false" name="create_web_url">Создать WebView с названием</string>
     <string formatted="false" name="create_web_url2">URL</string>

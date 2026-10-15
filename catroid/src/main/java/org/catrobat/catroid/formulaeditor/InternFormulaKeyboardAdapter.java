@@ -194,6 +194,16 @@ public class InternFormulaKeyboardAdapter {
 				return buildFunctionWithoutParametersAndBrackets(Functions.ALL_FILES);
 			case R.string.formula_editor_function_file_size:
 				return buildSingleParameterFunction(Functions.FILE_SIZE, STRING, "variable.txt");
+			case R.string.formula_editor_function_http_server_running:
+				return buildFunctionWithoutParametersAndBrackets(Functions.HTTP_SERVER_RUNNING);
+			case R.string.formula_editor_function_http_server_url:
+				return buildFunctionWithoutParametersAndBrackets(Functions.HTTP_SERVER_URL);
+			case R.string.formula_editor_function_http_server_error:
+				return buildFunctionWithoutParametersAndBrackets(Functions.HTTP_SERVER_ERROR);
+			case R.string.formula_editor_function_saf_display_name:
+				return buildSingleParameterFunction(Functions.SAF_DISPLAY_NAME, STRING, "selectedFolder");
+			case R.string.formula_editor_function_saf_item_uri:
+				return buildSingleParameterFunction(Functions.SAF_ITEM_URI, STRING, "selectedFolder");
 			case R.string.formula_editor_function_lua:
 				return buildSingleParameterFunction(Functions.LUA, STRING, "return math.sqrt(25)");
 			case R.string.formula_editor_function_to_hex:

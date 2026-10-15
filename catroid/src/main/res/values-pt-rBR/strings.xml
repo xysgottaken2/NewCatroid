@@ -2951,6 +2951,27 @@
     <string name="brick_connect_server" formatted="false">Conectar ao servidor local</string>
     <string name="brick_stop_server" formatted="false">Parar servidor local</string>
     <string name="brick_start_server" formatted="false">Iniciar servidor local na porta</string>
+    <string name="brick_select_directory" formatted="false">Selecionar pasta e salvar em</string>
+    <string name="brick_select_folder_and_host" formatted="false">Selecionar pasta, salvar em variável e hospedar</string>
+    <string name="brick_select_directory2" formatted="false">pasta inicial (opcional)</string>
+    <string name="brick_select_file" formatted="false">Selecionar arquivo e salvar em</string>
+    <string name="brick_select_file2" formatted="false">tipo MIME (ex. image/*)</string>
+    <string name="brick_start_http_server" formatted="false">Iniciar servidor HTTP local na porta</string>
+    <string name="brick_start_http_server_localhost" formatted="false">Iniciar servidor HTTP local na porta (localhost)</string>
+    <string name="brick_start_http_server2" formatted="false">endereço de vinculação (padrão 127.0.0.1)</string>
+    <string name="brick_stop_http_server" formatted="false">Parar servidor HTTP local</string>
+    <string name="brick_show_http_diagnostics" formatted="false">Mostrar diagnósticos de HTTP</string>
+    <string name="brick_host_directory" formatted="false">Hospedar pasta em</string>
+    <string name="brick_host_directory2" formatted="false">prefixo de URL (opcional)</string>
+    <string name="brick_open_web_page" formatted="false">Abrir página da web em</string>
+    <string name="brick_open_web_page2" formatted="false">alvo (opcional)</string>
+    <string name="formula_editor_function_http_server_running" formatted="false">servidor HTTP local em execução?</string>
+    <string name="formula_editor_function_http_server_url" formatted="false">URL do servidor HTTP local</string>
+    <string name="formula_editor_function_http_server_error" formatted="false">erro do servidor HTTP local</string>
+    <string name="formula_editor_function_saf_display_name" formatted="false">nome de exibição do item selecionado</string>
+    <string name="formula_editor_function_saf_display_name_parameter">(\'uri\')</string>
+    <string name="formula_editor_function_saf_item_uri" formatted="false">URI do item selecionado</string>
+    <string name="formula_editor_function_saf_item_uri_parameter">(\'uri\')</string>
     <string name="brick_screenshot" formatted="false">Tirar print e usar como aparência</string>
     <string name="create_web_url" formatted="false">Criar WebView com nome</string>
     <string name="create_web_url2" formatted="false">URL</string>

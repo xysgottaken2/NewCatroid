@@ -102,6 +102,8 @@ import org.catrobat.catroid.content.SafeKeyboardHeightProvider;
 import org.catrobat.catroid.content.Scene;
 import org.catrobat.catroid.content.Script;
 import org.catrobat.catroid.content.Sprite;
+import org.catrobat.catroid.content.localweb.EmbeddedWebViewManager;
+import org.catrobat.catroid.content.localweb.LocalHttpServer;
 import org.catrobat.catroid.content.WhenNotificationClickedScript;
 import org.catrobat.catroid.content.actions.RunJSAction;
 import org.catrobat.catroid.content.actions.ScriptSequenceAction;
@@ -1683,6 +1685,11 @@ public class StageActivity extends AndroidApplication implements ContextProvider
         org.catrobat.catroid.utils.OverlayViewManager.removeAllOverlays();
 
 		RunJSAction.Companion.destroyWebView();
+
+		// Release the embedded local HTTP server and the in-app WebView when
+		// the stage is destroyed so no sockets, threads or WebViews leak.
+		LocalHttpServer.INSTANCE.stop();
+		EmbeddedWebViewManager.INSTANCE.close();
 	}
 
 	AndroidGraphics getGdxGraphics() {
@@ -2107,9 +2114,10 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 
 		if (intentListeners.indexOfKey(requestCode) >= 0) {
 			IntentListener asker = intentListeners.get(requestCode);
-			if (data != null) {
-				asker.onIntentResult(requestCode, resultCode, data);
-			}
+			// Always notify the asker, even when data is null (e.g. the user
+			// cancelled a picker). Listeners must handle a null data Intent;
+			// skipping the callback would leave waiting script actions stuck.
+			asker.onIntentResult(requestCode, resultCode, data);
 			intentListeners.remove(requestCode);
 		} else {
 			stageResourceHolder.onActivityResult(requestCode, resultCode, data);

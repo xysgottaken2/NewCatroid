@@ -7,6 +7,8 @@ import org.catrobat.catroid.content.Scene;
 import org.catrobat.catroid.content.Scope;
 import org.catrobat.catroid.content.TableManager;
 import org.catrobat.catroid.content.UserVarsManager;
+import org.catrobat.catroid.content.localweb.LocalHttpServer;
+import org.catrobat.catroid.content.localweb.SafSelectionManager;
 import org.catrobat.catroid.content.bricks.Brick;
 import org.catrobat.catroid.fast2d.Fast2DFormulaBridge;
 import org.catrobat.catroid.fast2d.FastTwoDManager;
@@ -617,6 +619,17 @@ public class FormulaElement implements Serializable {
             }
             case FILE_SIZE:
                 return (int) getFileSize(ProjectManager.getInstance().getCurrentProject().getFile(String.valueOf(arg0)));
+            case HTTP_SERVER_RUNNING:
+                return Conversions.booleanToDouble(LocalHttpServer.INSTANCE.isRunning());
+            case HTTP_SERVER_URL:
+                return LocalHttpServer.INSTANCE.getBaseUrl();
+            case HTTP_SERVER_ERROR:
+                String httpError = LocalHttpServer.INSTANCE.getLastError();
+                return httpError != null ? httpError : "";
+            case SAF_DISPLAY_NAME:
+                return SafSelectionManager.INSTANCE.resolveDisplayName(arg0 != null ? String.valueOf(arg0) : "");
+            case SAF_ITEM_URI:
+                return SafSelectionManager.INSTANCE.normalizeItemUri(arg0 != null ? String.valueOf(arg0) : "");
             case TO_HEX: {
                 Integer decimal = tryParseIntFromObject(arg0);
                 return decimal != null ? Integer.toHexString(decimal).toUpperCase() : "0";

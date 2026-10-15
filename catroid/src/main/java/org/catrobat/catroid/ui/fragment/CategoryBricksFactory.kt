@@ -581,6 +581,15 @@ import org.catrobat.catroid.content.bricks.StopRecordingBrick
 import org.catrobat.catroid.content.bricks.StopRunningStitchBrick
 import org.catrobat.catroid.content.bricks.StopScriptBrick
 import org.catrobat.catroid.content.bricks.StopServerBrick
+import org.catrobat.catroid.content.bricks.SelectDirectoryBrick
+import org.catrobat.catroid.content.bricks.SelectFolderAndHostBrick
+import org.catrobat.catroid.content.bricks.SelectFileBrick
+import org.catrobat.catroid.content.bricks.StartHttpServerBrick
+import org.catrobat.catroid.content.bricks.StartHttpServerLocalhostBrick
+import org.catrobat.catroid.content.bricks.StopHttpServerBrick
+import org.catrobat.catroid.content.bricks.ShowHttpDiagnosticsBrick
+import org.catrobat.catroid.content.bricks.HostDirectoryBrick
+import org.catrobat.catroid.content.bricks.OpenWebPageBrick
 import org.catrobat.catroid.content.bricks.StopSoundBrick
 import org.catrobat.catroid.content.bricks.StopSoundBrick2
 import org.catrobat.catroid.content.bricks.StopSpritesheetBrick
@@ -2015,6 +2024,9 @@ print("Bot has stopped.")""", "myVar"))
                 deviceBrickList.add(TestBrick())
                 deviceBrickList.add(HideStatusBarBrick())
                 deviceBrickList.add(ChooseFileBrick())
+                deviceBrickList.add(SelectDirectoryBrick())
+                deviceBrickList.add(SelectFolderAndHostBrick())
+                deviceBrickList.add(SelectFileBrick())
                 deviceBrickList.add(ExportProjectFileBrick("file.txt"))
                 deviceBrickList.add(ShareBrick("Привет из NewCatroid!"));
                 deviceBrickList.add(SaveToInternalStorageBrick("file.txt", "myAwesomeApp/file.txt"))
@@ -2247,6 +2259,9 @@ bot.polling()""", "myVar"))
         deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_storage), template))
         deviceBrickList.add(OpenFileBrick("fileFromUrl.txt"))
         deviceBrickList.add(ChooseFileBrick())
+                deviceBrickList.add(SelectDirectoryBrick())
+                deviceBrickList.add(SelectFolderAndHostBrick())
+                deviceBrickList.add(SelectFileBrick())
         deviceBrickList.add(MoveFilesBrick("variable.txt"))
         deviceBrickList.add(MoveDownloadsBrick("variable.txt"))
         deviceBrickList.add(CopyProjectFileBrick("variable.txt", "copy_variable.txt"))
@@ -3030,6 +3045,15 @@ void main() {
         internetBrickList.add(ListenServerBrick())
         internetBrickList.add(SendServerBrick("Hi"))
         internetBrickList.add(StopServerBrick())
+        internetBrickList.add(SelectDirectoryBrick())
+        internetBrickList.add(SelectFolderAndHostBrick())
+        internetBrickList.add(SelectFileBrick())
+        internetBrickList.add(HostDirectoryBrick("content://"))
+        internetBrickList.add(StartHttpServerBrick("8080"))
+        internetBrickList.add(StartHttpServerLocalhostBrick("8080"))
+        internetBrickList.add(StopHttpServerBrick())
+        internetBrickList.add(ShowHttpDiagnosticsBrick())
+        internetBrickList.add(OpenWebPageBrick())
         internetBrickList.add(WriteBaseBrick("firebase_id", "key", "hello"))
         internetBrickList.add(ReadBaseBrick("firebase_id", "key"))
         internetBrickList.add(DeleteBaseBrick("firebase_id", "key"))
