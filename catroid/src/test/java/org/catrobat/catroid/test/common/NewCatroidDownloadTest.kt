@@ -147,7 +147,9 @@ class NewCatroidDownloadTest {
             if (it.isFinished) terminal.countDown()
         }
         server.takeRequest()
-        assertTrue("download should start", waitUntil(5_000) { state.status == DownloadStatus.DOWNLOADING })
+        assertTrue("download should begin writing", waitUntil(5_000) {
+            state.status == DownloadStatus.DOWNLOADING && state.bytesDownloaded > 0L
+        })
         state.cancel()
         assertTrue("cancelled transfer should leave its worker promptly", terminal.await(10, TimeUnit.SECONDS))
         assertEquals(DownloadStatus.CANCELLED, state.status)
