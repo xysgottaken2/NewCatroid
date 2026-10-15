@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      PLAYGTA5_WORKER_SOURCE: ${{ runner.temp }}/playgta5-wgpu-worker.js
+      PLAYGTA5_WORKER_SOURCE: /tmp/newcatroid-playgta5-wgpu-worker.js
     steps:
       - name: Checkout
         uses: actions/checkout@v4
