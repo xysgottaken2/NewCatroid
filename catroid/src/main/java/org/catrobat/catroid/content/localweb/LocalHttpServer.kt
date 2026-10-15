@@ -53,6 +53,7 @@ object LocalHttpServer {
     private var cachedTouchControlsScript: String? = null
     private var cachedGameDiagnosticsScript: String? = null
     private var cachedWorkerDiagnosticsBootstrap: String? = null
+    private var cachedShaderCompatibilityScript: String? = null
 
     private fun touchControlsScript(): String? = readLocalScript(
         cached = cachedTouchControlsScript,
@@ -65,6 +66,12 @@ object LocalHttpServer {
         resourceId = org.catrobat.catroid.R.raw.newcatroid_game_diagnostics,
         description = "game diagnostics bootstrap"
     ) { cachedGameDiagnosticsScript = it }
+
+    private fun shaderCompatibilityScript(): String? = readLocalScript(
+        cached = cachedShaderCompatibilityScript,
+        resourceId = org.catrobat.catroid.R.raw.newcatroid_shader_compat,
+        description = "scalar alpha-test compatibility script"
+    ) { cachedShaderCompatibilityScript = it }
 
     private fun workerDiagnosticsBootstrap(): String? = readLocalScript(
         cached = cachedWorkerDiagnosticsBootstrap,
@@ -229,6 +236,7 @@ object LocalHttpServer {
             touchControlsScriptProvider = { touchControlsScript() },
             gameDiagnosticsScriptProvider = { gameDiagnosticsScript() },
             workerDiagnosticsBootstrapProvider = { workerDiagnosticsBootstrap() },
+            shaderCompatibilityScriptProvider = { shaderCompatibilityScript() },
             logger = { level, message, error ->
                 when (level) {
                     LogLevel.DEBUG -> Log.d(HTTP_LOG_TAG, message)

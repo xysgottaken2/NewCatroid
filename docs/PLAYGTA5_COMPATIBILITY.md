@@ -4,6 +4,10 @@
 
 The public `playgta5.com` root returned HTTP 401 during this review. No credentials, authentication bypass, or access-control workaround was used. The Catroid workspace has no `game.wasm` or game data mirror, so there was no basis for claiming successful gameplay or diagnosing a specific failure inside the game engine.
 
+## Follow-up: one compiler defect reproduced and corrected
+
+See [PLAYGTA5_SHADER_FINDING.md](PLAYGTA5_SHADER_FINDING.md) for the independently gated scalar alpha-test correction, pinned public-client review, real Dawn/Tint regression, and remaining device validation. This establishes a shader-generation defect; it does **not** establish the root cause of the Galaxy S23 Ultra black screen. Existing debug and sync-pipeline options retain their meanings.
+
 ## Public-client behavior verified
 
 The archived snapshot at commit [`787e9e1946f797b2fb06f6af97cdf1f86ea611ab`](https://github.com/Adityabaskati-weeb/playgta5/tree/787e9e1946f797b2fb06f6af97cdf1f86ea611ab) was inspected read-only. The fixed-commit source links below are included so the findings can be audited; the snapshot is community-maintained and may differ from the live service.

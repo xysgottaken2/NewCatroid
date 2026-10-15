@@ -30,6 +30,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.zip.GZIPOutputStream
 
 /** Severity for [HttpLogger] request diagnostics. */
@@ -70,7 +71,8 @@ class HttpEngine(
     private val requestLog: RequestLog? = null,
     private val touchControlsScriptProvider: (() -> String?)? = null,
     private val gameDiagnosticsScriptProvider: (() -> String?)? = null,
-    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null
+    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null,
+    private val shaderCompatibilityScriptProvider: (() -> String?)? = null
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -322,6 +324,17 @@ class HttpEngine(
                 return
             }
             writeBuiltInScriptResponse(method, rawPath, script, "opt-in game diagnostics script", isHead, out, record)
+            return
+        }
+
+        if (relativeToPrefix == SHADER_COMPATIBILITY_PATH) {
+            val script = shaderCompatibilityScriptProvider?.invoke()
+            if (script == null) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found (shader compatibility unavailable)")
+                record.status = 404
+                return
+            }
+            writeBuiltInScriptResponse(method, rawPath, script, "scalar alpha-test compatibility", isHead, out, record)
             return
         }
 
@@ -728,6 +741,34 @@ class HttpEngine(
                         }
                     }
 
+                    if (hasQueryFlag(query, ALPHA_FIX_QUERY)) {
+                        val compatibilityScript = shaderCompatibilityScriptProvider?.invoke()
+                        if (compatibilityScript != null) {
+                            when {
+                                isHtml -> {
+                                    outBytes = injectGameDiagnosticsScript(outBytes, SHADER_COMPATIBILITY_PATH)
+                                    injected += "scalar alpha-test page bootstrap"
+                                }
+                                entry.name == "loader.js" -> {
+                                    outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript)
+                                    injected += "scalar alpha-test loader bootstrap"
+                                }
+                                entry.name == "wgpu_worker.js" -> {
+                                    // Check the original bytes before diagnostics or other suffixes.
+                                    // Never reinterpret an unknown engine's lexical symbols.
+                                    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                                        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                                    if (digest == ALPHA_FIX_WORKER_SHA256) {
+                                        outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript)
+                                        injected += "scalar alpha-test renderer correction"
+                                    } else {
+                                        logger(LogLevel.WARN, "Scalar alpha-test correction not applied: unreviewed worker SHA-256 $digest", null)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Full diagnostics mark the loader and its GPU/I/O
                     // workers; fix-only mode marks just loader.js so a
                     // minimal hook can confirm the existing pipeline URL
@@ -763,7 +804,7 @@ class HttpEngine(
                             "Content-Type" to contentType,
                             "Content-Length" to sent.toString(),
                             "Accept-Ranges" to "bytes",
-                            if (injected.any { it == "worker diagnostics bootstrap" }) "Cache-Control" to "no-store" else null
+                            if (injected.any { it == "worker diagnostics bootstrap" || it.startsWith("scalar alpha-test") }) "Cache-Control" to "no-store" else null
                         )
                     )
                     if (!isHead) out.write(outBytes)
@@ -1081,9 +1122,9 @@ class HttpEngine(
     }
 
     /** Injects the early page diagnostics bootstrap into an HTML document. */
-    private fun injectGameDiagnosticsScript(html: ByteArray): ByteArray {
+    private fun injectGameDiagnosticsScript(html: ByteArray, scriptPath: String = GAME_DIAGNOSTICS_PATH): ByteArray {
         val prefix = HttpPaths.normalizePrefix(urlPrefixProvider())
-        val src = if (prefix == "/") "/$GAME_DIAGNOSTICS_PATH" else "$prefix/$GAME_DIAGNOSTICS_PATH"
+        val src = if (prefix == "/") "/$scriptPath" else "$prefix/$scriptPath"
         val tag = "<script src=\"$src\"></script>"
         val text = String(html, StandardCharsets.UTF_8)
         val headStart = text.indexOf("<head", ignoreCase = true)
@@ -1317,6 +1358,10 @@ class HttpEngine(
         const val TOUCH_CONTROLS_PATH = "__newcatroid_touch_controls.js"
         const val GAME_DIAGNOSTICS_PATH = "__newcatroid_game_diagnostics.js"
         const val GAME_DIAGNOSTICS_QUERY = "newcatroid_debug"
+        const val SHADER_COMPATIBILITY_PATH = "__newcatroid_shader_compat.js"
+        const val ALPHA_FIX_QUERY = "newcatroid_alpha_fix"
+        // shadany7824/playgta5 @ 2fb671adca55cd0317aa551b33ffd922f1639660
+        const val ALPHA_FIX_WORKER_SHA256 = "e1b83d2b10a98d29d8f7ac45a4e42f68486144a8046df688667891af034716c7"
         const val ADRENO_FIX_QUERY = "newcatroid_adreno_fix"
         const val WORKER_DIAGNOSTICS_QUERY = "newcatroid_worker_debug"
         const val WORKER_PIPELINE_QUERY = "newcatroid_pipeline_probe"

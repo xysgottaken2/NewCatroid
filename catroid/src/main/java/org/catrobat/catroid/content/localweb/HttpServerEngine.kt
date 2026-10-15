@@ -64,7 +64,8 @@ class HttpServerEngine(
     private val requestLog: RequestLog? = null,
     private val touchControlsScriptProvider: (() -> String?)? = null,
     private val gameDiagnosticsScriptProvider: (() -> String?)? = null,
-    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null
+    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null,
+    private val shaderCompatibilityScriptProvider: (() -> String?)? = null
 ) {
 
     @Volatile
@@ -118,7 +119,8 @@ class HttpServerEngine(
                 requestLog,
                 touchControlsScriptProvider,
                 gameDiagnosticsScriptProvider,
-                workerDiagnosticsBootstrapProvider
+                workerDiagnosticsBootstrapProvider,
+                shaderCompatibilityScriptProvider
             )
 
             val socket: ServerSocket = try {
