@@ -27,6 +27,9 @@
     var pendingGpuErrorFlushTimer = null;
     var memorySnapshots = new WeakMap();
     var gpuTextureViewSnapshots = new WeakMap();
+    var gpuSamplerSnapshots = new WeakMap();
+    var gpuResourceIds = new WeakMap();
+    var gpuResourceSequence = 0;
     var observedMemories = new WeakSet();
     var resourceGroups = new Map();
     var observedGpuDevices = new WeakSet();
@@ -237,9 +240,24 @@
         catch (ignored) { return ''; }
     }
 
+    function gpuResourceId(resource, kind) {
+        if (!resource || (typeof resource !== 'object' && typeof resource !== 'function')) return '';
+        try {
+            var id = gpuResourceIds.get(resource);
+            if (!id) {
+                id = safeText(kind || 'resource', 24) + '-' + (++gpuResourceSequence);
+                gpuResourceIds.set(resource, id);
+            }
+            return id;
+        } catch (ignored) {
+            return '';
+        }
+    }
+
     function gpuTextureSnapshot(texture) {
         if (!texture || typeof texture !== 'object') return null;
         return {
+            resourceId: gpuResourceId(texture, 'texture'),
             label: objectLabel(texture),
             width: Number(texture.width) || null,
             height: Number(texture.height) || null,
@@ -257,6 +275,14 @@
         catch (ignored) { return null; }
     }
 
+    function gpuSamplerSnapshot(sampler) {
+        var snapshot = null;
+        try { snapshot = sampler && gpuSamplerSnapshots ? gpuSamplerSnapshots.get(sampler) || null : null; }
+        catch (ignored) { }
+        if (snapshot) return snapshot;
+        return sampler ? { resourceId: gpuResourceId(sampler, 'sampler'), label: objectLabel(sampler) } : null;
+    }
+
     function bindResourceSummary(resource) {
         if (!resource || typeof resource !== 'object') return { kind: resource == null ? 'null' : typeof resource };
         try {
@@ -264,15 +290,19 @@
                 kind: 'buffer binding', label: objectLabel(resource.buffer), offset: Number(resource.offset) || 0,
                 size: Number(resource.size) || null
             };
-            if (resource.sampler) return { kind: 'sampler', label: objectLabel(resource.sampler) };
+            if (resource.sampler) return { kind: 'sampler', sampler: gpuSamplerSnapshot(resource.sampler) };
             if (resource.textureView) return {
-                kind: 'texture view', label: objectLabel(resource.textureView), texture: gpuTextureViewSnapshot(resource.textureView)
+                kind: 'texture view', resourceId: gpuResourceId(resource.textureView, 'view'),
+                label: objectLabel(resource.textureView), texture: gpuTextureViewSnapshot(resource.textureView)
             };
             if (resource.externalTexture) return { kind: 'external texture', label: objectLabel(resource.externalTexture) };
             var objectType = '';
             try { objectType = Object.prototype.toString.call(resource); } catch (ignored) { }
-            if (/GPUSampler/i.test(objectType)) return { kind: 'sampler', label: objectLabel(resource) };
-            if (/GPUTextureView/i.test(objectType)) return { kind: 'texture view', label: objectLabel(resource), texture: gpuTextureViewSnapshot(resource) };
+            if (/GPUSampler/i.test(objectType)) return { kind: 'sampler', sampler: gpuSamplerSnapshot(resource) };
+            if (/GPUTextureView/i.test(objectType)) return {
+                kind: 'texture view', resourceId: gpuResourceId(resource, 'view'),
+                label: objectLabel(resource), texture: gpuTextureViewSnapshot(resource)
+            };
             if (/GPUExternalTexture/i.test(objectType)) return { kind: 'external texture', label: objectLabel(resource) };
             return { kind: 'resource object', label: objectLabel(resource), objectType: safeText(objectType, 120) };
         } catch (ignored) {
@@ -336,9 +366,13 @@
         } else if (/create(Render|Compute)Pipeline/.test(methodName)) {
             detail.label = objectLabel(descriptor);
             detail.layout = typeof descriptor.layout === 'string' ? descriptor.layout : descriptor.layout ? 'explicit' : 'not reported';
+            detail.pipelineLayoutLabel = objectLabel(descriptor.layout);
+            detail.pipelineLayoutResourceId = descriptor.layout && typeof descriptor.layout === 'object'
+                ? gpuResourceId(descriptor.layout, 'pipeline-layout') : '';
             if (descriptor.vertex) {
                 detail.vertexEntryPoint = safeText(descriptor.vertex.entryPoint || '', 120);
                 detail.vertexShaderLabel = objectLabel(descriptor.vertex.module);
+                detail.vertexShaderResourceId = gpuResourceId(descriptor.vertex.module, 'shader-module');
                 detail.vertexBufferLayouts = (descriptor.vertex.buffers || []).slice(0, 8).map(function (buffer) {
                     return {
                         arrayStride: Number(buffer && buffer.arrayStride) || 0,
@@ -353,6 +387,7 @@
             if (descriptor.fragment) {
                 detail.fragmentEntryPoint = safeText(descriptor.fragment.entryPoint || '', 120);
                 detail.fragmentShaderLabel = objectLabel(descriptor.fragment.module);
+                detail.fragmentShaderResourceId = gpuResourceId(descriptor.fragment.module, 'shader-module');
                 detail.colorTargetFormats = (descriptor.fragment.targets || []).slice(0, 12).map(function (target) {
                     return safeText(target && target.format || 'unknown', 100);
                 });
@@ -380,6 +415,7 @@
             if (descriptor.compute) {
                 detail.computeEntryPoint = safeText(descriptor.compute.entryPoint || '', 120);
                 detail.computeShaderLabel = objectLabel(descriptor.compute.module);
+                detail.computeShaderResourceId = gpuResourceId(descriptor.compute.module, 'shader-module');
             }
             if (descriptor.depthStencil) detail.depthStencil = {
                 format: safeText(descriptor.depthStencil.format || 'unknown', 100),
@@ -390,23 +426,38 @@
             };
             if (descriptor.multisample) detail.sampleCount = Number(descriptor.multisample.count) || null;
         } else if (methodName === 'createBindGroup') {
-            detail.label = objectLabel(descriptor);
-            detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
-            detail.bindings = (descriptor.entries || []).slice(0, 32).map(function (entry) {
+            var bindEntries = descriptor.entries || [];
+            var bindSummaries = bindEntries.slice(0, 64).map(function (entry) {
                 return { binding: Number(entry && entry.binding), resource: bindResourceSummary(entry && entry.resource) };
             });
+            detail.label = objectLabel(descriptor);
+            detail.layoutLabel = objectLabel(descriptor.layout);
+            detail.layoutResourceId = descriptor.layout ? gpuResourceId(descriptor.layout, 'bind-layout') : '';
+            detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
+            detail.textureBindings = bindSummaries.filter(function (entry) { return entry.resource && entry.resource.kind === 'texture view'; }).slice(0, 12);
+            detail.samplerBindings = bindSummaries.filter(function (entry) { return entry.resource && entry.resource.kind === 'sampler'; }).slice(0, 12);
+            detail.otherBindings = bindSummaries.filter(function (entry) { return !entry.resource || (entry.resource.kind !== 'texture view' && entry.resource.kind !== 'sampler'); }).slice(0, 8);
         } else if (methodName === 'createBindGroupLayout') {
+            var layoutEntries = (descriptor.entries || []).slice(0, 64).map(bindGroupLayoutEntrySummary);
             detail.label = objectLabel(descriptor);
             detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
-            detail.bindings = (descriptor.entries || []).slice(0, 32).map(bindGroupLayoutEntrySummary);
+            detail.textureBindings = layoutEntries.filter(function (entry) { return !!entry.texture; }).slice(0, 12);
+            detail.samplerBindings = layoutEntries.filter(function (entry) { return !!entry.sampler; }).slice(0, 12);
+            detail.otherBindings = layoutEntries.filter(function (entry) { return !entry.texture && !entry.sampler; }).slice(0, 8);
         } else if (methodName === 'createPipelineLayout') {
             detail.label = objectLabel(descriptor);
             detail.bindGroupLayoutCount = Array.isArray(descriptor.bindGroupLayouts) ? descriptor.bindGroupLayouts.length : null;
             detail.bindGroupLayoutLabels = (descriptor.bindGroupLayouts || []).slice(0, 16).map(objectLabel);
+            detail.bindGroupLayoutResourceIds = (descriptor.bindGroupLayouts || []).slice(0, 16).map(function (layout) {
+                return gpuResourceId(layout, 'bind-layout');
+            });
         } else if (methodName === 'createSampler') {
             detail.label = objectLabel(descriptor);
-            ['addressModeU', 'addressModeV', 'addressModeW', 'magFilter', 'minFilter', 'mipmapFilter', 'compare'].forEach(function (key) {
+            ['addressModeU', 'addressModeV', 'addressModeW', 'compare'].forEach(function (key) {
                 if (descriptor[key] != null) detail[key] = safeText(descriptor[key], 80);
+            });
+            ['magFilter', 'minFilter', 'mipmapFilter'].forEach(function (key) {
+                detail[key] = descriptor[key] != null ? safeText(descriptor[key], 80) : 'nearest (default)';
             });
             detail.lodMinClamp = Number(descriptor.lodMinClamp) || 0;
             detail.lodMaxClamp = Number(descriptor.lodMaxClamp) || 0;
@@ -455,9 +506,11 @@
             detail.label = objectLabel(descriptor);
         } else if (methodName === 'setPipeline') {
             detail.pipelineLabel = objectLabel(args[0]);
+            detail.pipelineResourceId = gpuResourceId(args[0], 'pipeline');
         } else if (methodName === 'setBindGroup') {
             detail.index = Number(args[0]);
             detail.bindGroupLabel = objectLabel(args[1]);
+            detail.bindGroupResourceId = gpuResourceId(args[1], 'bind-group');
             detail.dynamicOffsetCount = args[2] && typeof args[2].length === 'number' ? Number(args[2].length) : 0;
             detail.dynamicOffsets = args[2] && typeof args[2].length === 'number' ? Array.prototype.slice.call(args[2], 0, 16).map(function (value) { return Number(value); }) : [];
         } else if (methodName === 'setVertexBuffer') {
@@ -848,7 +901,10 @@
                     }
                     if ((methodName === 'createRenderPipelineAsync' || methodName === 'createComputePipelineAsync') && result && typeof result.then === 'function') {
                         try {
-                            result.then(function () { }, function (error) {
+                            result.then(function (pipeline) {
+                                var pipelineId = gpuResourceId(pipeline, 'pipeline');
+                                if (entry && entry.details && pipelineId) entry.details.resourceId = pipelineId;
+                            }, function (error) {
                                 recordGpuError(error, 'rejected ' + globalName + '.' + methodName, entry);
                                 inspectShaderCompilation(args[0], 'asynchronous pipeline creation rejection', entry);
                             });
@@ -862,10 +918,57 @@
                             });
                         } catch (ignored) { }
                     }
+                    if (globalName === 'GPUDevice' && methodName === 'createTexture' && result) {
+                        var textureId = gpuResourceId(result, 'texture');
+                        if (entry && entry.details && textureId) entry.details.resourceId = textureId;
+                    } else if (globalName === 'GPUDevice' && methodName === 'createSampler' && result) {
+                        var samplerDescriptor = args[0] || {};
+                        var samplerId = gpuResourceId(result, 'sampler');
+                        var samplerSnapshot = {
+                            resourceId: samplerId,
+                            label: objectLabel(samplerDescriptor)
+                        };
+                        if (entry && entry.details && samplerId) entry.details.resourceId = samplerId;
+                        ['addressModeU', 'addressModeV', 'addressModeW', 'compare'].forEach(function (key) {
+                            try {
+                                var value = samplerDescriptor[key];
+                                if (value !== undefined && value !== null) samplerSnapshot[key] = safeText(value, 80);
+                            } catch (ignored) { }
+                        });
+                        ['magFilter', 'minFilter', 'mipmapFilter'].forEach(function (key) {
+                            try {
+                                var value = samplerDescriptor[key];
+                                samplerSnapshot[key] = value !== undefined && value !== null ? safeText(value, 80) : 'nearest (default)';
+                            } catch (ignored) { }
+                        });
+                        try { gpuSamplerSnapshots.set(result, samplerSnapshot); } catch (ignored) { }
+                    } else if (globalName === 'GPUDevice' && methodName === 'createBindGroupLayout' && result) {
+                        var bindLayoutId = gpuResourceId(result, 'bind-layout');
+                        if (entry && entry.details && bindLayoutId) entry.details.resourceId = bindLayoutId;
+                    } else if (globalName === 'GPUDevice' && methodName === 'createPipelineLayout' && result) {
+                        var pipelineLayoutId = gpuResourceId(result, 'pipeline-layout');
+                        if (entry && entry.details && pipelineLayoutId) entry.details.resourceId = pipelineLayoutId;
+                    } else if (globalName === 'GPUDevice' && methodName === 'createBindGroup' && result) {
+                        var bindGroupId = gpuResourceId(result, 'bind-group');
+                        if (entry && entry.details && bindGroupId) entry.details.resourceId = bindGroupId;
+                    } else if (globalName === 'GPUDevice' && methodName === 'createShaderModule' && result) {
+                        var shaderModuleId = gpuResourceId(result, 'shader-module');
+                        if (entry && entry.details && shaderModuleId) entry.details.resourceId = shaderModuleId;
+                    } else if (globalName === 'GPUDevice' && /create(Render|Compute)Pipeline$/.test(methodName) && result) {
+                        var pipelineId = gpuResourceId(result, 'pipeline');
+                        if (entry && entry.details && pipelineId) entry.details.resourceId = pipelineId;
+                    }
                     if (globalName === 'GPUTexture' && methodName === 'createView' && result && gpuTextureViewSnapshots) {
                         try {
                             var viewDetail = operationDetails(globalName, methodName, args, this);
+                            var viewId = gpuResourceId(result, 'view');
+                            var textureId = gpuResourceId(this, 'texture');
+                            if (entry && entry.details) {
+                                if (viewId) entry.details.viewResourceId = viewId;
+                                if (textureId) entry.details.textureResourceId = textureId;
+                            }
                             gpuTextureViewSnapshots.set(result, {
+                                resourceId: viewId,
                                 texture: gpuTextureSnapshot(this),
                                 view: viewDetail.view || {}
                             });
@@ -896,7 +999,7 @@
         return installed;
     }
 
-    function attachGpuDevice(device) {
+    function attachGpuDevice(device, requestedFeatures) {
         if (!device || typeof device !== 'object' || observedGpuDevices.has(device)) return;
         observedGpuDevices.add(device);
         var uncapturedListenerInstalled = false;
@@ -945,6 +1048,7 @@
         });
         send('gpu-device-observed', {
             uncapturederrorListenerInstalled: uncapturedListenerInstalled,
+            requestedFeatures: Array.isArray(requestedFeatures) ? requestedFeatures.slice(0, 80) : null,
             features: featureList.slice(0, 80),
             limits: limits
         });
@@ -976,11 +1080,30 @@
         } catch (ignored) { }
         replaceMethod(target, 'requestDevice', function (original) {
             return function () {
+                var descriptor = arguments[0] && typeof arguments[0] === 'object' ? arguments[0] : null;
+                var requestedFeatures = [];
+                try {
+                    var requiredFeatures = descriptor && descriptor.requiredFeatures;
+                    if (requiredFeatures != null) {
+                        if (Array.isArray(requiredFeatures)) {
+                            requestedFeatures = requiredFeatures.slice(0, 80).map(function (feature) { return safeText(feature, 100); });
+                        } else {
+                            requestedFeatures = null;
+                        }
+                    }
+                } catch (ignored) {
+                    requestedFeatures = null;
+                }
+                send('gpu-device-request', { requestedFeatures: requestedFeatures });
                 var result = Reflect.apply(original, this, arguments);
                 if (result && typeof result.then === 'function') {
-                    try { result.then(attachGpuDevice, function (error) { recordGpuError(error, 'GPUAdapter.requestDevice rejection'); }); } catch (ignored) { }
+                    try {
+                        result.then(function (device) { attachGpuDevice(device, requestedFeatures); }, function (error) {
+                            recordGpuError(error, 'GPUAdapter.requestDevice rejection');
+                        });
+                    } catch (ignored) { }
                 } else {
-                    attachGpuDevice(result);
+                    attachGpuDevice(result, requestedFeatures);
                 }
                 return result;
             };

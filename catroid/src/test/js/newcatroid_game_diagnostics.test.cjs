@@ -509,9 +509,183 @@ test('short summary is bounded, sanitized and the primary copy fallback selects 
     assert.equal(textArea.hidden, false);
     assert.equal(textArea.readOnly, true);
     assert.equal(textArea.selected, true);
-    assert.match(textArea.value, /NewCatroid PlayGTA5 short diagnostics v1/);
+    assert.match(textArea.value, /NewCatroid PlayGTA5 short diagnostics v2/);
     assert.ok(textArea.value.length <= 5000);
     assert.doesNotMatch(textArea.value, /full-private-stack-marker/);
+});
+
+test('short diagnostics preserve first and latest distinct GPU errors with texture and layout facts', () => {
+    const page = createPage('?newcatroid_debug=1');
+    const api = page.window.__newcatroidGameDiagnostics;
+    const worker = page.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    const now = Date.now();
+    const groups = [
+        ['earliest-layout-issue', 'earliest-layout-issue: RGBA32Float binding did not match Float layout.', now - 6000],
+        ['second-early-issue', 'second-early-issue: distinct layout failure.', now - 5000],
+        ['middle-issue-a', 'middle-issue-a: validation error A.', now - 4000],
+        ['middle-issue-b', 'middle-issue-b: validation error B.', now - 3000],
+        ['second-latest-issue', 'second-latest-issue: distinct validation error.', now - 2000],
+        ['latest-issue', 'latest-issue: distinct validation error.', now - 1000]
+    ];
+    groups.forEach(([groupId, message, firstAt], index) => {
+        const firstContext = groupId === 'earliest-layout-issue' ? [
+            { at: firstAt, sequence: 10, operation: 'GPUDevice.createBindGroupLayout', count: 1, details: {
+                resourceId: 'bind-layout-3',
+                textureBindings: [{ binding: 32, texture: { sampleType: 'float', viewDimension: '2d', multisampled: 'false' } }],
+                samplerBindings: [{ binding: 16, sampler: { type: 'filtering' } }]
+            } },
+            { at: firstAt + 1, sequence: 11, operation: 'GPUDevice.createBindGroup', count: 1, details: {
+                layoutResourceId: 'bind-layout-3',
+                textureBindings: [{ binding: 32, resource: { kind: 'texture view', resourceId: 'view-4', texture: {
+                    resourceId: 'view-4', texture: { resourceId: 'texture-2', format: 'rgba32float', width: 1024,
+                        height: 512, depthOrArrayLayers: 1, dimension: '2d', mipLevelCount: 4 },
+                    view: { dimension: '2d', format: 'rgba32float', baseMipLevel: 1, mipLevelCount: 2 }
+                } } }],
+                samplerBindings: [{ binding: 16, resource: { kind: 'sampler', sampler: { resourceId: 'sampler-1', minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'linear' } } }]
+            } },
+            { at: firstAt + 2, sequence: 12, operation: 'GPUDevice.createRenderPipeline', count: 1, details: {
+                resourceId: 'pipeline-9', pipelineLayoutResourceId: 'pipeline-layout-8',
+                fragmentShaderResourceId: 'shader-module-7', fragmentShaderLabel: 'world-fs',
+                fragmentEntryPoint: 'fsMain'
+            } }
+        ] : [];
+        worker.emit({ source: 'gpu-worker', sessionId: 'summary-errors', type: 'webgpu-error-group', at: firstAt, details: {
+            groupId: 'gpu-error-' + groupId,
+            type: 'GPUValidationError',
+            sourceKind: 'GPUDevice uncapturederror event',
+            sourceKindCounts: { 'GPUDevice uncapturederror event': index + 1 },
+            count: index + 1,
+            firstAt,
+            lastAt: firstAt + index * 10,
+            message,
+            firstContext,
+            latestContext: firstContext
+        } });
+    });
+
+    const summary = api.getShortSummary();
+    assert.ok(summary.length <= 5000);
+    assert.match(summary, /First and latest distinct WebGPU error groups/);
+    assert.match(summary, /earliest-layout-issue/);
+    assert.match(summary, /second-early-issue/);
+    assert.match(summary, /second-latest-issue/);
+    assert.match(summary, /latest-issue/);
+    assert.match(summary, /first=\d{2}:\d{2}:\d{2}Z last=\d{2}:\d{2}:\d{2}Z/);
+    assert.doesNotMatch(summary, /middle-issue-[ab]/);
+    assert.match(summary, /bind-layout=bind-layout-3/);
+    assert.match(summary, /texture layout b32=float\/2d/);
+    assert.match(summary, /sampler layout b16=filtering/);
+    assert.match(summary, /pipeline=pipeline-9/);
+    assert.match(summary, /pipeline-layout=pipeline-layout-8/);
+    assert.match(summary, /shaders=\[fs=shader-module-7\(world-fs\)\]/);
+    assert.match(summary, /texture b32=rgba32float 1024x512x1 texture-2\/view-4 textureMips=4 viewMips=1\+2/);
+    assert.match(summary, /sampler b16=linear\/linear\/linear sampler-1/);
+    assert.match(summary, /x6/);
+
+    const overflowPage = createPage('?newcatroid_debug=1');
+    const overflowApi = overflowPage.window.__newcatroidGameDiagnostics;
+    const overflowWorker = overflowPage.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    for (let index = 0; index < 205; index++) {
+        const at = now + index * 10;
+        overflowWorker.emit({ source: 'gpu-worker', sessionId: 'overflow-errors', type: 'webgpu-error-group', at, details: {
+            groupId: 'overflow-' + index,
+            type: 'GPUValidationError',
+            sourceKind: 'GPUDevice uncapturederror event',
+            count: index + 1,
+            firstAt: at,
+            lastAt: at,
+            message: 'overflow-marker-' + index
+        } });
+    }
+    const overflowSummary = overflowApi.getShortSummary();
+    assert.ok(overflowSummary.length <= 5000);
+    assert.equal(overflowApi.state.gpu.errorGroups.length, 200);
+    assert.match(overflowSummary, /overflow-marker-0/);
+    assert.match(overflowSummary, /overflow-marker-1/);
+    assert.match(overflowSummary, /overflow-marker-203/);
+    assert.match(overflowSummary, /overflow-marker-204/);
+    assert.doesNotMatch(overflowSummary, /overflow-marker-100/);
+});
+
+test('short diagnostics report browser version and actual worker adapter/device features', () => {
+    const page = createPage('?newcatroid_debug=1', {
+        navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 16; SM-S918B) AppleWebKit/537.36 Chrome/144.0.7550.12 Mobile Safari/537.36' }
+    });
+    const api = page.window.__newcatroidGameDiagnostics;
+    const worker = page.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    worker.emit({ source: 'gpu-worker', type: 'gpu-adapter-observed', at: Date.now(), details: {
+        information: { vendor: 'qualcomm', architecture: 'adreno-7xx' },
+        features: ['float32-filterable', 'texture-compression-bc'],
+        limits: { maxTextureDimension2D: 8192 }
+    } });
+    worker.emit({ source: 'gpu-worker', type: 'gpu-device-observed', at: Date.now(), details: {
+        uncapturederrorListenerInstalled: true,
+        requestedFeatures: ['float32-filterable'],
+        features: ['float32-filterable']
+    } });
+
+    const summary = api.getShortSummary();
+    assert.match(summary, /Chrome\/Chromium 144\.0\.7550\.12/);
+    assert.match(summary, /Android 16/);
+    assert.match(summary, /float32-filterable adapter=present, requested=present, device=present/);
+    assert.match(summary, /adapter=\[float32-filterable, texture-compression-bc\]/);
+    assert.match(summary, /device=\[float32-filterable\]/);
+
+    const report = JSON.parse(api.getReport());
+    assert.equal(report.browser.chromiumVersion, '144.0.7550.12');
+    assert.equal(report.browser.androidVersion, '16');
+    assert.deepEqual(report.graphics.gpuWorkerAdapterFeatures, ['float32-filterable', 'texture-compression-bc']);
+    assert.deepEqual(report.graphics.gpuWorkerDeviceRequestedFeatures, ['float32-filterable']);
+    assert.deepEqual(report.graphics.gpuWorkerDeviceFeatures, ['float32-filterable']);
+
+    const missingListsPage = createPage('?newcatroid_debug=1');
+    const missingListsWorker = missingListsPage.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    missingListsWorker.emit({ source: 'gpu-worker', type: 'gpu-adapter-observed', at: Date.now(), details: {
+        information: { vendor: 'qualcomm', architecture: 'adreno-7xx' }
+    } });
+    missingListsWorker.emit({ source: 'gpu-worker', type: 'gpu-device-observed', at: Date.now(), details: {
+        uncapturederrorListenerInstalled: true
+    } });
+    assert.match(missingListsPage.window.__newcatroidGameDiagnostics.getShortSummary(), /float32-filterable adapter=unobserved, requested=unobserved, device=unobserved/);
+    const missingListsReport = JSON.parse(missingListsPage.window.__newcatroidGameDiagnostics.getReport());
+    assert.equal(missingListsReport.graphics.gpuWorkerAdapterFeatures, null);
+    assert.equal(missingListsReport.graphics.gpuWorkerDeviceRequestedFeatures, null);
+    assert.equal(missingListsReport.graphics.gpuWorkerDeviceFeatures, null);
+});
+
+test('short diagnostics prefer exact Chrome and Android versions from supported UA client hints', async () => {
+    const page = createPage('?newcatroid_debug=1', {
+        navigator: {
+            userAgent: 'Mozilla/5.0 (Linux; Android 16; SM-S918B) AppleWebKit/537.36 Chrome/144.0.7550.12 Mobile Safari/537.36',
+            userAgentData: {
+                platform: 'Android',
+                getHighEntropyValues: async (requestedHints) => {
+                    assert.equal(Array.from(requestedHints).join(','), 'fullVersionList,platformVersion');
+                    return {
+                        fullVersionList: [
+                            { brand: 'Chromium', version: '144.0.7550.10' },
+                            { brand: 'Google Chrome', version: '144.0.7550.12' }
+                        ],
+                        platformVersion: '16.0.0'
+                    };
+                }
+            }
+        }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const api = page.window.__newcatroidGameDiagnostics;
+    const summary = api.getShortSummary();
+    assert.match(summary, /Chrome\/Chromium 144\.0\.7550\.12/);
+    assert.match(summary, /OS Android 16\.0\.0 \(platformVersion=16\.0\.0, UA Android token=16\) · UA-CH=captured/);
+
+    const report = JSON.parse(api.getReport());
+    assert.equal(report.browser.chromiumVersion, '144.0.7550.12');
+    assert.equal(report.browser.androidVersion, '16');
+    assert.equal(report.browser.platform, 'Android');
+    assert.equal(report.browser.platformVersion, '16.0.0');
+    assert.equal(report.browser.userAgentHintsStatus, 'captured');
+    assert.match(report.browser.versionSource, /fullVersionList\/platformVersion/);
 });
 
 test('audio observer records context state, user gesture and autoplay rejection without resuming automatically', async () => {

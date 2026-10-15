@@ -35,8 +35,30 @@
     var idSequence = 0;
     var lastHeartbeat = monotonicNow();
     var ui = null;
+
+    function browserIdentity() {
+        var userAgent = '';
+        var userAgentData = null;
+        try {
+            userAgent = String(navigator && navigator.userAgent || '');
+            userAgentData = navigator && navigator.userAgentData || null;
+        } catch (ignored) { }
+        var chromium = /\b(?:Chrome|Chromium)\/([\d.]+)/.exec(userAgent);
+        var android = /\bAndroid[\s/]([\d.]+)/i.exec(userAgent);
+        var platform = userAgentData && userAgentData.platform ? safeText(userAgentData.platform, 40) : (android ? 'Android' : 'not exposed');
+        return {
+            chromiumVersion: chromium ? chromium[1] : 'not exposed in userAgent',
+            androidVersion: android ? android[1] : 'not exposed in userAgent',
+            platform: platform,
+            platformVersion: 'not exposed',
+            userAgentHintsStatus: 'not queried',
+            versionSource: 'navigator.userAgent; browser may reduce minor/build components'
+        };
+    }
+
     var state = {
         flags: { debug: DEBUG_ENABLED, adrenoFix: ADRENO_FIX_ENABLED, alphaFix: ALPHA_FIX_ENABLED },
+        browser: browserIdentity(),
         stage: 'Waiting for page initialization events',
         stageChangedAt: startedAt,
         progress: null,
@@ -86,7 +108,10 @@
             adapterFeatures: '',
             adapterLimits: '',
             workerAdapterDetails: '',
+            workerAdapterFeatures: null,
             workerDevice: '',
+            workerDeviceRequestedFeatures: null,
+            workerDeviceFeatures: null,
             features: '',
             limits: '',
             pendingPipelines: null,
@@ -163,6 +188,46 @@
         workers: workerStates
     };
 
+    function captureBrowserClientHints() {
+        var userAgentData = null;
+        try { userAgentData = navigator && navigator.userAgentData; } catch (ignored) { }
+        if (!userAgentData || typeof userAgentData.getHighEntropyValues !== 'function') {
+            state.browser.userAgentHintsStatus = 'unavailable';
+            return;
+        }
+        state.browser.userAgentHintsStatus = 'pending';
+        try {
+            var request = userAgentData.getHighEntropyValues(['fullVersionList', 'platformVersion']);
+            if (!request || typeof request.then !== 'function') {
+                state.browser.userAgentHintsStatus = 'unsupported';
+                return;
+            }
+            request.then(function (hints) {
+                hints = hints && typeof hints === 'object' ? hints : {};
+                var brands = Array.isArray(hints.fullVersionList) ? hints.fullVersionList : [];
+                var version = null;
+                for (var i = 0; i < brands.length; i++) {
+                    var brand = String(brands[i] && brands[i].brand || '');
+                    if (/^Google Chrome$/i.test(brand)) {
+                        version = brands[i].version;
+                        break;
+                    }
+                    if (!version && /^Chromium$/i.test(brand)) version = brands[i].version;
+                }
+                if (version) state.browser.chromiumVersion = safeText(version, 40);
+                if (hints.platformVersion) state.browser.platformVersion = safeText(hints.platformVersion, 40);
+                state.browser.userAgentHintsStatus = (version || hints.platformVersion) ? 'captured' : 'no high-entropy version values returned';
+                if (version || hints.platformVersion) {
+                    state.browser.versionSource = 'navigator.userAgentData fullVersionList/platformVersion; navigator.userAgent fallback';
+                }
+            }, function () {
+                state.browser.userAgentHintsStatus = 'rejected; navigator.userAgent fallback';
+            });
+        } catch (ignored) {
+            state.browser.userAgentHintsStatus = 'failed; navigator.userAgent fallback';
+        }
+    }
+
     function monotonicNow() {
         try {
             if (window.performance && typeof window.performance.now === 'function') return window.performance.now();
@@ -227,6 +292,94 @@
         return isoTime(Date.now());
     }
 
+    function operationDetailObject(value) {
+        if (value && typeof value === 'object') return value;
+        if (typeof value !== 'string') return null;
+        try {
+            var parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (ignored) {
+            return null;
+        }
+    }
+
+    function summarizeOperationFacts(operation, rawDetails) {
+        var operationName = String(operation || '');
+        if (!/\.(?:createBindGroup(?:Layout)?|createPipelineLayout|create(?:Render|Compute)Pipeline(?:Async)?|createShaderModule)$/.test(operationName)) return null;
+        var details = operationDetailObject(rawDetails);
+        if (!details) return null;
+        var facts = {};
+        if (/\.createBindGroupLayout$/.test(operationName)) {
+            facts.bindGroupLayoutResourceId = safeText(details.resourceId || '', 32);
+            facts.textureLayouts = (Array.isArray(details.textureBindings) ? details.textureBindings : []).slice(0, 8).map(function (entry) {
+                var texture = entry && entry.texture || {};
+                return {
+                    binding: Number(entry && entry.binding) || 0,
+                    sampleType: safeText(texture.sampleType || '', 40),
+                    viewDimension: safeText(texture.viewDimension || '', 40),
+                    multisampled: safeText(texture.multisampled, 8)
+                };
+            });
+            facts.samplerLayouts = (Array.isArray(details.samplerBindings) ? details.samplerBindings : []).slice(0, 8).map(function (entry) {
+                return { binding: Number(entry && entry.binding) || 0, type: safeText(entry && entry.sampler && entry.sampler.type || '', 40) };
+            });
+        } else if (/\.createBindGroup$/.test(operationName)) {
+            facts.bindGroupResourceId = safeText(details.resourceId || '', 32);
+            facts.bindGroupLayoutResourceId = safeText(details.layoutResourceId || '', 32);
+            var textureBindings = Array.isArray(details.textureBindings) ? details.textureBindings : [];
+            var samplerBindings = Array.isArray(details.samplerBindings) ? details.samplerBindings : [];
+            facts.textures = textureBindings.slice(0, 8).map(function (entry) {
+                var resource = entry && entry.resource || {};
+                var viewInfo = resource.texture || {};
+                var texture = viewInfo.texture || {};
+                var view = viewInfo.view || {};
+                return {
+                    binding: Number(entry && entry.binding) || 0,
+                    viewId: safeText(resource.resourceId || viewInfo.resourceId || '', 32),
+                    textureId: safeText(texture.resourceId || '', 32),
+                    format: safeText(view.format || texture.format || '', 40),
+                    size: [texture.width, texture.height, texture.depthOrArrayLayers].filter(function (value) { return Number(value) > 0; }).join('x'),
+                    dimension: safeText(view.dimension || texture.dimension || '', 24),
+                    mipLevelCount: Number(texture.mipLevelCount) || 0,
+                    baseMipLevel: Number(view.baseMipLevel) || 0,
+                    viewMipLevelCount: Number(view.mipLevelCount) || 0,
+                    baseArrayLayer: Number(view.baseArrayLayer) || 0,
+                    arrayLayerCount: Number(view.arrayLayerCount) || 0
+                };
+            });
+            facts.samplers = samplerBindings.slice(0, 8).map(function (entry) {
+                var resource = entry && entry.resource && entry.resource.sampler || {};
+                return {
+                    binding: Number(entry && entry.binding) || 0,
+                    resourceId: safeText(resource.resourceId || '', 32),
+                    minFilter: safeText(resource.minFilter || '', 32),
+                    magFilter: safeText(resource.magFilter || '', 32),
+                    mipmapFilter: safeText(resource.mipmapFilter || '', 32)
+                };
+            });
+        } else if (/\.createPipelineLayout$/.test(operationName)) {
+            facts.pipelineLayoutResourceId = safeText(details.resourceId || '', 32);
+            facts.bindGroupLayoutResourceIds = Array.isArray(details.bindGroupLayoutResourceIds)
+                ? details.bindGroupLayoutResourceIds.slice(0, 8).map(function (id) { return safeText(id, 32); }) : [];
+        } else if (/\.create(?:Render|Compute)Pipeline(?:Async)?$/.test(operationName)) {
+            facts.pipelineResourceId = safeText(details.resourceId || '', 32);
+            facts.pipelineLayoutResourceId = safeText(details.pipelineLayoutResourceId || '', 32);
+            facts.vertexShaderResourceId = safeText(details.vertexShaderResourceId || '', 32);
+            facts.fragmentShaderResourceId = safeText(details.fragmentShaderResourceId || '', 32);
+            facts.computeShaderResourceId = safeText(details.computeShaderResourceId || '', 32);
+            facts.vertexShaderLabel = safeText(details.vertexShaderLabel || '', 80);
+            facts.fragmentShaderLabel = safeText(details.fragmentShaderLabel || '', 80);
+            facts.computeShaderLabel = safeText(details.computeShaderLabel || '', 80);
+            facts.entryPoints = [details.vertexEntryPoint, details.fragmentEntryPoint, details.computeEntryPoint]
+                .filter(Boolean).slice(0, 3).map(function (entryPoint) { return safeText(entryPoint, 80); });
+        } else if (/\.createShaderModule$/.test(operationName)) {
+            facts.shaderModuleResourceId = safeText(details.resourceId || '', 32);
+            facts.shaderLabel = safeText(details.label || '', 80);
+            facts.codeLength = Number(details.codeLength) || 0;
+        }
+        return facts;
+    }
+
     function sanitizeContext(items) {
         if (!Array.isArray(items)) return [];
         return items.slice(-24).map(function (item) {
@@ -247,9 +400,29 @@
                     operationDetails = '[operation details unavailable]';
                 }
                 result.operationDetails = safeText(operationDetails, 800);
+                result.operationFacts = summarizeOperationFacts(item.operation, item.details);
             }
             return result;
         });
+    }
+
+    function retainGpuErrorGroup(group) {
+        if (state.gpu.errorGroups.indexOf(group) < 0) state.gpu.errorGroups.push(group);
+        if (state.gpu.errorGroups.length <= 200) return;
+        var earliest = state.gpu.errorGroups.slice().sort(function (left, right) {
+            return (Date.parse(left.firstAt) || 0) - (Date.parse(right.firstAt) || 0);
+        }).slice(0, 2);
+        var latest = state.gpu.errorGroups.slice().sort(function (left, right) {
+            return (Date.parse(right.lastAt) || 0) - (Date.parse(left.lastAt) || 0);
+        }).slice(0, 198);
+        var retained = [];
+        earliest.concat(latest).forEach(function (candidate) {
+            if (retained.indexOf(candidate) < 0) retained.push(candidate);
+        });
+        retained.sort(function (left, right) {
+            return (Date.parse(left.lastAt) || 0) - (Date.parse(right.lastAt) || 0);
+        });
+        state.gpu.errorGroups = retained;
     }
 
     function captureWebGpuErrorGroup(data) {
@@ -280,8 +453,7 @@
                 latestOperationCounts: details.latestOperationCounts || {}
             };
             gpuErrorGroupIndex[key] = group;
-            state.gpu.errorGroups.push(group);
-            if (state.gpu.errorGroups.length > 200) state.gpu.errorGroups.shift();
+            retainGpuErrorGroup(group);
             recordEvent('WebGPU ' + group.type, group.message.slice(0, 900));
         } else {
             group.count = count;
@@ -290,6 +462,7 @@
             group.lastAt = isoTime(Number(details.lastAt) || Number(data.at) || Date.now());
             group.latestContext = sanitizeContext(details.latestContext);
             group.latestOperationCounts = details.latestOperationCounts || group.latestOperationCounts;
+            retainGpuErrorGroup(group);
         }
         state.gpu.errorOccurrences = Object.keys(gpuErrorGroupIndex).reduce(function (total, itemKey) {
             return total + (Number(gpuErrorGroupIndex[itemKey].count) || 0);
@@ -1188,7 +1361,8 @@
                 lastAt: isoTime(Number(item && item.lastAt) || Number(item && item.at) || Date.now()),
                 operation: safeText(item && item.operation || '', 180),
                 count: Number(item && item.count) || 1,
-                details: safeText(item && item.details ? JSON.stringify(item.details) : '{}', 4000)
+                details: safeText(item && item.details ? JSON.stringify(item.details) : '{}', 4000),
+                operationFacts: summarizeOperationFacts(item && item.operation, item && item.details)
             };
         });
     }
@@ -1416,11 +1590,21 @@
             recordEvent('GPU context', details.message || (details.contextType || 'GPU') + ' context observed');
         } else if (type === 'gpu-adapter-observed') {
             state.gpu.workerAdapterDetails = safeText(JSON.stringify(details.information || {}), 2000);
+            state.gpu.workerAdapterFeatures = Array.isArray(details.features) ? details.features.slice(0, 80).map(function (feature) { return safeText(feature, 100); }) : null;
             state.gpu.features = safeText(JSON.stringify(details.features || []), 2000);
             state.gpu.limits = safeText(JSON.stringify(details.limits || {}), 4000);
             recordEvent('GPU worker adapter', state.gpu.workerAdapterDetails || 'Adapter observed; vendor information not exposed');
+        } else if (type === 'gpu-device-request') {
+            state.gpu.workerDeviceRequestedFeatures = Array.isArray(details.requestedFeatures)
+                ? details.requestedFeatures.slice(0, 80).map(function (feature) { return safeText(feature, 100); }) : null;
+            recordEvent('GPU device request', 'requiredFeatures=' +
+                (Array.isArray(state.gpu.workerDeviceRequestedFeatures) ? state.gpu.workerDeviceRequestedFeatures.join(', ') || 'none' : 'unobserved'));
         } else if (type === 'gpu-device-observed') {
             state.gpu.workerDevice = 'GPUDevice observed; uncapturederror listener installed=' + !!details.uncapturederrorListenerInstalled;
+            if (Array.isArray(details.requestedFeatures)) {
+                state.gpu.workerDeviceRequestedFeatures = details.requestedFeatures.slice(0, 80).map(function (feature) { return safeText(feature, 100); });
+            }
+            state.gpu.workerDeviceFeatures = Array.isArray(details.features) ? details.features.slice(0, 80).map(function (feature) { return safeText(feature, 100); }) : null;
             state.gpu.operationObserverStatus = safeText(state.gpu.operationObserverStatus ||
                 ('GPU API hooks installed=' + (details.installedApiHooks || 'not reported')), 500);
         } else if (type === 'worker-bootstrap' && source === 'gpu-worker') {
@@ -1830,7 +2014,8 @@
             schema: 'NewCatroid local game diagnostics v3',
             capturedAt: isoTime(now),
             page: safeUrl(window.location.href),
-            privacy: 'Collected in this WebView only over local BroadcastChannel messages. Exported URLs omit query values; credential-like fields and local paths are redacted. No diagnostic HTTP telemetry is sent.',
+            privacy: 'Collected in this browser page only over local BroadcastChannel messages. Exported URLs omit query values; credential-like fields and local paths are redacted. No diagnostic HTTP telemetry is sent.',
+            browser: state.browser,
             optIns: { newcatroid_debug: DEBUG_ENABLED, newcatroid_adreno_fix: ADRENO_FIX_ENABLED, newcatroid_alpha_fix: ALPHA_FIX_ENABLED },
             initialization: {
                 stage: safeText(state.stage, 500),
@@ -1859,7 +2044,10 @@
                 adapterFeatures: safeText(state.gpu.adapterFeatures, 4000),
                 adapterLimits: safeText(state.gpu.adapterLimits, 4000),
                 gpuWorkerAdapterDetails: safeText(state.gpu.workerAdapterDetails, 4000),
+                gpuWorkerAdapterFeatures: state.gpu.workerAdapterFeatures,
                 gpuWorkerDeviceLog: safeText(state.gpu.workerDevice, 4000),
+                gpuWorkerDeviceRequestedFeatures: state.gpu.workerDeviceRequestedFeatures,
+                gpuWorkerDeviceFeatures: state.gpu.workerDeviceFeatures,
                 gpuWorkerFeaturesLog: safeText(state.gpu.features, 4000),
                 gpuLimitsLog: safeText(state.gpu.limits, 8000),
                 gpuWorkerConfig: state.gpu.gpuWorkerConfig,
@@ -1925,13 +2113,61 @@
         return safeText(value, limit || 240).replace(/[\r\n]+/g, ' ').trim();
     }
 
+    function compactOperationFacts(facts) {
+        if (!facts || typeof facts !== 'object') return '';
+        var parts = [];
+        if (facts.bindGroupLayoutResourceId) parts.push('bind-layout=' + facts.bindGroupLayoutResourceId);
+        if (facts.bindGroupResourceId) parts.push('bind-group=' + facts.bindGroupResourceId);
+        if (facts.pipelineLayoutResourceId) parts.push('pipeline-layout=' + facts.pipelineLayoutResourceId);
+        if (Array.isArray(facts.bindGroupLayoutResourceIds) && facts.bindGroupLayoutResourceIds.length) {
+            parts.push('bind-layouts=[' + facts.bindGroupLayoutResourceIds.slice(0, 4).join(',') + ']');
+        }
+        if (facts.pipelineResourceId) parts.push('pipeline=' + facts.pipelineResourceId);
+        var shaderRefs = [];
+        if (facts.vertexShaderResourceId) shaderRefs.push('vs=' + facts.vertexShaderResourceId + (facts.vertexShaderLabel ? '(' + compactText(facts.vertexShaderLabel, 48) + ')' : ''));
+        if (facts.fragmentShaderResourceId) shaderRefs.push('fs=' + facts.fragmentShaderResourceId + (facts.fragmentShaderLabel ? '(' + compactText(facts.fragmentShaderLabel, 48) + ')' : ''));
+        if (facts.computeShaderResourceId) shaderRefs.push('cs=' + facts.computeShaderResourceId + (facts.computeShaderLabel ? '(' + compactText(facts.computeShaderLabel, 48) + ')' : ''));
+        if (shaderRefs.length) parts.push('shaders=[' + shaderRefs.join(',') + ']');
+        if (facts.shaderModuleResourceId) parts.push('shader-module=' + facts.shaderModuleResourceId +
+            (facts.shaderLabel ? ' ' + facts.shaderLabel : '') + (facts.codeLength ? ' chars=' + facts.codeLength : ''));
+        if (facts.entryPoints && facts.entryPoints.length) parts.push('entry=[' + facts.entryPoints.join(',') + ']');
+        if (Array.isArray(facts.textureLayouts) && facts.textureLayouts.length) {
+            parts.push('texture layout ' + facts.textureLayouts.slice(0, 4).map(function (entry) {
+                return 'b' + entry.binding + '=' + (entry.sampleType || '?') + '/' + (entry.viewDimension || '?');
+            }).join(','));
+        }
+        if (Array.isArray(facts.textures) && facts.textures.length) {
+            parts.push('texture ' + facts.textures.slice(0, 4).map(function (entry) {
+                return 'b' + entry.binding + '=' + (entry.format || '?') +
+                    (entry.size ? ' ' + entry.size : '') +
+                    (entry.textureId || entry.viewId ? ' ' + [entry.textureId, entry.viewId].filter(Boolean).join('/') : '') +
+                    (entry.mipLevelCount > 1 ? ' textureMips=' + entry.mipLevelCount : '') +
+                    (entry.viewMipLevelCount > 0 ? ' viewMips=' + entry.baseMipLevel + '+' + entry.viewMipLevelCount : '') +
+                    (entry.arrayLayerCount > 0 ? ' layers=' + entry.baseArrayLayer + '+' + entry.arrayLayerCount : '');
+            }).join(','));
+        }
+        if (Array.isArray(facts.samplerLayouts) && facts.samplerLayouts.length) {
+            parts.push('sampler layout ' + facts.samplerLayouts.slice(0, 4).map(function (entry) {
+                return 'b' + entry.binding + '=' + (entry.type || '?');
+            }).join(','));
+        }
+        if (Array.isArray(facts.samplers) && facts.samplers.length) {
+            parts.push('sampler ' + facts.samplers.slice(0, 4).map(function (entry) {
+                var filter = [entry.minFilter, entry.magFilter, entry.mipmapFilter].filter(Boolean).join('/');
+                return 'b' + entry.binding + (filter ? '=' + filter : '') + (entry.resourceId ? ' ' + entry.resourceId : '');
+            }).join(','));
+        }
+        return parts.join('; ');
+    }
+
     function compactOperationList(items, limit) {
         if (!Array.isArray(items) || !items.length) return 'not observed';
         return items.slice(-limit).map(function (item) {
             var operation = compactText(item && (item.operation || item.category) || 'GPU operation', 120);
             var count = Math.max(1, Number(item && item.count) || 1);
+            var facts = item && (item.operationFacts || summarizeOperationFacts(item.operation, item.operationDetails || item.details));
             var details = item && (item.operationDetails || item.details || item.message);
-            var detailsText = compactText(details || '', 150);
+            var detailsText = compactOperationFacts(facts) || compactText(details || '', 150);
             return operation + (count > 1 ? ' x' + count : '') + (detailsText && detailsText !== '{}' ? ' [' + detailsText + ']' : '');
         }).join(' <- ');
     }
@@ -1945,16 +2181,59 @@
             var latestAudio = state.audio.contexts.length ? state.audio.contexts[state.audio.contexts.length - 1] : null;
             var pipelineCalls = state.rendering.pipelineApiCalls;
             var shader = state.gpu.shaderCompatibility;
+            var adapterFeatures = state.gpu.workerAdapterFeatures;
+            var requestedFeatures = state.gpu.workerDeviceRequestedFeatures;
+            var deviceFeatures = state.gpu.workerDeviceFeatures;
+            var platformDisplayName = state.browser.platform;
+            var platformDisplayVersion = state.browser.platformVersion !== 'not exposed'
+                ? state.browser.platformVersion : state.browser.androidVersion;
             var workerLabels = Object.keys(workerStates).slice(-5).map(function (key) {
                 var worker = workerStates[key];
                 return compactText(worker.role, 50) + ':' + compactText(worker.state || 'observed', 40);
             });
-            var errors = state.gpu.errorGroups.slice().sort(function (left, right) {
+            function hasFeature(features, feature) {
+                if (!Array.isArray(features)) return 'unobserved';
+                return features.indexOf(feature) >= 0 ? 'present' : 'absent';
+            }
+            function featureList(features) {
+                if (!Array.isArray(features)) return 'unobserved';
+                return features.length ? compactText(features.join(', '), 260) : 'none reported';
+            }
+            function shortTime(value) {
+                var match = /T(\d{2}:\d{2}:\d{2})/.exec(String(value || ''));
+                return match ? match[1] + 'Z' : compactText(value || 'unknown', 24);
+            }
+            var firstErrors = state.gpu.errorGroups.slice().sort(function (left, right) {
+                return (Date.parse(left.firstAt) || 0) - (Date.parse(right.firstAt) || 0);
+            });
+            var latestErrors = state.gpu.errorGroups.slice().sort(function (left, right) {
                 return (Date.parse(right.lastAt) || 0) - (Date.parse(left.lastAt) || 0);
-            }).slice(0, 3);
+            });
+            var errors = [];
+            function addSelectedErrors(groups, occurrence) {
+                groups.slice(0, 2).forEach(function (group) {
+                    if (!errors.some(function (entry) { return entry.group.id === group.id; })) {
+                        errors.push({ group: group, occurrence: occurrence });
+                    }
+                });
+            }
+            addSelectedErrors(firstErrors, 'first');
+            addSelectedErrors(latestErrors, 'latest');
             var lines = [
-                'NewCatroid PlayGTA5 short diagnostics v1',
+                'NewCatroid PlayGTA5 short diagnostics v2',
                 'Captured: ' + isoTime(now) + ' · page: ' + safeUrl(window.location.href),
+                'Browser: Chrome/Chromium ' + compactText(state.browser.chromiumVersion, 40) +
+                    ' · OS ' + compactText(platformDisplayName, 32) + ' ' + compactText(platformDisplayVersion, 32) +
+                    ' (platformVersion=' + compactText(state.browser.platformVersion, 40) +
+                    ', UA Android token=' + compactText(state.browser.androidVersion, 32) + ')' +
+                    ' · UA-CH=' + compactText(state.browser.userAgentHintsStatus, 50) +
+                    ' · version source=' + compactText(state.browser.versionSource, 100),
+                'WebGPU features: float32-filterable adapter=' + hasFeature(adapterFeatures, 'float32-filterable') +
+                    ', requested=' + hasFeature(requestedFeatures, 'float32-filterable') +
+                    ', device=' + hasFeature(deviceFeatures, 'float32-filterable') +
+                    ' · adapter=[' + featureList(adapterFeatures) + ']' +
+                    ' · requested=[' + featureList(requestedFeatures) + ']' +
+                    ' · device=[' + featureList(deviceFeatures) + ']',
                 'Flags: newcatroid_debug=' + (DEBUG_ENABLED ? '1' : '0') +
                     ' · newcatroid_adreno_fix=' + (ADRENO_FIX_ENABLED ? '1' : '0') +
                     ' · newcatroid_alpha_fix=' + (ALPHA_FIX_ENABLED ? '1' : '0'),
@@ -1977,6 +2256,7 @@
                 'GPU: WebGPU=' + state.gpu.webGpuApi + ' · worker adapter=' +
                     compactText(state.gpu.workerAdapterDetails || state.gpu.adapterDetails || 'unobserved', 220) +
                     ' · error occurrences=' + state.gpu.errorOccurrences +
+                    ' · error groups retained=' + state.gpu.errorGroups.length +
                     ' · device lost=' + (state.gpu.deviceLost ? compactText(state.gpu.deviceLost.reason + ' ' + state.gpu.deviceLost.message, 220) : 'not observed'),
                 'Canvas/render: ' + (Number(canvas.width) || Number(canvas.bitmapWidth) || '?') + 'x' +
                     (Number(canvas.height) || Number(canvas.bitmapHeight) || '?') +
@@ -1990,15 +2270,22 @@
                 'WASM linear-memory capacity: ' + (latestMemory ? latestMemory.bufferMiB + ' MiB (' + compactText(latestMemory.metric, 100) + ')' : 'not observed')
             ];
             if (errors.length) {
-                lines.push('Recent WebGPU errors (up to 3):');
-                errors.forEach(function (group) {
-                    var sources = Object.keys(group.sourceKindCounts || {}).slice(0, 3).join(', ') || group.sourceKind || 'unknown source';
-                    lines.push('- ' + compactText(group.type, 100) + ' x' + group.count + ' [' + compactText(sources, 140) + ']: ' + compactText(group.message, 520));
-                    var context = group.latestContext || group.firstContext || [];
-                    if (context.length) lines.push('  Near: ' + compactOperationList(context, 3));
+                lines.push('First and latest distinct WebGPU error groups (up to 4):');
+                errors.forEach(function (entry) {
+                    var group = entry.group;
+                    var sources = Object.keys(group.sourceKindCounts || {}).slice(0, 2).map(function (source) {
+                        return compactText(source, 48) + ' x' + (Number(group.sourceKindCounts[source]) || 0);
+                    }).join(', ') || group.sourceKind || 'unknown source';
+                    lines.push('- ' + entry.occurrence + ' ' + compactText(group.type, 80) + ' x' + group.count +
+                        ' first=' + shortTime(group.firstAt) + ' last=' + shortTime(group.lastAt) +
+                        ' [' + compactText(sources, 110) + ']: ' + compactText(group.message, 360));
+                    var context = entry.occurrence === 'first'
+                        ? (group.firstContext && group.firstContext.length ? group.firstContext : group.latestContext || [])
+                        : (group.latestContext && group.latestContext.length ? group.latestContext : group.firstContext || []);
+                    if (context.length) lines.push('  Near ' + entry.occurrence + ': ' + compactOperationList(context, 3));
                 });
             } else {
-                lines.push('Recent WebGPU errors: none captured (not proof of error-free rendering).');
+                lines.push('WebGPU errors: none captured (not proof of error-free rendering).');
             }
             var exception = state.exceptions.length ? state.exceptions[state.exceptions.length - 1] : null;
             if (exception) {
@@ -2017,7 +2304,7 @@
             }
             return summary;
         } catch (error) {
-            return 'NewCatroid PlayGTA5 short diagnostics v1\nSummary generation failed: ' + safeText(error, 400);
+            return 'NewCatroid PlayGTA5 short diagnostics v2\nSummary generation failed: ' + safeText(error, 400);
         }
     }
 
@@ -2365,6 +2652,7 @@
     if (DEBUG_ENABLED) installProbeApi();
     installWorkerAndLaunchHooks();
     if (DEBUG_ENABLED) {
+        captureBrowserClientHints();
         installConsoleHooks();
         installContextErrorObservers();
         installViewportObservers();

@@ -302,6 +302,142 @@ test('GPU hooks preserve uncaptured error text, pipeline context, counts, operat
     assert.ok(messages.some((message) => message.type === 'gpu-device-observed' && message.details.uncapturederrorListenerInstalled));
 });
 
+test('GPU diagnostics identify RGBA32Float bind-group resources, layouts, sampler filters and enabled features', async () => {
+    class FakeGpuTextureView {
+        constructor(descriptor) { this.label = descriptor.label || ''; }
+    }
+    Object.defineProperty(FakeGpuTextureView.prototype, Symbol.toStringTag, { value: 'GPUTextureView' });
+
+    class FakeGpuSampler {
+        constructor(descriptor) { this.label = descriptor.label || ''; }
+    }
+    Object.defineProperty(FakeGpuSampler.prototype, Symbol.toStringTag, { value: 'GPUSampler' });
+
+    class FakeGpuTexture {
+        constructor(descriptor) {
+            this.label = descriptor.label || '';
+            this.width = descriptor.size.width;
+            this.height = descriptor.size.height;
+            this.depthOrArrayLayers = descriptor.size.depthOrArrayLayers || 1;
+            this.mipLevelCount = descriptor.mipLevelCount || 1;
+            this.sampleCount = descriptor.sampleCount || 1;
+            this.dimension = descriptor.dimension || '2d';
+            this.format = descriptor.format;
+            this.usage = descriptor.usage || 0;
+        }
+        createView(descriptor) { return new FakeGpuTextureView(descriptor || {}); }
+    }
+
+    class FakeGpuDevice {
+        constructor() {
+            this.features = new Set(['texture-compression-bc']);
+            this.limits = { maxBindGroups: 4 };
+            this.listeners = Object.create(null);
+            this.lost = new Promise(() => {});
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+        createTexture(descriptor) { return new FakeGpuTexture(descriptor); }
+        createSampler(descriptor) { return new FakeGpuSampler(descriptor || {}); }
+        createBindGroupLayout(descriptor) { return { label: descriptor.label || '' }; }
+        createBindGroup(descriptor) { return { label: descriptor.label || '' }; }
+        createShaderModule(descriptor) { return { label: descriptor.label || '' }; }
+        createPipelineLayout(descriptor) { return { label: descriptor.label || '' }; }
+        createRenderPipeline(descriptor) { return { label: descriptor.label || '' }; }
+    }
+    class FakeGpuAdapter {
+        constructor() {
+            this.features = new Set(['texture-compression-bc']);
+            this.limits = { maxTextureDimension2D: 8192 };
+            this.info = { vendor: 'qualcomm', architecture: 'adreno-7xx' };
+        }
+        requestDevice(descriptor) { this.lastRequest = descriptor; return Promise.resolve(device); }
+    }
+    const device = new FakeGpuDevice();
+    const adapter = new FakeGpuAdapter();
+    const gpu = { requestAdapter() { return Promise.resolve(adapter); } };
+    const env = createWorkerContext('/wgpu_worker.js?newcatroid_worker_debug=1', {
+        self: {
+            GPUDevice: FakeGpuDevice,
+            GPUAdapter: FakeGpuAdapter,
+            GPUTexture: FakeGpuTexture,
+            GPUTextureView: FakeGpuTextureView,
+            GPU: function () {},
+            navigator: { gpu }
+        }
+    });
+    const selectedAdapter = await env.self.navigator.gpu.requestAdapter();
+    await selectedAdapter.requestDevice({ requiredFeatures: ['texture-compression-bc'] });
+
+    const texture = device.createTexture({
+        label: 'hdr-target',
+        size: { width: 1024, height: 512, depthOrArrayLayers: 1 },
+        dimension: '2d', mipLevelCount: 4, sampleCount: 1, format: 'rgba32float', usage: 4
+    });
+    const view = texture.createView({ dimension: '2d', format: 'rgba32float', baseMipLevel: 0, mipLevelCount: 4 });
+    const sampler = device.createSampler({ minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'linear' });
+    device.createSampler({});
+    const layout = device.createBindGroupLayout({ label: 'sample-layout', entries: [
+        { binding: 16, visibility: 2, sampler: { type: 'filtering' } },
+        { binding: 32, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d', multisampled: false } }
+    ] });
+    device.createBindGroup({ label: 'sample-group', layout, entries: [
+        { binding: 16, resource: sampler },
+        { binding: 32, resource: view }
+    ] });
+    const shader = device.createShaderModule({ label: 'world-fragment', code: 'fn fs() {}' });
+    const pipelineLayout = device.createPipelineLayout({ label: 'world-pipeline-layout', bindGroupLayouts: [layout] });
+    device.createRenderPipeline({ label: 'world-pipeline', layout: pipelineLayout,
+        vertex: { module: shader, entryPoint: 'vsMain' },
+        fragment: { module: shader, entryPoint: 'fsMain', targets: [{ format: 'bgra8unorm' }] }
+    });
+
+    const validation = Object.assign(new Error('None of the supported sample types (UnfilterableFloat) of Texture RGBA32Float match expected sample type Float'), {
+        name: 'GPUValidationError'
+    });
+    for (const listener of device.listeners.uncapturederror || []) listener({ error: validation });
+
+    const messages = env.channel.messages;
+    const adapterMessage = messages.find((message) => message.type === 'gpu-adapter-observed');
+    const requestMessage = messages.find((message) => message.type === 'gpu-device-request');
+    const deviceMessage = messages.find((message) => message.type === 'gpu-device-observed');
+    assert.deepEqual(JSON.parse(JSON.stringify(adapterMessage.details.features)), ['texture-compression-bc']);
+    assert.deepEqual(JSON.parse(JSON.stringify(requestMessage.details.requestedFeatures)), ['texture-compression-bc']);
+    assert.deepEqual(JSON.parse(JSON.stringify(deviceMessage.details.requestedFeatures)), ['texture-compression-bc']);
+    assert.deepEqual(JSON.parse(JSON.stringify(deviceMessage.details.features)), ['texture-compression-bc']);
+
+    const errorGroup = messages.find((message) => message.type === 'webgpu-error-group' && /RGBA32Float/.test(message.details.message));
+    assert.ok(errorGroup);
+    const layoutOperation = errorGroup.details.firstContext.find((operation) => /GPUDevice.createBindGroupLayout/.test(operation.operation));
+    const bindGroupOperation = errorGroup.details.firstContext.find((operation) => /GPUDevice.createBindGroup$/.test(operation.operation));
+    assert.equal(layoutOperation.details.textureBindings[0].texture.sampleType, 'float');
+    assert.equal(layoutOperation.details.samplerBindings[0].sampler.type, 'filtering');
+    assert.match(layoutOperation.details.resourceId, /^bind-layout-\d+$/);
+    assert.equal(bindGroupOperation.details.layoutResourceId, layoutOperation.details.resourceId);
+    const pipelineLayoutOperation = errorGroup.details.firstContext.find((operation) => /GPUDevice.createPipelineLayout/.test(operation.operation));
+    assert.equal(pipelineLayoutOperation.details.bindGroupLayoutResourceIds[0], layoutOperation.details.resourceId);
+    const shaderOperation = errorGroup.details.firstContext.find((operation) => /GPUDevice.createShaderModule/.test(operation.operation));
+    const pipelineOperation = errorGroup.details.firstContext.find((operation) => /GPUDevice.createRenderPipeline$/.test(operation.operation));
+    assert.equal(pipelineOperation.details.pipelineLayoutResourceId, pipelineLayoutOperation.details.resourceId);
+    assert.equal(pipelineOperation.details.fragmentShaderResourceId, shaderOperation.details.resourceId);
+    assert.match(shaderOperation.details.resourceId, /^shader-module-\d+$/);
+    const textureBinding = bindGroupOperation.details.textureBindings[0];
+    assert.equal(textureBinding.binding, 32);
+    assert.equal(textureBinding.resource.texture.texture.format, 'rgba32float');
+    assert.match(textureBinding.resource.texture.texture.resourceId, /^texture-\d+$/);
+    assert.match(textureBinding.resource.resourceId, /^view-\d+$/);
+    assert.equal(textureBinding.resource.texture.texture.mipLevelCount, 4);
+    assert.equal(textureBinding.resource.texture.view.baseMipLevel, '0');
+    assert.equal(textureBinding.resource.texture.view.mipLevelCount, '4');
+    assert.equal(bindGroupOperation.details.samplerBindings[0].resource.sampler.minFilter, 'linear');
+    assert.equal(bindGroupOperation.details.samplerBindings[0].resource.sampler.mipmapFilter, 'linear');
+    const samplerOperations = errorGroup.details.firstContext.filter((operation) => /GPUDevice.createSampler/.test(operation.operation));
+    assert.equal(samplerOperations.at(-1).details.minFilter, 'nearest (default)');
+    assert.equal(samplerOperations.at(-1).details.magFilter, 'nearest (default)');
+    assert.equal(samplerOperations.at(-1).details.mipmapFilter, 'nearest (default)');
+    const textureCreate = errorGroup.details.firstContext.find((operation) => /GPUDevice.createTexture/.test(operation.operation));
+    assert.equal(textureCreate.details.resourceId, textureBinding.resource.texture.texture.resourceId);
+});
+
 test('GPU worker reports alpha-fix URL propagation separately from shim and shader-variant counters', () => {
     const stats = {
         enabled: true,
