@@ -62,7 +62,9 @@ class HttpServerEngine(
     private val logger: HttpLogSink = { _, _, _ -> },
     private val addCrossOriginIsolationHeaders: Boolean = true,
     private val requestLog: RequestLog? = null,
-    private val touchControlsScriptProvider: (() -> String?)? = null
+    private val touchControlsScriptProvider: (() -> String?)? = null,
+    private val gameDiagnosticsScriptProvider: (() -> String?)? = null,
+    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null
 ) {
 
     @Volatile
@@ -114,7 +116,9 @@ class HttpServerEngine(
                 logger,
                 addCrossOriginIsolationHeaders,
                 requestLog,
-                touchControlsScriptProvider
+                touchControlsScriptProvider,
+                gameDiagnosticsScriptProvider,
+                workerDiagnosticsBootstrapProvider
             )
 
             val socket: ServerSocket = try {

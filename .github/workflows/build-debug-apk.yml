@@ -70,8 +70,8 @@ jobs:
             --tests "org.catrobat.catroid.test.xmlformat.*" \
             --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/test-output.log"
 
-      - name: Run touch-control editor tests
-        run: node --test catroid/src/test/js/newcatroid_touch_controls.test.cjs
+      - name: Run browser diagnostics and touch-control JS tests
+        run: node --test catroid/src/test/js/newcatroid_touch_controls.test.cjs catroid/src/test/js/newcatroid_game_diagnostics.test.cjs catroid/src/test/js/newcatroid_worker_diagnostics.test.cjs
 
       - name: Extract test failure details
         if: failure()

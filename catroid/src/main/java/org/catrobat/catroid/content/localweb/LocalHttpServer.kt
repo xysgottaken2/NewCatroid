@@ -49,18 +49,38 @@ object LocalHttpServer {
     private const val TAG = "LocalHttpServer"
     private const val HTTP_LOG_TAG = "NewCatroidHttp"
 
-    /** Lazily read (and cached) touch controls overlay script from the app assets. */
+    /** Lazily read (and cached) local opt-in scripts from the app resources. */
     private var cachedTouchControlsScript: String? = null
+    private var cachedGameDiagnosticsScript: String? = null
+    private var cachedWorkerDiagnosticsBootstrap: String? = null
 
-    private fun touchControlsScript(): String? {
-        cachedTouchControlsScript?.let { return it }
+    private fun touchControlsScript(): String? = readLocalScript(
+        cached = cachedTouchControlsScript,
+        resourceId = org.catrobat.catroid.R.raw.newcatroid_touch_controls,
+        description = "touch controls overlay"
+    ) { cachedTouchControlsScript = it }
+
+    private fun gameDiagnosticsScript(): String? = readLocalScript(
+        cached = cachedGameDiagnosticsScript,
+        resourceId = org.catrobat.catroid.R.raw.newcatroid_game_diagnostics,
+        description = "game diagnostics bootstrap"
+    ) { cachedGameDiagnosticsScript = it }
+
+    private fun workerDiagnosticsBootstrap(): String? = readLocalScript(
+        cached = cachedWorkerDiagnosticsBootstrap,
+        resourceId = org.catrobat.catroid.R.raw.newcatroid_worker_diagnostics,
+        description = "worker diagnostics bootstrap"
+    ) { cachedWorkerDiagnosticsBootstrap = it }
+
+    private fun readLocalScript(cached: String?, resourceId: Int, description: String, cache: (String) -> Unit): String? {
+        cached?.let { return it }
         return try {
             val context = CatroidApplication.getAppContext()
-            context.resources.openRawResource(org.catrobat.catroid.R.raw.newcatroid_touch_controls)
+            context.resources.openRawResource(resourceId)
                 .use { it.readBytes().toString(Charsets.UTF_8) }
-                .also { cachedTouchControlsScript = it }
+                .also(cache)
         } catch (e: Exception) {
-            Log.w(TAG, "Unable to read touch controls overlay script", e)
+            Log.w(TAG, "Unable to read $description script", e)
             null
         }
     }
@@ -207,6 +227,8 @@ object LocalHttpServer {
             addCrossOriginIsolationHeaders = addCrossOriginIsolationHeaders,
             requestLog = LocalDiagnostics.requestLog,
             touchControlsScriptProvider = { touchControlsScript() },
+            gameDiagnosticsScriptProvider = { gameDiagnosticsScript() },
+            workerDiagnosticsBootstrapProvider = { workerDiagnosticsBootstrap() },
             logger = { level, message, error ->
                 when (level) {
                     LogLevel.DEBUG -> Log.d(HTTP_LOG_TAG, message)

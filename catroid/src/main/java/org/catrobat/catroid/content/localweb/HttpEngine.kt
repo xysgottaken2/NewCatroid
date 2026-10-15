@@ -68,7 +68,9 @@ class HttpEngine(
     private val logger: HttpLogSink = { _, _, _ -> },
     private val addCrossOriginIsolationHeaders: Boolean = true,
     private val requestLog: RequestLog? = null,
-    private val touchControlsScriptProvider: (() -> String?)? = null
+    private val touchControlsScriptProvider: (() -> String?)? = null,
+    private val gameDiagnosticsScriptProvider: (() -> String?)? = null,
+    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -285,8 +287,8 @@ class HttpEngine(
         // Built-in optional touch controls overlay script. Served by the
         // server itself (a separate, removable file - no hosted game file is
         // modified). Injected into HTML pages only when requested with
-        // ?newcatroid_touch=1 (see handleFile); the overlay itself hides on
-        // non-touch devices and leaves desktop mouse/keyboard input alone.
+        // ?newcatroid_touch=1 (see handleFile); it is independent of both
+        // game diagnostics and the experimental graphics mode.
         if (relativeToPrefix == TOUCH_CONTROLS_PATH) {
             val script = touchControlsScriptProvider?.invoke()
             if (script == null) {
@@ -295,20 +297,23 @@ class HttpEngine(
                 record.detail = "touch controls script unavailable"
                 return
             }
-            val body = script.toByteArray(StandardCharsets.UTF_8)
-            writeResponseHeaders(
-                out, 200, "OK",
-                listOf(
-                    "Content-Type" to "text/javascript; charset=utf-8",
-                    "Content-Length" to body.size.toString(),
-                    "Cache-Control" to "no-store"
-                )
-            )
-            if (!isHead) out.write(body)
-            record.status = 200
-            record.mimeType = "text/javascript; charset=utf-8"
-            record.detail = "built-in touch controls overlay script"
-            logger(LogLevel.INFO, "$method $rawPath -> 200 touch controls script", null)
+            writeBuiltInScriptResponse(method, rawPath, script, "touch controls overlay script", isHead, out, record)
+            return
+        }
+
+        // The opt-in diagnostics are separate local resources. The page
+        // bootstrap is injected only for newcatroid_debug=1 or
+        // newcatroid_adreno_fix=1; the worker bootstrap is injected only into
+        // the game workers requested by the diagnostic bootstrap.
+        if (relativeToPrefix == GAME_DIAGNOSTICS_PATH) {
+            val script = gameDiagnosticsScriptProvider?.invoke()
+            if (script == null) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found (game diagnostics unavailable)")
+                record.status = 404
+                record.detail = "game diagnostics script unavailable"
+                return
+            }
+            writeBuiltInScriptResponse(method, rawPath, script, "opt-in game diagnostics script", isHead, out, record)
             return
         }
 
@@ -695,34 +700,68 @@ class HttpEngine(
                     return
                 }
                 is HttpRanges.Result.Ignore -> {
-                    // Optional touch controls overlay: inject the overlay
-                    // script into HTML pages when the request asks for it
-                    // (?newcatroid_touch=1). The overlay is a separate script
-                    // served by this server; the hosted file itself is not
-                    // modified.
                     var outBytes = bytes
-                    if (query.split('&').any { it == "newcatroid_touch" || it == "newcatroid_touch=1" } &&
-                        contentType.startsWith("text/html")
+                    val injected = mutableListOf<String>()
+                    val isHtml = contentType.startsWith("text/html")
+
+                    // The diagnostics and graphics experiment are independent
+                    // opt-ins. Their shared bootstrap only observes the game
+                    // launch message and, for the experiment, sets the
+                    // existing synchronous-pipeline option. It never touches
+                    // the touch-controls code or input events.
+                    if (isHtml && (hasQueryFlag(query, GAME_DIAGNOSTICS_QUERY) ||
+                            hasQueryFlag(query, ADRENO_FIX_QUERY))
                     ) {
-                        outBytes = injectTouchControlsScript(bytes)
-                        record.detail = "touch controls overlay injected"
-                        logger(LogLevel.INFO, "GET $requestPath -> injected touch controls overlay", null)
+                        if (gameDiagnosticsScriptProvider?.invoke() != null) {
+                            outBytes = injectGameDiagnosticsScript(outBytes)
+                            injected += "opt-in game diagnostics bootstrap"
+                        }
                     }
+
+                    // Full diagnostics mark the loader and its GPU/I/O
+                    // workers; fix-only mode marks just loader.js so a
+                    // minimal hook can confirm the existing pipeline URL
+                    // without enabling the diagnostics collection.
+                    val workerName = entry.name.lowercase()
+                    val fullWorkerDiagnostics = hasQueryFlag(query, WORKER_DIAGNOSTICS_QUERY) &&
+                        workerName in DIAGNOSTIC_WORKER_SCRIPT_NAMES
+                    val pipelineSelectionProbe = hasQueryFlag(query, WORKER_PIPELINE_QUERY) && workerName == "loader.js"
+                    if (fullWorkerDiagnostics || pipelineSelectionProbe) {
+                        val workerScript = workerDiagnosticsBootstrapProvider?.invoke()
+                        if (workerScript != null) {
+                            outBytes = appendWorkerDiagnosticsBootstrap(outBytes, workerScript)
+                            injected += "worker diagnostics bootstrap"
+                        }
+                    }
+
+                    // Keep the existing touch feature separately gated and
+                    // byte-for-byte unchanged when its own parameter is not
+                    // requested.
+                    if (isHtml && query.split('&').any { it == "newcatroid_touch" || it == "newcatroid_touch=1" }) {
+                        outBytes = injectTouchControlsScript(outBytes)
+                        injected += "touch controls overlay"
+                    }
+                    if (injected.isNotEmpty()) {
+                        record.detail = injected.joinToString("; ") + " injected"
+                        logger(LogLevel.INFO, "GET $requestPath -> injected ${injected.joinToString(" and ")}", null)
+                    }
+
                     val sent = outBytes.size.toLong()
                     writeResponseHeaders(
                         out, 200, "OK",
-                        listOf(
+                        listOfNotNull(
                             "Content-Type" to contentType,
                             "Content-Length" to sent.toString(),
-                            "Accept-Ranges" to "bytes"
+                            "Accept-Ranges" to "bytes",
+                            if (injected.any { it == "worker diagnostics bootstrap" }) "Cache-Control" to "no-store" else null
                         )
                     )
                     if (!isHead) out.write(outBytes)
                     record.status = 200
                     record.mimeType = contentType
                     record.bytesSent = if (isHead) 0 else sent
-                    if (sent != size) {
-                        record.detail = "size mismatch: provider reported $size, sent $sent bytes"
+                    if (sent == bytes.size.toLong() && bytes.size.toLong() != size) {
+                        record.detail = "size mismatch: provider reported $size, sent ${bytes.size} bytes"
                     }
                     logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent bytes (${entry.id})", null)
                     return
@@ -1005,6 +1044,64 @@ class HttpEngine(
         return suffixSearcher!!
     }
 
+    private fun writeBuiltInScriptResponse(
+        method: String,
+        rawPath: String,
+        script: String,
+        description: String,
+        isHead: Boolean,
+        out: OutputStream,
+        record: RequestRecord
+    ) {
+        val body = script.toByteArray(StandardCharsets.UTF_8)
+        writeResponseHeaders(
+            out, 200, "OK",
+            listOf(
+                "Content-Type" to "text/javascript; charset=utf-8",
+                "Content-Length" to body.size.toString(),
+                "Cache-Control" to "no-store"
+            )
+        )
+        if (!isHead) out.write(body)
+        record.status = 200
+        record.mimeType = "text/javascript; charset=utf-8"
+        record.bytesSent = if (isHead) 0 else body.size.toLong()
+        record.detail = description
+        logger(LogLevel.INFO, "$method $rawPath -> 200 $description", null)
+    }
+
+    /** Injects the early page diagnostics bootstrap into an HTML document. */
+    private fun injectGameDiagnosticsScript(html: ByteArray): ByteArray {
+        val prefix = HttpPaths.normalizePrefix(urlPrefixProvider())
+        val src = if (prefix == "/") "/$GAME_DIAGNOSTICS_PATH" else "$prefix/$GAME_DIAGNOSTICS_PATH"
+        val tag = "<script src=\"$src\"></script>"
+        val text = String(html, StandardCharsets.UTF_8)
+        val headStart = text.indexOf("<head", ignoreCase = true)
+        val tagBoundary = headStart + "<head".length
+        val isHeadTag = headStart >= 0 &&
+            (tagBoundary >= text.length || text[tagBoundary].isWhitespace() || text[tagBoundary] == '>')
+        val headEnd = if (isHeadTag) text.indexOf('>', headStart) else -1
+        val injected = if (headEnd >= 0) {
+            text.substring(0, headEnd + 1) + tag + text.substring(headEnd + 1)
+        } else {
+            tag + text
+        }
+        return injected.toByteArray(StandardCharsets.UTF_8)
+    }
+
+    /** Appends observational hooks so an original worker's strict directive remains effective. */
+    private fun appendWorkerDiagnosticsBootstrap(script: ByteArray, bootstrap: String): ByteArray {
+        val suffix = ("\n" + bootstrap + "\n").toByteArray(StandardCharsets.UTF_8)
+        return ByteArray(script.size + suffix.size).also {
+            System.arraycopy(script, 0, it, 0, script.size)
+            System.arraycopy(suffix, 0, it, script.size, suffix.size)
+        }
+    }
+
+    private fun hasQueryFlag(query: String, name: String): Boolean = query.split('&').any { part ->
+        part.substringBefore('=') == name && part.substringAfter('=', "") == "1"
+    }
+
     /** Injects the touch controls overlay script tag into an HTML document. */
     private fun injectTouchControlsScript(html: ByteArray): ByteArray {
         val prefix = HttpPaths.normalizePrefix(urlPrefixProvider())
@@ -1208,6 +1305,12 @@ class HttpEngine(
          */
         const val ISOLATION_CHECK_PATH = "__newcatroid_isolation_check"
         const val TOUCH_CONTROLS_PATH = "__newcatroid_touch_controls.js"
+        const val GAME_DIAGNOSTICS_PATH = "__newcatroid_game_diagnostics.js"
+        const val GAME_DIAGNOSTICS_QUERY = "newcatroid_debug"
+        const val ADRENO_FIX_QUERY = "newcatroid_adreno_fix"
+        const val WORKER_DIAGNOSTICS_QUERY = "newcatroid_worker_debug"
+        const val WORKER_PIPELINE_QUERY = "newcatroid_pipeline_probe"
+        val DIAGNOSTIC_WORKER_SCRIPT_NAMES = setOf("loader.js", "wgpu_worker.js", "io_worker.js")
         const val DATA_BATCH_PATH = "data/batch"
         const val MAX_BATCH_RUNS = 1000
         const val MAX_BATCH_BODY_BYTES = 1024 * 1024
