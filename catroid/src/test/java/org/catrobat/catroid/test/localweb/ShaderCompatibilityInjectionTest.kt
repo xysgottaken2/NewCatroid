@@ -37,6 +37,7 @@ import java.io.File
 
 class ShaderCompatibilityInjectionTest {
     private lateinit var root: File
+    private lateinit var store: FileDocumentStore
     private lateinit var server: HttpServerEngine
     private var port = -1
     private val bootstrap = "self.alphaCompatibilityLoaded = true;"
@@ -44,12 +45,13 @@ class ShaderCompatibilityInjectionTest {
 
     @Before fun setUp() {
         root = java.nio.file.Files.createTempDirectory("shader-compatibility").toFile()
+        store = FileDocumentStore(root)
         File(root, "index.html").writeText(page)
         File(root, "loader.js").writeText("'use strict';\nself.onmessage = function () {};")
         File(root, "wgpu_worker.js").writeText("'use strict';\nself.unknownWorker = true;")
         File(root, "io_worker.js").writeText("self.io = true;")
         server = HttpServerEngine(
-            storeProvider = { FileDocumentStore(root) },
+            storeProvider = { store },
             urlPrefixProvider = { "/game" },
             shaderCompatibilityScriptProvider = { bootstrap },
             workerDiagnosticsBootstrapProvider = { "self.diagnostics = true;" }
