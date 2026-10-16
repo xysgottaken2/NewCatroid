@@ -158,6 +158,9 @@ function createPage(search = '', overrides = {}) {
         RegExp,
         JSON,
         Error,
+        Atomics,
+        SharedArrayBuffer,
+        WebAssembly,
         parseInt,
         parseFloat
     };
@@ -522,7 +525,11 @@ test('short diagnostics distinguish server hash, binding 44 draw evidence and su
     const now = Date.now();
     worker.emit({ source: 'gpu-worker', type: 'worker-bootstrap', at: now, details: {
         workerUrlAlphaFix: true,
-        alphaFixServerVerification: { requested: true, expectedSha256: hash, actualSha256: hash, hashMatches: true, shimInjected: true },
+        alphaFixServerVerification: { requested: true, expectedSha256: hash, actualSha256: hash,
+            expectedSource: 'shadany7824/playgta5@2fb671ad/wgpu_worker.js',
+            requestedRelativePath: 'wgpu_worker.js', resolvedSourcePath: 'mirror/site/wgpu_worker.js',
+            sourceResolution: 'nested-suffix', sourceBytes: 123456, reason: 'reviewed-worker-hash',
+            hashMatches: true, shimInjected: true },
         shaderCompatibility: { hookInstalled: false, alphaCoverageVariantsSeen: 0, nonVec4AlphaTestsBypassed: 0, vec4AlphaTestsPreserved: 0 }
     } });
     worker.emit({ source: 'gpu-worker', type: 'gpu-binding-trace', at: now + 1, details: {
@@ -555,6 +562,7 @@ test('short diagnostics distinguish server hash, binding 44 draw evidence and su
 
     const summary = api.getShortSummary();
     assert.match(summary, /server SHA match=true.*shim appended=true/);
+    assert.match(summary, /source=shadany7824\/playgta5@2fb671ad\/wgpu_worker\.js request=wgpu_worker\.js selected=mirror\/site\/wgpu_worker\.js resolution=nested-suffix bytes=123456 reason=reviewed-worker-hash/);
     assert.match(summary, /runtime hook not observed/);
     assert.match(summary, /Binding 44 draw trace: group=1 b44=heightTexture:texture_2d<f32>/);
     assert.match(summary, /direct textureLoad=0 sample=textureSampleLevelx1/);
@@ -563,19 +571,56 @@ test('short diagnostics distinguish server hash, binding 44 draw evidence and su
     assert.match(summary, /target=bgra8unorm 720x1280/);
     assert.match(summary, /AudioContext state=suspended stateChanges=0 resume=rejected NotAllowedError/);
     assert.match(summary, /resume calls=1/);
-    assert.match(summary, /worklets loaded\/rejected=0\/0 · AudioWorkletNode=0 · worker audio message=false/);
+    assert.match(summary, /worklets loaded\/rejected=0\/0 · AudioWorkletNode=0 · direct destination connections=0 · worker audio message=false/);
     assert.match(summary, /display\/pixels=not measured/);
 
     const report = JSON.parse(api.getReport());
     assert.equal(report.graphics.shaderCompatibility.serverVerification.requested, true);
     assert.equal(report.graphics.shaderCompatibility.serverVerification.expectedSha256, hash);
     assert.equal(report.graphics.shaderCompatibility.serverVerification.actualSha256, hash);
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.expectedSource, 'shadany7824/playgta5@2fb671ad/wgpu_worker.js');
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.requestedRelativePath, 'wgpu_worker.js');
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.resolvedSourcePath, 'mirror/site/wgpu_worker.js');
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.sourceResolution, 'nested-suffix');
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.sourceBytes, 123456);
+    assert.equal(report.graphics.shaderCompatibility.serverVerification.reason, 'reviewed-worker-hash');
     assert.equal(report.graphics.shaderCompatibility.serverVerification.hashMatches, true);
     assert.equal(report.graphics.shaderCompatibility.serverVerification.shimInjected, true);
     assert.equal(report.rendering.binding44Traces[0].binding44.resource.format, 'r32float');
     assert.equal(report.rendering.binding44Traces[0].bindGroup.layoutMatchesPipeline, true);
     assert.equal(report.audio.contexts[0].resumeAttempts, 1);
     assert.match(report.audio.contexts[0].lastResumeResult, /rejected NotAllowedError/);
+});
+
+test('short diagnostics retain a compute binding 39 trace alongside fragment binding 44 evidence', () => {
+    const page = createPage('?newcatroid_debug=1');
+    const api = page.window.__newcatroidGameDiagnostics;
+    const worker = page.getChannels().find((channel) => channel.name === 'newcatroid-debug');
+    worker.emit({ source: 'gpu-worker', type: 'gpu-compute-binding-trace', at: Date.now(), details: {
+        traceId: 'compute-b39-trace', stage: 'compute',
+        pass: { sequence: 12, label: 'height-convert' },
+        command: { operation: 'GPUComputePassEncoder.dispatchWorkgroups', apiCallReturned: true, arguments: { workgroups: [16, 8, 1] } },
+        pipeline: { resourceId: 'compute-pipeline-2', label: 'height-convert-pipeline', layoutResourceId: '',
+            layoutMode: 'auto or implicit', computeShaderResourceId: 'shader-module-7', computeShaderLabel: 'height-convert-cs', computeEntryPoint: 'csMain' },
+        bindGroup: { index: 0, resourceId: 'bind-group-5', layoutResourceId: 'bind-layout-8',
+            pipelineExpectedLayoutResourceId: 'bind-layout-8', layoutMatchesPipeline: true },
+        binding39: { group: 0, binding: 39, wgslName: 'heightTexture', wgslType: 'texture_2d<f32>',
+            textureLoadCount: 1, sampleCounts: {}, sampleCallCount: 0,
+            analysisScope: 'direct WGSL builtin calls only; aliases and helper-function flow are not followed',
+            layoutSampleType: 'float', layoutViewDimension: '2d', layoutVisibility: 4,
+            resource: { kind: 'texture view', format: 'r32float', width: 128, height: 64,
+                textureResourceId: 'texture-9', viewResourceId: 'view-9', mipLevelCount: 1 },
+            samplers: [] }
+    } });
+
+    const summary = api.getShortSummary();
+    assert.match(summary, /Binding 39 compute trace: group=0 b39=heightTexture:texture_2d<f32>/);
+    assert.match(summary, /direct textureLoad=1 sample=none BGL=float\/2d visibility=4 resource=r32float#texture-9\/view-9 128x64/);
+    assert.match(summary, /workgroups=16x8x1/);
+    const report = JSON.parse(api.getReport());
+    assert.equal(report.rendering.computeBinding39Traces.length, 1);
+    assert.equal(report.rendering.computeBinding39Traces[0].binding39.resource.format, 'r32float');
+    assert.equal(report.rendering.computeBinding39Traces[0].bindGroup.layoutMatchesPipeline, true);
 });
 
 test('short diagnostics preserve first and latest distinct GPU errors with texture and layout facts', () => {
@@ -750,6 +795,81 @@ test('short diagnostics prefer exact Chrome and Android versions from supported 
     assert.equal(report.browser.platformVersion, '16.0.0');
     assert.equal(report.browser.userAgentHintsStatus, 'captured');
     assert.match(report.browser.versionSource, /fullVersionList\/platformVersion/);
+});
+
+test('audio observer samples shared ring counters and a direct worklet destination edge without claiming audible output', async () => {
+    class FakeAudioNode {
+        constructor(context) { this.context = context; }
+        connect(destination) { this.connectedDestination = destination; return this; }
+    }
+    class FakeAudioWorkletNode extends FakeAudioNode {
+        constructor(context, processorName) {
+            super(context);
+            this.processorName = processorName;
+            this.listeners = Object.create(null);
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+    }
+    class FakeAudioContext {
+        constructor() {
+            this.state = 'running';
+            this.sampleRate = 48000;
+            this.destination = { maxChannelCount: 2 };
+            this.listeners = Object.create(null);
+            this.audioWorklet = { addModule() { return Promise.resolve(); } };
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+        resume() { return Promise.resolve(); }
+    }
+    const page = createPage('?newcatroid_debug=1', {
+        window: { AudioNode: FakeAudioNode, AudioContext: FakeAudioContext, AudioWorkletNode: FakeAudioWorkletNode }
+    });
+    const context = new page.window.AudioContext();
+    await context.audioWorklet.addModule('/audio-worklet.js');
+    const node = new page.window.AudioWorkletNode(context, 'game-audio');
+    node.connect(context.destination);
+
+    const worker = new page.window.Worker('/game.js');
+    const shared = new SharedArrayBuffer(128);
+    const header = new Int32Array(shared, 32, 8);
+    Atomics.store(header, 0, 100);
+    Atomics.store(header, 1, 40);
+    Atomics.store(header, 3, 5);
+    Atomics.store(header, 4, 123456);
+    worker.emit('message', { data: { audio: { memory: { buffer: shared }, ring: 32, capacity: 64 } } });
+
+    Atomics.store(header, 0, 148);
+    Atomics.store(header, 1, 88);
+    Atomics.store(header, 3, 8);
+    Atomics.store(header, 4, 654321);
+    page.runIntervals();
+
+    const report = JSON.parse(page.window.__newcatroidGameDiagnostics.getReport());
+    assert.equal(report.audio.nodes.length, 1);
+    assert.equal(report.audio.nodes[0].processorName, 'game-audio');
+    assert.equal(report.audio.nodes[0].connectedDirectlyToDestination, true);
+    assert.equal(report.audio.nodes[0].directDestinationConnectAttempts, 1);
+    assert.equal(report.audio.ringStatus, 'SharedArrayBuffer ring sampled with non-destructive Atomics.load');
+    assert.equal(report.audio.ringCapacity, 64);
+    assert.ok(report.audio.ringSamples.length >= 2);
+    assert.deepEqual({
+        written: report.audio.ringSamples.at(-1).framesWritten,
+        read: report.audio.ringSamples.at(-1).framesRead,
+        queued: report.audio.ringSamples.at(-1).queuedFrames,
+        calls: report.audio.ringSamples.at(-1).workletCalls,
+        peakRaw: report.audio.ringSamples.at(-1).peakRaw,
+        deltaWritten: report.audio.ringSamples.at(-1).deltaFramesWritten,
+        deltaRead: report.audio.ringSamples.at(-1).deltaFramesRead,
+        deltaCalls: report.audio.ringSamples.at(-1).deltaWorkletCalls
+    }, { written: 148, read: 88, queued: 60, calls: 8, peakRaw: 654321, deltaWritten: 48, deltaRead: 48, deltaCalls: 3 });
+    assert.match(report.audio.ringSamples.at(-1).counterSchema, /served page identity unverified/);
+
+    const summary = page.window.__newcatroidGameDiagnostics.getShortSummary();
+    assert.match(summary, /AudioBufferSourceNode\.start calls=0/);
+    assert.match(summary, /AudioWorkletNode=1 · direct destination connections=1/);
+    assert.match(summary, /workletCalls=8/);
+    assert.match(summary, /actual audible output is not measured/);
+    assert.equal(page.fetchCalls(), 0);
 });
 
 test('audio observer records context state, user gesture and autoplay rejection without resuming automatically', async () => {

@@ -212,10 +212,34 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Test APK verifier
+        run: python3 -m unittest discover -s tools -p 'test_verify_debug_apk.py' -v
+
       - name: Build debug APK (danvex)
         run: |
           set -o pipefail
           ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
+
+      - name: Verify APK launcher, compiled UI, assets, and ARM64 libraries
+        run: |
+          set -euo pipefail
+          APK_PATH="$(find catroid/build/outputs/apk/danvex/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No danvexDebug APK was produced" >&2
+            exit 1
+          fi
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Neither ANDROID_HOME nor ANDROID_SDK_ROOT is set" >&2
+            exit 1
+          fi
+          AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
+          if [ -z "$AAPT" ] || [ ! -x "$AAPT" ]; then
+            echo "Could not find executable aapt in $SDK_ROOT/build-tools" >&2
+            exit 1
+          fi
+          python3 tools/verify_debug_apk.py --apk "$APK_PATH" --aapt "$AAPT" | tee "${RUNNER_TEMP}/apk-verification.txt"
+          cat "${RUNNER_TEMP}/apk-verification.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

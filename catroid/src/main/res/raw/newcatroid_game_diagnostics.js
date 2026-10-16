@@ -26,8 +26,11 @@
     var exceptionGroupIndex = Object.create(null);
     var resourceFailureIndex = Object.create(null);
     var audioContextRecords = typeof WeakMap === 'function' ? new WeakMap() : null;
+    var audioNodeRecords = typeof WeakMap === 'function' ? new WeakMap() : null;
     var audioContextSequence = 0;
     var audioRingView = null;
+    var audioRingMemory = null;
+    var audioRingOffset = null;
     var audioRingSampleTimer = null;
     var recentGameLogs = [];
     var lastViewportSignature = '';
@@ -88,6 +91,7 @@
             gpuOperationCounts: {},
             recentGpuOperations: [],
             binding44Traces: [],
+            computeBinding39Traces: [],
             pipelineApiCalls: { createRenderPipeline: 0, createRenderPipelineAsync: 0, createComputePipeline: 0, createComputePipelineAsync: 0 },
             lastGraphicsSampleAt: null,
             sceneHints: [],
@@ -159,15 +163,18 @@
             capabilities: [],
             memoryBufferBytes: null,
             ringCapacity: null,
+            ringStatus: 'not observed',
+            ringSourceRole: '',
+            ringSamples: [],
+            ringHeaderSchema: 'Counter labels follow the reviewed homepage implementation; the served page identity is not verified.',
             userGestureAt: null,
             contexts: [],
             workletModules: [],
             nodes: [],
             playAttempts: [],
             outputEvents: [],
-            ringSamples: [],
             lastUserActivation: null,
-            note: 'Running AudioContext/worklet and advancing ring counters do not prove audible output; autoplay policy and physical output are separate.'
+            note: 'Ring counters and direct destination connections are observations only; they do not prove audible output or rule out a downstream/device routing issue.'
         },
         memory: {
             latestWasmLinearMemory: null,
@@ -314,7 +321,7 @@
             analysisScope: safeText(value.analysisScope || '', 180),
             samplerBindings: (Array.isArray(value.samplerBindings) ? value.samplerBindings : []).slice(0, 8).map(function (sampler) {
                 return { builtin: safeText(sampler && sampler.builtin || '', 40), name: safeText(sampler && sampler.name || '', 80),
-                    group: Number(sampler && sampler.group), binding: Number(sampler && sampler.binding), type: safeText(sampler && sampler.type || '', 80) };
+                    group: Number(sampler && sampler.group), binding: Number(sampler && sampler.binding), type: safeText(sampler && (sampler.type || sampler.wgslType) || '', 80) };
             })
         };
     }
@@ -348,24 +355,35 @@
 
     function commandTraceFact(value) {
         if (!value || typeof value !== 'object') return null;
-        var binding = value.binding44 || {};
+        var binding = value.binding44 || value.binding39 || {};
         var resource = binding.resource || {};
+        var bindGroup = value.bindGroup || {};
         return {
+            stage: safeText(value.stage || (value.binding39 ? 'compute' : 'fragment'), 32),
             command: safeText(value.command && value.command.operation || '', 100),
+            arguments: value.command && value.command.arguments && typeof value.command.arguments === 'object' ? value.command.arguments : {},
             apiCallReturned: value.command && value.command.apiCallReturned === true,
             pipelineId: safeText(value.pipeline && value.pipeline.resourceId || '', 40),
             pipelineLabel: safeText(value.pipeline && value.pipeline.label || '', 100),
-            bindGroupIndex: Number(value.bindGroup && value.bindGroup.index),
-            bindGroupId: safeText(value.bindGroup && value.bindGroup.resourceId || '', 40),
-            layoutMatchesPipeline: typeof (value.bindGroup && value.bindGroup.layoutMatchesPipeline) === 'boolean'
-                ? value.bindGroup.layoutMatchesPipeline : null,
+            pipelineLayoutMode: safeText(value.pipeline && value.pipeline.layoutMode || '', 40),
+            bindGroupIndex: Number(bindGroup.index),
+            bindGroupId: safeText(bindGroup.resourceId || '', 40),
+            layoutResourceId: safeText(bindGroup.layoutResourceId || '', 40),
+            expectedLayoutResourceId: safeText(bindGroup.pipelineLayoutExpectedLayoutResourceId || bindGroup.pipelineExpectedLayoutResourceId || '', 40),
+            layoutMatchesPipeline: typeof bindGroup.layoutMatchesPipeline === 'boolean' ? bindGroup.layoutMatchesPipeline : null,
             wgsl: binding44ShaderFact({
                 group: binding.group, binding: binding.binding, name: binding.wgslName, type: binding.wgslType,
                 textureLoadCount: binding.textureLoadCount, sampleCallCount: binding.sampleCallCount,
                 sampleCounts: binding.sampleCounts, analysisScope: binding.analysisScope, samplerBindings: binding.samplers
             }),
+            layoutEvidence: safeText(binding.layoutEvidence || '', 80),
             layoutSampleType: safeText(binding.layoutSampleType || '', 40),
-            texture: { format: safeText(resource.format || '', 80), width: Number(resource.width) || null, height: Number(resource.height) || null,
+            layoutViewDimension: safeText(binding.layoutViewDimension || '', 40),
+            layoutVisibility: Number(binding.layoutVisibility) || 0,
+            texture: { label: safeText(resource.label || '', 100), viewLabel: safeText(resource.viewLabel || '', 100),
+                format: safeText(resource.format || '', 80), width: Number(resource.width) || null, height: Number(resource.height) || null,
+                textureDimension: safeText(resource.textureDimension || '', 40), textureUsage: Number(resource.textureUsage) || null,
+                viewDimension: safeText(resource.viewDimension || '', 40), viewAspect: safeText(resource.viewAspect || '', 40),
                 textureId: safeText(resource.textureResourceId || '', 40), viewId: safeText(resource.viewResourceId || '', 40) },
             samplers: (Array.isArray(binding.samplers) ? binding.samplers : []).slice(0, 8).map(function (sampler) {
                 return { group: Number(sampler && sampler.group), binding: Number(sampler && sampler.binding),
@@ -382,7 +400,7 @@
 
     function summarizeOperationFacts(operation, rawDetails) {
         var operationName = String(operation || '');
-        if (!/\.(?:createBindGroup(?:Layout)?|createPipelineLayout|create(?:Render|Compute)Pipeline(?:Async)?|createShaderModule|draw(?:Indexed|Indirect|IndexedIndirect)?)$/.test(operationName)) return null;
+        if (!/\.(?:createBindGroup(?:Layout)?|createPipelineLayout|create(?:Render|Compute)Pipeline(?:Async)?|createShaderModule|draw(?:Indexed|Indirect|IndexedIndirect)?|dispatchWorkgroups(?:Indirect)?)$/.test(operationName)) return null;
         var details = operationDetailObject(rawDetails);
         if (!details) return null;
         var facts = {};
@@ -399,8 +417,12 @@
                 };
             });
             facts.binding44Layout = binding44LayoutFact(details.binding44Layout);
+            facts.binding39Layout = binding44LayoutFact(details.binding39Layout);
             if (facts.binding44Layout && !facts.textureLayouts.some(function (entry) { return entry.binding === 44; })) {
                 facts.textureLayouts.push(facts.binding44Layout);
+            }
+            if (facts.binding39Layout && !facts.textureLayouts.some(function (entry) { return entry.binding === 39; })) {
+                facts.textureLayouts.push(facts.binding39Layout);
             }
             facts.samplerLayouts = (Array.isArray(details.samplerBindings) ? details.samplerBindings : []).slice(0, 8).map(function (entry) {
                 return { binding: Number(entry && entry.binding) || 0, type: safeText(entry && entry.sampler && entry.sampler.type || '', 40) };
@@ -440,6 +462,7 @@
                 };
             });
             facts.binding44Resource = binding44ResourceFact(details.binding44Resource);
+            facts.binding39Resource = binding44ResourceFact(details.binding39Resource);
         } else if (/\.createPipelineLayout$/.test(operationName)) {
             facts.pipelineLayoutResourceId = safeText(details.resourceId || '', 32);
             facts.bindGroupLayoutResourceIds = Array.isArray(details.bindGroupLayoutResourceIds)
@@ -454,6 +477,7 @@
             facts.fragmentShaderLabel = safeText(details.fragmentShaderLabel || '', 80);
             facts.computeShaderLabel = safeText(details.computeShaderLabel || '', 80);
             facts.fragmentBinding44 = binding44ShaderFact(details.fragmentBinding44);
+            facts.computeBinding39 = binding44ShaderFact(details.computeBinding39);
             facts.entryPoints = [details.vertexEntryPoint, details.fragmentEntryPoint, details.computeEntryPoint]
                 .filter(Boolean).slice(0, 3).map(function (entryPoint) { return safeText(entryPoint, 80); });
         } else if (/\.createShaderModule$/.test(operationName)) {
@@ -461,10 +485,12 @@
             facts.shaderLabel = safeText(details.label || '', 80);
             facts.codeLength = Number(details.codeLength) || 0;
             facts.binding44 = binding44ShaderFact(details.binding44);
+            facts.binding39 = binding44ShaderFact(details.binding39);
         } else if (details.commandTrace) {
             facts.commandTrace = commandTraceFact(details.commandTrace);
         }
         if (details.commandTrace && !facts.commandTrace) facts.commandTrace = commandTraceFact(details.commandTrace);
+        if (details.computeBinding39Trace) facts.computeBinding39Trace = commandTraceFact(details.computeBinding39Trace);
         return facts;
     }
 
@@ -553,6 +579,7 @@
                 resourceId: safeText(pipeline.resourceId || '', 40),
                 label: safeText(pipeline.label || '', 120),
                 layoutResourceId: safeText(pipeline.layoutResourceId || '', 40),
+                layoutMode: safeText(pipeline.layoutMode || '', 40),
                 fragmentShaderResourceId: safeText(pipeline.fragmentShaderResourceId || '', 40),
                 fragmentShaderLabel: safeText(pipeline.fragmentShaderLabel || '', 120),
                 fragmentEntryPoint: safeText(pipeline.fragmentEntryPoint || '', 100),
@@ -574,19 +601,30 @@
                 sampleCounts: copyNumberMap(binding.sampleCounts),
                 sampleCallCount: Number(binding.sampleCallCount) || 0,
                 analysisScope: safeText(binding.analysisScope || '', 180),
+                layoutEvidence: safeText(binding.layoutEvidence || '', 80),
                 layoutSampleType: safeText(binding.layoutSampleType || '', 40),
                 layoutViewDimension: safeText(binding.layoutViewDimension || '', 40),
                 layoutVisibility: Number(binding.layoutVisibility) || 0,
                 resource: {
                     kind: safeText(resource.kind || '', 40),
+                    label: safeText(resource.label || '', 100),
+                    viewLabel: safeText(resource.viewLabel || '', 100),
                     format: safeText(resource.format || '', 80),
                     width: Number(resource.width) || null,
                     height: Number(resource.height) || null,
+                    depthOrArrayLayers: Number(resource.depthOrArrayLayers) || null,
+                    textureDimension: safeText(resource.textureDimension || '', 40),
+                    textureSampleCount: Number(resource.textureSampleCount) || null,
+                    textureUsage: Number(resource.textureUsage) || null,
                     textureResourceId: safeText(resource.textureResourceId || '', 40),
                     viewResourceId: safeText(resource.viewResourceId || '', 40),
-                    mipLevelCount: Number(resource.mipLevelCount) || null,
+                    viewDimension: safeText(resource.viewDimension || '', 40),
+                    viewAspect: safeText(resource.viewAspect || '', 40),
                     viewBaseMipLevel: Number(resource.viewBaseMipLevel) || 0,
-                    viewMipLevelCount: Number(resource.viewMipLevelCount) || null
+                    viewMipLevelCount: Number(resource.viewMipLevelCount) || null,
+                    viewBaseArrayLayer: Number(resource.viewBaseArrayLayer) || 0,
+                    viewArrayLayerCount: Number(resource.viewArrayLayerCount) || null,
+                    mipLevelCount: Number(resource.mipLevelCount || resource.textureMipLevelCount) || null
                 },
                 samplers: (Array.isArray(binding.samplers) ? binding.samplers : []).slice(0, 8).map(function (sampler) {
                     return {
@@ -607,6 +645,100 @@
         boundedPush(state.rendering.binding44Traces, trace, 16);
         recordEvent('GPU binding 44 trace', 'R32Float/other texture at binding 44: ' + trace.binding44.resource.format +
             ', direct sample calls=' + trace.binding44.sampleCallCount + ', direct textureLoad=' + trace.binding44.textureLoadCount +
+            ', pipeline=' + (trace.pipeline.label || trace.pipeline.resourceId) + ', command=' + trace.command.operation);
+    }
+
+    function captureGpuComputeBinding39Trace(details, timestamp) {
+        details = details && typeof details === 'object' ? details : {};
+        var binding = details.binding39 && typeof details.binding39 === 'object' ? details.binding39 : {};
+        if (Number(binding.binding) !== 39) return;
+        var traceId = safeText(details.traceId || '', 240);
+        if (traceId && state.rendering.computeBinding39Traces.some(function (item) { return item.traceId === traceId; })) return;
+        var pass = details.pass && typeof details.pass === 'object' ? details.pass : {};
+        var command = details.command && typeof details.command === 'object' ? details.command : {};
+        var pipeline = details.pipeline && typeof details.pipeline === 'object' ? details.pipeline : {};
+        var bindGroup = details.bindGroup && typeof details.bindGroup === 'object' ? details.bindGroup : {};
+        var resource = binding.resource && typeof binding.resource === 'object' ? binding.resource : {};
+        var trace = {
+            traceId: traceId,
+            stage: 'compute',
+            observedAt: isoTime(Number(details.observedAt) || Number(timestamp) || Date.now()),
+            pass: { sequence: Number(pass.sequence) || null, label: safeText(pass.label || '', 120) },
+            command: {
+                operation: safeText(command.operation || '', 100),
+                apiCallReturned: command.apiCallReturned === true,
+                arguments: command.arguments && typeof command.arguments === 'object' ? command.arguments : {}
+            },
+            pipeline: {
+                resourceId: safeText(pipeline.resourceId || '', 40),
+                label: safeText(pipeline.label || '', 120),
+                layoutResourceId: safeText(pipeline.layoutResourceId || '', 40),
+                layoutMode: safeText(pipeline.layoutMode || '', 40),
+                computeShaderResourceId: safeText(pipeline.computeShaderResourceId || '', 40),
+                computeShaderLabel: safeText(pipeline.computeShaderLabel || '', 120),
+                computeEntryPoint: safeText(pipeline.computeEntryPoint || '', 100)
+            },
+            bindGroup: {
+                index: Number(bindGroup.index),
+                resourceId: safeText(bindGroup.resourceId || '', 40),
+                layoutResourceId: safeText(bindGroup.layoutResourceId || '', 40),
+                pipelineExpectedLayoutResourceId: safeText(bindGroup.pipelineExpectedLayoutResourceId || '', 40),
+                layoutMatchesPipeline: typeof bindGroup.layoutMatchesPipeline === 'boolean' ? bindGroup.layoutMatchesPipeline : null
+            },
+            binding39: {
+                group: Number(binding.group),
+                binding: 39,
+                wgslName: safeText(binding.wgslName || '', 100),
+                wgslType: safeText(binding.wgslType || '', 120),
+                textureLoadCount: Number(binding.textureLoadCount) || 0,
+                sampleCounts: copyNumberMap(binding.sampleCounts),
+                sampleCallCount: Number(binding.sampleCallCount) || 0,
+                analysisScope: safeText(binding.analysisScope || '', 180),
+                layoutEvidence: safeText(binding.layoutEvidence || '', 80),
+                layoutSampleType: safeText(binding.layoutSampleType || '', 40),
+                layoutViewDimension: safeText(binding.layoutViewDimension || '', 40),
+                layoutVisibility: Number(binding.layoutVisibility) || 0,
+                resource: {
+                    kind: safeText(resource.kind || '', 40),
+                    label: safeText(resource.label || '', 100),
+                    viewLabel: safeText(resource.viewLabel || '', 100),
+                    format: safeText(resource.format || '', 80),
+                    width: Number(resource.width) || null,
+                    height: Number(resource.height) || null,
+                    depthOrArrayLayers: Number(resource.depthOrArrayLayers) || null,
+                    textureDimension: safeText(resource.textureDimension || '', 40),
+                    textureSampleCount: Number(resource.textureSampleCount) || null,
+                    textureUsage: Number(resource.textureUsage) || null,
+                    textureResourceId: safeText(resource.textureResourceId || '', 40),
+                    viewResourceId: safeText(resource.viewResourceId || '', 40),
+                    viewDimension: safeText(resource.viewDimension || '', 40),
+                    viewAspect: safeText(resource.viewAspect || '', 40),
+                    viewBaseMipLevel: Number(resource.viewBaseMipLevel) || 0,
+                    viewMipLevelCount: Number(resource.viewMipLevelCount) || null,
+                    viewBaseArrayLayer: Number(resource.viewBaseArrayLayer) || 0,
+                    viewArrayLayerCount: Number(resource.viewArrayLayerCount) || null,
+                    mipLevelCount: Number(resource.mipLevelCount || resource.textureMipLevelCount) || null
+                },
+                samplers: (Array.isArray(binding.samplers) ? binding.samplers : []).slice(0, 8).map(function (sampler) {
+                    return {
+                        builtin: safeText(sampler && sampler.builtin || '', 40),
+                        name: safeText(sampler && sampler.name || '', 80),
+                        group: Number(sampler && sampler.group),
+                        binding: Number(sampler && sampler.binding),
+                        wgslType: safeText(sampler && sampler.wgslType || '', 80),
+                        layoutType: safeText(sampler && sampler.layoutType || '', 40),
+                        resourceId: safeText(sampler && sampler.resourceId || '', 40),
+                        minFilter: safeText(sampler && sampler.minFilter || '', 32),
+                        magFilter: safeText(sampler && sampler.magFilter || '', 32),
+                        mipmapFilter: safeText(sampler && sampler.mipmapFilter || '', 32)
+                    };
+                })
+            }
+        };
+        boundedPush(state.rendering.computeBinding39Traces, trace, 16);
+        recordEvent('GPU compute binding 39 trace', 'Compute binding 39: ' + trace.binding39.resource.format +
+            ', WGSL=' + trace.binding39.wgslName + ':' + trace.binding39.wgslType +
+            ', direct textureLoad=' + trace.binding39.textureLoadCount + ', direct sample calls=' + trace.binding39.sampleCallCount +
             ', pipeline=' + (trace.pipeline.label || trace.pipeline.resourceId) + ', command=' + trace.command.operation);
     }
 
@@ -1184,16 +1316,81 @@
         recordEvent('audio ' + event.kind, event.message);
     }
 
+    function sampleAudioRing() {
+        if (!audioRingMemory || !Number.isSafeInteger(audioRingOffset)) return;
+        var buffer = null;
+        try { buffer = audioRingMemory.buffer; } catch (error) {
+            state.audio.ringStatus = 'memory buffer unavailable: ' + safeText(error && error.name || 'error', 80);
+            return;
+        }
+        if (!buffer || Object.prototype.toString.call(buffer) !== '[object SharedArrayBuffer]') {
+            state.audio.ringStatus = 'memory buffer is not SharedArrayBuffer';
+            return;
+        }
+        if (audioRingOffset < 0 || audioRingOffset % 4 !== 0 || audioRingOffset + 20 > buffer.byteLength) {
+            state.audio.ringStatus = 'ring offset is outside the current shared-memory buffer';
+            return;
+        }
+        try {
+            if (!audioRingView || audioRingView.buffer !== buffer || audioRingView.byteLength < 32) {
+                audioRingView = new Int32Array(buffer, audioRingOffset, 8);
+            }
+            var framesWritten = Atomics.load(audioRingView, 0) >>> 0;
+            var framesRead = Atomics.load(audioRingView, 1) >>> 0;
+            var workletCalls = Atomics.load(audioRingView, 3) >>> 0;
+            var peakRaw = Atomics.load(audioRingView, 4);
+            var previous = state.audio.ringSamples.length
+                ? state.audio.ringSamples[state.audio.ringSamples.length - 1] : null;
+            var sample = {
+                at: isoTime(Date.now()),
+                sharedMemory: true,
+                memoryBufferBytes: buffer.byteLength,
+                capacity: state.audio.ringCapacity,
+                framesWritten: framesWritten,
+                framesRead: framesRead,
+                queuedFrames: (framesWritten - framesRead) >>> 0,
+                workletCalls: workletCalls,
+                peakRaw: peakRaw,
+                deltaFramesWritten: previous ? (framesWritten - previous.framesWritten) >>> 0 : null,
+                deltaFramesRead: previous ? (framesRead - previous.framesRead) >>> 0 : null,
+                deltaWorkletCalls: previous ? (workletCalls - previous.workletCalls) >>> 0 : null,
+                counterSchema: 'reviewed homepage header indices [0]=written, [1]=read, [3]=worklet calls, [4]=peak raw; served page identity unverified'
+            };
+            state.audio.memoryBufferBytes = buffer.byteLength;
+            state.audio.ringStatus = 'SharedArrayBuffer ring sampled with non-destructive Atomics.load';
+            boundedPush(state.audio.ringSamples, sample, 16);
+        } catch (error) {
+            state.audio.ringStatus = 'ring sample failed: ' + safeText(error && error.name || 'error', 80);
+        }
+    }
+
     function observeAudioWorkerMessage(audio, role) {
         state.audio.audioDataMessageReceived = true;
         var summary = { at: isoTime(Date.now()), role: safeText(role || 'worker', 120), type: typeof audio };
         if (audio && typeof audio === 'object') {
-            ['state', 'type', 'status', 'message', 'sampleRate', 'channels', 'bufferBytes', 'ringCapacity', 'workletName'].forEach(function (key) {
+            ['state', 'type', 'status', 'message', 'sampleRate', 'channels', 'bufferBytes', 'ringCapacity', 'capacity', 'workletName'].forEach(function (key) {
                 if (Object.prototype.hasOwnProperty.call(audio, key)) summary[key] = safeText(audio[key], 500);
             });
             if (typeof audio.memoryBufferBytes === 'number') state.audio.memoryBufferBytes = audio.memoryBufferBytes;
             if (typeof audio.bufferBytes === 'number') state.audio.memoryBufferBytes = audio.bufferBytes;
             if (typeof audio.ringCapacity === 'number') state.audio.ringCapacity = audio.ringCapacity;
+            if (typeof audio.capacity === 'number') state.audio.ringCapacity = audio.capacity;
+            if (audio.memory && audio.memory.buffer) {
+                audioRingMemory = audio.memory;
+                audioRingOffset = Number(audio.ring);
+                state.audio.memoryBufferBytes = Number(audio.memory.buffer.byteLength) || state.audio.memoryBufferBytes;
+                state.audio.ringSourceRole = safeText(role || 'worker', 120);
+                if (Number.isSafeInteger(audioRingOffset)) {
+                    state.audio.ringStatus = 'shared-memory audio ring received; sampling pending';
+                    audioRingView = null;
+                    sampleAudioRing();
+                    if (audioRingSampleTimer === null) audioRingSampleTimer = setInterval(sampleAudioRing, 1000);
+                } else {
+                    state.audio.ringStatus = 'audio message has no valid numeric ring offset';
+                }
+            } else if (!audioRingMemory) {
+                state.audio.ringStatus = 'worker audio message received without shared-memory ring metadata';
+            }
         } else {
             summary.value = safeText(audio, 500);
         }
@@ -1224,6 +1421,51 @@
 
     function installAudioObservers() {
         if (!DEBUG_ENABLED) return;
+        function installAudioNodeConnectObserver() {
+            try {
+                var NativeAudioNode = window.AudioNode;
+                var prototype = NativeAudioNode && NativeAudioNode.prototype;
+                var originalConnect = prototype && prototype.connect;
+                if (typeof originalConnect !== 'function' || originalConnect.__newcatroidAudioObserver) return;
+                var wrappedConnect = function () {
+                    var nodeMeta = null;
+                    try { if (audioNodeRecords) nodeMeta = audioNodeRecords.get(this) || null; } catch (ignored) { }
+                    if (nodeMeta && nodeMeta.record) {
+                        nodeMeta.record.connectCalls++;
+                        if (arguments[0] === nodeMeta.destination) nodeMeta.record.directDestinationConnectAttempts++;
+                        else nodeMeta.record.otherConnectAttempts++;
+                    }
+                    var result;
+                    try {
+                        result = Reflect.apply(originalConnect, this, arguments);
+                    } catch (error) {
+                        if (nodeMeta && nodeMeta.record) {
+                            nodeMeta.record.connectErrors++;
+                            nodeMeta.record.lastConnectionAt = isoTime(Date.now());
+                            recordAudioEvent('worklet connection error', nodeMeta.record.processorName + ': ' + safeText(error, 1000), nodeMeta.record);
+                        }
+                        throw error;
+                    }
+                    if (nodeMeta && nodeMeta.record) {
+                        if (arguments[0] === nodeMeta.destination) nodeMeta.record.connectedDirectlyToDestination = true;
+                        nodeMeta.record.lastConnectionAt = isoTime(Date.now());
+                        recordAudioEvent('worklet node connection', nodeMeta.record.processorName +
+                            (arguments[0] === nodeMeta.destination ? ' connected directly to AudioContext.destination' : ' connected to a non-destination AudioNode'), {
+                            connectCalls: nodeMeta.record.connectCalls,
+                            connectedDirectlyToDestination: nodeMeta.record.connectedDirectlyToDestination,
+                            contextId: nodeMeta.record.contextId
+                        });
+                    }
+                    return result;
+                };
+                wrappedConnect.__newcatroidAudioObserver = true;
+                prototype.connect = wrappedConnect;
+            } catch (error) {
+                recordEvent('audio observer', 'AudioNode.connect hook unavailable: ' + safeText(error));
+            }
+        }
+        installAudioNodeConnectObserver();
+
         function observeContext(context, constructorName) {
             var record = audioContextRecord(context, constructorName);
             if (!record || record.listenerInstalled) return record;
@@ -1355,13 +1597,22 @@
                     construct: function (target, args, newTarget) {
                         var node = Reflect.construct(target, args, newTarget === WrappedWorkletNode ? target : newTarget);
                         var contextRecord = observeContext(args[0], 'AudioWorkletNode.context');
+                        var contextDestination = null;
+                        try { contextDestination = args[0] && args[0].destination || null; } catch (ignored) { }
                         var nodeRecord = {
                             at: isoTime(Date.now()),
                             type: 'AudioWorkletNode',
                             processorName: safeText(args[1] || '', 200),
                             contextId: contextRecord && contextRecord.id,
-                            state: contextRecord && contextRecord.state
+                            state: contextRecord && contextRecord.state,
+                            connectCalls: 0,
+                            directDestinationConnectAttempts: 0,
+                            otherConnectAttempts: 0,
+                            connectedDirectlyToDestination: false,
+                            connectErrors: 0,
+                            lastConnectionAt: null
                         };
+                        try { if (audioNodeRecords && contextDestination) audioNodeRecords.set(node, { record: nodeRecord, destination: contextDestination }); } catch (ignored) { }
                         boundedPush(state.audio.nodes, nodeRecord, 100);
                         recordAudioEvent('worklet node created', nodeRecord.processorName || 'processor name not reported', nodeRecord);
                         try {
@@ -1585,6 +1836,12 @@
                 requested: serverVerification.requested === true,
                 expectedSha256: safeText(serverVerification.expectedSha256 || '', 64),
                 actualSha256: safeText(serverVerification.actualSha256 || '', 64),
+                expectedSource: safeText(serverVerification.expectedSource || '', 240),
+                requestedRelativePath: safeText(serverVerification.requestedRelativePath || '', 512),
+                resolvedSourcePath: safeText(serverVerification.resolvedSourcePath || '', 512),
+                sourceResolution: safeText(serverVerification.sourceResolution || '', 32),
+                sourceBytes: Number.isFinite(Number(serverVerification.sourceBytes)) ? Number(serverVerification.sourceBytes) : null,
+                reason: safeText(serverVerification.reason || '', 64),
                 hashMatches: typeof serverVerification.hashMatches === 'boolean' ? serverVerification.hashMatches : null,
                 shimInjected: typeof serverVerification.shimInjected === 'boolean' ? serverVerification.shimInjected : null,
                 observedAt: isoTime(Number(timestamp) || Date.now())
@@ -1620,7 +1877,10 @@
         var verification = shader.serverVerification;
         var serverText = verification
             ? 'server SHA match=' + verification.hashMatches + ' expected=' + verification.expectedSha256 +
-                ' actual=' + verification.actualSha256 + ' shim appended=' + verification.shimInjected
+                ' actual=' + verification.actualSha256 + ' shim appended=' + verification.shimInjected +
+                ' source=' + verification.expectedSource + ' request=' + verification.requestedRelativePath +
+                ' selected=' + verification.resolvedSourcePath + ' resolution=' + verification.sourceResolution +
+                ' bytes=' + verification.sourceBytes + ' reason=' + verification.reason
             : 'server SHA not observed';
         if (shader.hookInstalled === true) {
             return 'worker shim confirmed; ' + serverText + '; alpha variants=' + shader.alphaCoverageVariantsSeen +
@@ -1735,6 +1995,10 @@
         }
         if (type === 'gpu-binding-trace' && source === 'gpu-worker') {
             if (DEBUG_ENABLED) captureGpuBinding44Trace(details, at);
+            return;
+        }
+        if (type === 'gpu-compute-binding-trace' && source === 'gpu-worker') {
+            if (DEBUG_ENABLED) captureGpuComputeBinding39Trace(details, at);
             return;
         }
         if (type === 'pipeline-mode') {
@@ -2244,6 +2508,7 @@
             gpuOperationCounts: state.rendering.gpuOperationCounts,
             recentGpuOperations: state.rendering.recentGpuOperations,
             binding44Traces: state.rendering.binding44Traces,
+            computeBinding39Traces: state.rendering.computeBinding39Traces,
             pipelineApiCalls: state.rendering.pipelineApiCalls,
             lastGraphicsSampleAt: state.rendering.lastGraphicsSampleAt,
             sceneHints: state.rendering.sceneHints.slice(-100),
@@ -2371,18 +2636,22 @@
         if (facts.shaderModuleResourceId) parts.push('shader-module=' + facts.shaderModuleResourceId +
             (facts.shaderLabel ? ' ' + facts.shaderLabel : '') + (facts.codeLength ? ' chars=' + facts.codeLength : ''));
         if (facts.entryPoints && facts.entryPoints.length) parts.push('entry=[' + facts.entryPoints.join(',') + ']');
-        var wgslBinding44 = facts.fragmentBinding44 || facts.binding44;
-        if (wgslBinding44) {
-            var sampleUse = Object.keys(wgslBinding44.sampleCounts || {}).map(function (name) {
-                return name + 'x' + wgslBinding44.sampleCounts[name];
+        [
+            { label: 'fragment b44', facts: facts.fragmentBinding44 || facts.binding44 },
+            { label: 'compute b39', facts: facts.computeBinding39 || facts.binding39 }
+        ].forEach(function (item) {
+            var shaderBinding = item.facts;
+            if (!shaderBinding) return;
+            var sampleUse = Object.keys(shaderBinding.sampleCounts || {}).map(function (name) {
+                return name + 'x' + shaderBinding.sampleCounts[name];
             }).join(',') || 'none';
-            var pairedSamplers = (wgslBinding44.samplerBindings || []).map(function (sampler) {
+            var pairedSamplers = (shaderBinding.samplerBindings || []).map(function (sampler) {
                 return 'g' + sampler.group + ':b' + sampler.binding + '(' + sampler.type + ')';
             }).join(',');
-            parts.push('WGSL b44 g' + wgslBinding44.group + ' ' + wgslBinding44.name + ':' + wgslBinding44.type +
-                ' load=' + wgslBinding44.textureLoadCount + ' sample=' + sampleUse +
-                (pairedSamplers ? ' sampler=' + pairedSamplers : '') + ' [' + wgslBinding44.analysisScope + ']');
-        }
+            parts.push('WGSL ' + item.label + ' g' + shaderBinding.group + ' ' + shaderBinding.name + ':' + shaderBinding.type +
+                ' load=' + shaderBinding.textureLoadCount + ' sample=' + sampleUse +
+                (pairedSamplers ? ' sampler=' + pairedSamplers : '') + ' [' + shaderBinding.analysisScope + ']');
+        });
         if (Array.isArray(facts.textureLayouts) && facts.textureLayouts.length) {
             parts.push('texture layout ' + facts.textureLayouts.slice(0, 4).map(function (entry) {
                 return 'b' + entry.binding + '=' + (entry.sampleType || '?') + '/' + (entry.viewDimension || '?') +
@@ -2393,6 +2662,11 @@
             parts.push('b44 BGL sampleType=' + (facts.binding44Layout.sampleType || '?') +
                 ' dimension=' + (facts.binding44Layout.viewDimension || '?') +
                 ' visibility=' + facts.binding44Layout.visibility);
+        }
+        if (facts.binding39Layout) {
+            parts.push('b39 BGL sampleType=' + (facts.binding39Layout.sampleType || '?') +
+                ' dimension=' + (facts.binding39Layout.viewDimension || '?') +
+                ' visibility=' + facts.binding39Layout.visibility);
         }
         if (Array.isArray(facts.textures) && facts.textures.length) {
             parts.push('texture ' + facts.textures.slice(0, 4).map(function (entry) {
@@ -2409,6 +2683,12 @@
                 (facts.binding44Resource.width && facts.binding44Resource.height ? ' ' + facts.binding44Resource.width + 'x' + facts.binding44Resource.height : '') +
                 (facts.binding44Resource.textureId || facts.binding44Resource.viewId
                     ? ' ' + [facts.binding44Resource.textureId, facts.binding44Resource.viewId].filter(Boolean).join('/') : ''));
+        }
+        if (facts.binding39Resource) {
+            parts.push('b39 resource=' + facts.binding39Resource.format +
+                (facts.binding39Resource.width && facts.binding39Resource.height ? ' ' + facts.binding39Resource.width + 'x' + facts.binding39Resource.height : '') +
+                (facts.binding39Resource.textureId || facts.binding39Resource.viewId
+                    ? ' ' + [facts.binding39Resource.textureId, facts.binding39Resource.viewId].filter(Boolean).join('/') : ''));
         }
         if (Array.isArray(facts.samplerLayouts) && facts.samplerLayouts.length) {
             parts.push('sampler layout ' + facts.samplerLayouts.slice(0, 4).map(function (entry) {
@@ -2432,10 +2712,30 @@
             }).join(',');
             parts.push('draw trace ' + trace.command + ' returned=' + trace.apiCallReturned +
                 ' pipeline=' + trace.pipelineId + (trace.pipelineLabel ? '(' + compactText(trace.pipelineLabel, 40) + ')' : '') +
+                ' pipelineLayout=' + (trace.pipelineLayoutMode || 'unknown') +
                 ' group=' + trace.bindGroupIndex + ':' + trace.bindGroupId + ' layoutMatch=' + trace.layoutMatchesPipeline +
                 ' b44=' + (trace.texture && trace.texture.format || '?') +
                 (trace.layoutSampleType ? '/' + trace.layoutSampleType : '') +
                 ' target=' + (targets || 'unknown') + (tracedSamplers ? ' samplers=[' + tracedSamplers + ']' : ''));
+        }
+        if (facts.computeBinding39Trace) {
+            var computeTrace = facts.computeBinding39Trace;
+            var computeWgsl = computeTrace.wgsl || {};
+            var computeTexture = computeTrace.texture || {};
+            var computeSamplers = (computeTrace.samplers || []).slice(0, 4).map(function (sampler) {
+                return 'g' + sampler.group + ':b' + sampler.binding + '=' + sampler.layoutType + '/' +
+                    [sampler.minFilter, sampler.magFilter, sampler.mipmapFilter].filter(Boolean).join('/');
+            }).join(',');
+            var workgroups = computeTrace.arguments && computeTrace.arguments.workgroups;
+            parts.push('compute trace ' + computeTrace.command + ' returned=' + computeTrace.apiCallReturned +
+                ' pipeline=' + computeTrace.pipelineId + (computeTrace.pipelineLabel ? '(' + compactText(computeTrace.pipelineLabel, 40) + ')' : '') +
+                ' pipelineLayout=' + (computeTrace.pipelineLayoutMode || 'unknown') +
+                ' group=' + computeTrace.bindGroupIndex + ':' + computeTrace.bindGroupId + ' layoutMatch=' + computeTrace.layoutMatchesPipeline +
+                ' b39=' + computeTexture.format + ' WGSL=' + computeWgsl.name + ':' + computeWgsl.type +
+                ' load=' + (Number(computeWgsl.textureLoadCount) || 0) + ' sample=' + (Number(computeWgsl.sampleCallCount) || 0) +
+                (computeTrace.layoutSampleType ? ' BGL=' + computeTrace.layoutSampleType : '') +
+                (Array.isArray(workgroups) ? ' workgroups=' + workgroups.join('x') : '') +
+                (computeSamplers ? ' samplers=[' + computeSamplers + ']' : ''));
         }
         return parts.join('; ');
     }
@@ -2468,13 +2768,57 @@
         }).join(',') || 'unknown';
         return 'group=' + binding.group + ' b44=' + binding.wgslName + ':' + binding.wgslType +
             ' direct textureLoad=' + binding.textureLoadCount + ' sample=' + sampleUse +
-            ' BGL=' + binding.layoutSampleType + '/' + binding.layoutViewDimension +
-            ' resource=' + resource.format + (resource.width && resource.height ? ' ' + resource.width + 'x' + resource.height : '') +
+            ' BGL=' + (binding.layoutSampleType ? binding.layoutSampleType + '/' + binding.layoutViewDimension : binding.layoutEvidence || 'not observed') +
+            ' resource=' + resource.format + (resource.label ? '[' + resource.label + ']' : '') +
+            (resource.textureResourceId ? '#' + resource.textureResourceId : '') + (resource.viewResourceId ? '/' + resource.viewResourceId : '') +
+            (resource.width && resource.height ? ' ' + resource.width + 'x' + resource.height : '') +
+            ' usage=' + (resource.textureUsage == null ? 'unknown' : resource.textureUsage) +
+            ' view=' + (resource.viewDimension || 'not specified') + '/' + (resource.viewAspect || 'not specified') +
             ' samplers=[' + samplers + '] pipeline=' + (trace.pipeline && (trace.pipeline.label || trace.pipeline.resourceId) || 'unknown') +
+            ' pipeline-layout-mode=' + (trace.pipeline && trace.pipeline.layoutMode || 'unknown') +
             ' group-layout-match=' + (trace.bindGroup && trace.bindGroup.layoutMatchesPipeline) +
             ' command=' + (trace.command && trace.command.operation || 'unknown') +
             ' API-returned=' + !!(trace.command && trace.command.apiCallReturned) + ' target=' + targets +
             ' (' + binding.analysisScope + '; API return is not proof of GPU command validity)';
+    }
+
+    function compactBinding39Trace(trace) {
+        if (!trace || typeof trace !== 'object') return 'not observed';
+        var binding = trace.binding39 || {};
+        var resource = binding.resource || {};
+        var sampleUse = Object.keys(binding.sampleCounts || {}).map(function (name) {
+            return name + 'x' + binding.sampleCounts[name];
+        }).join(',') || 'none';
+        var samplers = (binding.samplers || []).slice(0, 4).map(function (sampler) {
+            return 'g' + sampler.group + ':b' + sampler.binding + ' ' + sampler.layoutType + ' ' +
+                [sampler.minFilter, sampler.magFilter, sampler.mipmapFilter].filter(Boolean).join('/');
+        }).join(',') || 'none resolved';
+        var workgroups = trace.command && trace.command.arguments && trace.command.arguments.workgroups;
+        return 'group=' + binding.group + ' b39=' + binding.wgslName + ':' + binding.wgslType +
+            ' direct textureLoad=' + binding.textureLoadCount + ' sample=' + sampleUse +
+            ' BGL=' + (binding.layoutSampleType ? binding.layoutSampleType + '/' + binding.layoutViewDimension : binding.layoutEvidence || 'not observed') +
+            ' visibility=' + binding.layoutVisibility +
+            ' resource=' + resource.format + (resource.label ? '[' + resource.label + ']' : '') +
+            (resource.textureResourceId ? '#' + resource.textureResourceId : '') + (resource.viewResourceId ? '/' + resource.viewResourceId : '') +
+            (resource.width && resource.height ? ' ' + resource.width + 'x' + resource.height : '') +
+            ' usage=' + (resource.textureUsage == null ? 'unknown' : resource.textureUsage) +
+            ' view=' + (resource.viewDimension || 'not specified') + '/' + (resource.viewAspect || 'not specified') +
+            ' samplers=[' + samplers + '] pipeline=' + (trace.pipeline && (trace.pipeline.label || trace.pipeline.resourceId) || 'unknown') +
+            ' pipeline-layout-mode=' + (trace.pipeline && trace.pipeline.layoutMode || 'unknown') +
+            ' group-layout-match=' + (trace.bindGroup && trace.bindGroup.layoutMatchesPipeline) +
+            ' command=' + (trace.command && trace.command.operation || 'unknown') +
+            (Array.isArray(workgroups) ? ' workgroups=' + workgroups.join('x') : '') +
+            ' API-returned=' + !!(trace.command && trace.command.apiCallReturned) +
+            ' (direct WGSL builtin scan only; API return is not proof of GPU command validity)';
+    }
+
+    function compactAudioRingSample(sample) {
+        if (!sample) return state.audio.ringStatus || 'not sampled';
+        return 'SharedArrayBuffer written=' + sample.framesWritten + ' read=' + sample.framesRead +
+            ' queued=' + sample.queuedFrames + ' Δwritten=' + sample.deltaFramesWritten +
+            ' Δread=' + sample.deltaFramesRead + ' workletCalls=' + sample.workletCalls +
+            ' ΔworkletCalls=' + sample.deltaWorkletCalls + ' peakRaw=' + sample.peakRaw +
+            ' capacity=' + sample.capacity + ' bufferBytes=' + sample.memoryBufferBytes;
     }
 
     function getShortSummary() {
@@ -2484,8 +2828,15 @@
             var canvasConfig = state.rendering.canvasConfiguration || {};
             var latestMemory = state.memory.latestWasmLinearMemory;
             var latestAudio = state.audio.contexts.length ? state.audio.contexts[state.audio.contexts.length - 1] : null;
+            var latestAudioRingSample = state.audio.ringSamples.length
+                ? state.audio.ringSamples[state.audio.ringSamples.length - 1] : null;
+            var workletDestinationConnections = state.audio.nodes.filter(function (node) {
+                return node.connectedDirectlyToDestination === true;
+            }).length;
             var latestBinding44Trace = state.rendering.binding44Traces.length
                 ? state.rendering.binding44Traces[state.rendering.binding44Traces.length - 1] : null;
+            var latestComputeBinding39Trace = state.rendering.computeBinding39Traces.length
+                ? state.rendering.computeBinding39Traces[state.rendering.computeBinding39Traces.length - 1] : null;
             var audioResumeCalls = state.audio.playAttempts.filter(function (attempt) {
                 return attempt.kind === 'AudioContext.resume' && attempt.outcome === 'called';
             }).length;
@@ -2567,7 +2918,7 @@
                     ', async=' + pipelineCalls.createRenderPipelineAsync +
                     ' · compute sync=' + pipelineCalls.createComputePipeline +
                     ', async=' + pipelineCalls.createComputePipelineAsync,
-                'Alpha compatibility: ' + compactText(shaderCompatibilityStatus(), 260) +
+                'Alpha compatibility: ' + compactText(shaderCompatibilityStatus(), 900) +
                     ' · worker URL=' + (shader.workerUrlConfirmed == null ? 'unobserved' : shader.workerUrlConfirmed) +
                     ' · first non-vec4=' + compactText(shader.firstNonVec4OutputType || 'unobserved', 80) +
                     ' · counts reflect shader-variant handling, not pipeline success or pixels.',
@@ -2584,12 +2935,18 @@
                     ' · display/pixels=' + (state.rendering.displayPresentationObserved ? 'observed' : 'not measured'),
                 'Recent GPU operations: ' + compactOperationList(state.rendering.recentGpuOperations, 4),
                 'Binding 44 draw trace: ' + compactText(compactBinding44Trace(latestBinding44Trace), 1000),
-                'Audio API: ' + (latestAudio ? compactText(latestAudio.constructor + ' state=' + latestAudio.state +
+                'Binding 39 compute trace: ' + compactText(compactBinding39Trace(latestComputeBinding39Trace), 1000),
+                'Audio path: ' + (latestAudio ? compactText(latestAudio.constructor + ' state=' + latestAudio.state +
                     ' stateChanges=' + (Number(latestAudio.stateChanges) || 0) + ' resume=' + latestAudio.lastResumeResult, 220) : 'no AudioContext observed') +
                     ' · resume calls=' + audioResumeCalls + ' · AudioBufferSourceNode.start calls=' + audioSourceStartCalls +
+                    ' (reviewed homepage uses AudioWorkletNode, so zero is not diagnostic there)' +
                     ' · media play calls=' + audioMediaPlayCalls + ' · worklets loaded/rejected=' + audioWorkletLoaded + '/' + audioWorkletRejected +
-                    ' · AudioWorkletNode=' + state.audio.nodes.length + ' · worker audio message=' + state.audio.audioDataMessageReceived +
-                    ' · last gesture=' + (state.audio.userGestureAt || 'not observed') + ' · actual audible output is not measured.',
+                    ' · AudioWorkletNode=' + state.audio.nodes.length + ' · direct destination connections=' + workletDestinationConnections +
+                    ' · worker audio message=' + state.audio.audioDataMessageReceived + ' · ring=' + compactText(compactAudioRingSample(latestAudioRingSample), 420) +
+                    ' · ring status=' + compactText(state.audio.ringStatus, 120) +
+                    ' · ring schema=' + compactText(state.audio.ringHeaderSchema, 140) +
+                    ' · last gesture=' + (state.audio.userGestureAt || 'not observed') +
+                    ' · actual audible output is not measured.',
                 'WASM linear-memory capacity: ' + (latestMemory ? latestMemory.bufferMiB + ' MiB (' + compactText(latestMemory.metric, 100) + ')' : 'not observed')
             ];
             if (errors.length) {

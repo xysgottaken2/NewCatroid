@@ -33,9 +33,13 @@
     var gpuBindGroupSnapshots = new WeakMap();
     var gpuPipelineLayoutSnapshots = new WeakMap();
     var gpuPipelineSnapshots = new WeakMap();
+    var gpuPipelineBindGroupLayouts = new WeakMap();
     var gpuRenderPassSnapshots = new WeakMap();
+    var gpuComputePassSnapshots = new WeakMap();
     var gpuBindingTraceSignatures = new Set();
+    var gpuComputeBinding39TraceSignatures = new Set();
     var gpuRenderPassSequence = 0;
+    var gpuComputePassSequence = 0;
     var gpuResourceIds = new WeakMap();
     var gpuResourceSequence = 0;
     var observedMemories = new WeakSet();
@@ -65,6 +69,12 @@
                 requested: value.requested === true,
                 expectedSha256: safeText(value.expectedSha256 || '', 64),
                 actualSha256: safeText(value.actualSha256 || '', 64),
+                expectedSource: safeText(value.expectedSource || '', 180),
+                requestedRelativePath: safeText(value.requestedRelativePath || '', 512),
+                resolvedSourcePath: safeText(value.resolvedSourcePath || '', 512),
+                sourceResolution: safeText(value.sourceResolution || '', 32),
+                sourceBytes: typeof value.sourceBytes === 'number' && Number.isFinite(value.sourceBytes) ? value.sourceBytes : null,
+                reason: safeText(value.reason || '', 64),
                 hashMatches: typeof value.hashMatches === 'boolean' ? value.hashMatches : null,
                 shimInjected: typeof value.shimInjected === 'boolean' ? value.shimInjected : null
             };
@@ -334,8 +344,9 @@
         }
     }
 
-    function shaderBinding44Facts(code) {
+    function shaderBindingFacts(code, targetBinding) {
         if (typeof code !== 'string') return null;
+        targetBinding = Number(targetBinding) || 44;
         var source = code.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\r\n]*/g, ' ');
         var declarations = [];
         var declarationPattern = /((?:@[A-Za-z_]\w*\s*\([^)]*\)\s*)+)var(?:\s*<[^>]+>)?\s*([A-Za-z_]\w*)\s*:\s*([^;]+);/g;
@@ -351,7 +362,7 @@
                 type: safeText(declaration[3].replace(/\s+/g, ' ').trim(), 120)
             });
         }
-        var texture = declarations.find(function (item) { return item.binding === 44; });
+        var texture = declarations.find(function (item) { return item.binding === targetBinding; });
         if (!texture) return null;
         var sampleBuiltins = [
             'textureSample', 'textureSampleBias', 'textureSampleCompare', 'textureSampleCompareLevel',
@@ -404,10 +415,18 @@
         };
     }
 
-    function shaderModuleBinding44Snapshot(module) {
-        try { return module && gpuShaderBindingFacts ? gpuShaderBindingFacts.get(module) || null : null; }
-        catch (ignored) { return null; }
+    function shaderBinding44Facts(code) { return shaderBindingFacts(code, 44); }
+    function shaderBinding39Facts(code) { return shaderBindingFacts(code, 39); }
+
+    function shaderModuleBindingSnapshot(module, key) {
+        try {
+            var facts = module && gpuShaderBindingFacts ? gpuShaderBindingFacts.get(module) || null : null;
+            return facts && facts[key] || null;
+        } catch (ignored) { return null; }
     }
+
+    function shaderModuleBinding44Snapshot(module) { return shaderModuleBindingSnapshot(module, 'binding44'); }
+    function shaderModuleBinding39Snapshot(module) { return shaderModuleBindingSnapshot(module, 'binding39'); }
 
     function bindGroupLayoutEntrySummary(entry) {
         var result = {
@@ -463,6 +482,7 @@
             detail.label = objectLabel(descriptor);
             detail.codeLength = typeof descriptor.code === 'string' ? descriptor.code.length : null;
             detail.binding44 = shaderBinding44Facts(descriptor.code);
+            detail.binding39 = shaderBinding39Facts(descriptor.code);
         } else if (/create(Render|Compute)Pipeline/.test(methodName)) {
             detail.label = objectLabel(descriptor);
             detail.layout = typeof descriptor.layout === 'string' ? descriptor.layout : descriptor.layout ? 'explicit' : 'not reported';
@@ -517,6 +537,7 @@
                 detail.computeEntryPoint = safeText(descriptor.compute.entryPoint || '', 120);
                 detail.computeShaderLabel = objectLabel(descriptor.compute.module);
                 detail.computeShaderResourceId = gpuResourceId(descriptor.compute.module, 'shader-module');
+                detail.computeBinding39 = shaderModuleBinding39Snapshot(descriptor.compute.module);
             }
             if (descriptor.depthStencil) detail.depthStencil = {
                 format: safeText(descriptor.depthStencil.format || 'unknown', 100),
@@ -537,6 +558,7 @@
             detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
             detail.textureBindings = bindSummaries.filter(function (entry) { return entry.resource && entry.resource.kind === 'texture view'; }).slice(0, 12);
             detail.binding44Resource = bindSummaries.find(function (entry) { return Number(entry.binding) === 44; }) || null;
+            detail.binding39Resource = bindSummaries.find(function (entry) { return Number(entry.binding) === 39; }) || null;
             detail.samplerBindings = bindSummaries.filter(function (entry) { return entry.resource && entry.resource.kind === 'sampler'; }).slice(0, 12);
             detail.otherBindings = bindSummaries.filter(function (entry) { return !entry.resource || (entry.resource.kind !== 'texture view' && entry.resource.kind !== 'sampler'); }).slice(0, 8);
         } else if (methodName === 'createBindGroupLayout') {
@@ -545,6 +567,7 @@
             detail.bindingCount = Array.isArray(descriptor.entries) ? descriptor.entries.length : null;
             detail.textureBindings = layoutEntries.filter(function (entry) { return !!entry.texture; }).slice(0, 12);
             detail.binding44Layout = layoutEntries.find(function (entry) { return Number(entry.binding) === 44; }) || null;
+            detail.binding39Layout = layoutEntries.find(function (entry) { return Number(entry.binding) === 39; }) || null;
             detail.samplerBindings = layoutEntries.filter(function (entry) { return !!entry.sampler; }).slice(0, 12);
             detail.otherBindings = layoutEntries.filter(function (entry) { return !entry.texture && !entry.sampler; }).slice(0, 8);
         } else if (methodName === 'createPipelineLayout') {
@@ -616,6 +639,10 @@
             detail.bindGroupResourceId = gpuResourceId(args[1], 'bind-group');
             detail.dynamicOffsetCount = args[2] && typeof args[2].length === 'number' ? Number(args[2].length) : 0;
             detail.dynamicOffsets = args[2] && typeof args[2].length === 'number' ? Array.prototype.slice.call(args[2], 0, 16).map(function (value) { return Number(value); }) : [];
+        } else if (methodName === 'getBindGroupLayout') {
+            detail.groupIndex = Number(args[0]);
+            detail.pipelineResourceId = gpuResourceId(receiver, 'pipeline');
+            detail.pipelineLabel = objectLabel(receiver);
         } else if (methodName === 'setVertexBuffer') {
             detail.slot = Number(args[0]);
             detail.bufferLabel = objectLabel(args[1]);
@@ -712,12 +739,18 @@
                 resourceId: gpuResourceId(pipeline, 'pipeline'),
                 label: objectLabel(descriptor),
                 layout: descriptor.layout && typeof descriptor.layout === 'object' ? descriptor.layout : null,
+                layoutMode: details.layout || 'not reported',
                 pipelineLayoutResourceId: details.pipelineLayoutResourceId || '',
                 fragmentShaderResourceId: details.fragmentShaderResourceId || '',
                 fragmentShaderLabel: details.fragmentShaderLabel || '',
                 fragmentEntryPoint: details.fragmentEntryPoint || '',
                 fragmentBinding44: details.fragmentBinding44 ||
                     shaderModuleBinding44Snapshot(descriptor.fragment && descriptor.fragment.module),
+                computeShaderResourceId: details.computeShaderResourceId || '',
+                computeShaderLabel: details.computeShaderLabel || '',
+                computeEntryPoint: details.computeEntryPoint || '',
+                computeBinding39: details.computeBinding39 ||
+                    shaderModuleBinding39Snapshot(descriptor.compute && descriptor.compute.module),
                 colorTargetFormats: details.colorTargetFormats || []
             });
         } catch (ignored) { }
@@ -741,6 +774,16 @@
         };
     }
 
+    function pipelineBindGroupLayoutResourceId(pipelineObject, pipelineSnapshot, groupIndex) {
+        var pipelineLayoutSnapshot = null;
+        try { pipelineLayoutSnapshot = pipelineSnapshot && pipelineSnapshot.layout && gpuPipelineLayoutSnapshots.get(pipelineSnapshot.layout) || null; } catch (ignored) { }
+        var explicitId = pipelineLayoutSnapshot && pipelineLayoutSnapshot.bindGroupLayoutResourceIds[groupIndex] || '';
+        if (explicitId) return explicitId;
+        var autoLayouts = null;
+        try { autoLayouts = pipelineObject && gpuPipelineBindGroupLayouts.get(pipelineObject) || null; } catch (ignored) { }
+        return autoLayouts && autoLayouts[groupIndex] || '';
+    }
+
     function gpuRenderCommandBinding44Trace(pass, methodName, args) {
         var passSnapshot = null;
         try { passSnapshot = gpuRenderPassSnapshots.get(pass) || null; } catch (ignored) { }
@@ -751,7 +794,9 @@
         var shaderBinding = pipeline.fragmentBinding44;
         var groupIndex = Number(shaderBinding.group);
         if (!isFinite(groupIndex) || groupIndex < 0) return null;
-        var bindGroup = passSnapshot.bindGroups[groupIndex];
+        var requestedGroupIndex = methodName === 'setBindGroup' ? Number(args[0]) : groupIndex;
+        if (methodName === 'setBindGroup' && requestedGroupIndex !== groupIndex) return null;
+        var bindGroup = methodName === 'setBindGroup' ? args[1] : passSnapshot.bindGroups[groupIndex];
         if (!bindGroup) return null;
         var bindGroupSnapshot = null;
         try { bindGroupSnapshot = gpuBindGroupSnapshots.get(bindGroup) || null; } catch (ignored) { }
@@ -759,6 +804,8 @@
         var bindGroupLayoutSnapshot = null;
         try { bindGroupLayoutSnapshot = gpuBindGroupLayoutSnapshots.get(bindGroupSnapshot.layout) || null; } catch (ignored) { }
         var bindingLayout = bindGroupLayoutSnapshot && bindGroupLayoutSnapshot.binding44Layout;
+        var layoutEvidence = bindingLayout ? 'bind-group layout descriptor observed' :
+            pipeline.layoutMode === 'auto' ? 'auto layout descriptor opaque to JavaScript' : 'bind-group layout descriptor not observed';
         var bindingResource = bindGroupSnapshot.binding44Resource;
         var resource = bindingResource.resource || {};
         var viewSnapshot = resource.texture || {};
@@ -766,7 +813,8 @@
         var view = viewSnapshot.view || {};
         var samplerFacts = (shaderBinding.samplerBindings || []).map(function (pair) {
             var samplerGroupIndex = pair.group == null ? groupIndex : Number(pair.group);
-            var samplerGroup = passSnapshot.bindGroups[samplerGroupIndex];
+            var samplerGroup = methodName === 'setBindGroup' && samplerGroupIndex === groupIndex
+                ? bindGroup : passSnapshot.bindGroups[samplerGroupIndex];
             var samplerGroupSnapshot = null;
             try { samplerGroupSnapshot = samplerGroup && gpuBindGroupSnapshots.get(samplerGroup) || null; } catch (ignored) { }
             var binding = Number(pair.binding);
@@ -786,19 +834,21 @@
                 group: samplerGroupIndex,
                 binding: binding,
                 wgslType: safeText(pair.type || '', 80),
-                layoutType: safeText(samplerLayout && samplerLayout.sampler && samplerLayout.sampler.type || '', 40),
+                layoutType: safeText(samplerLayout && samplerLayout.sampler && samplerLayout.sampler.type ||
+                    (pipeline.layoutMode === 'auto' ? 'auto (opaque)' : 'not observed'), 40),
                 resourceId: safeText(sampler.resourceId || '', 40),
                 minFilter: safeText(sampler.minFilter || '', 32),
                 magFilter: safeText(sampler.magFilter || '', 32),
                 mipmapFilter: safeText(sampler.mipmapFilter || '', 32)
             };
         }).slice(0, 8);
-        var pipelineLayoutSnapshot = null;
-        try { pipelineLayoutSnapshot = pipeline.layout && gpuPipelineLayoutSnapshots.get(pipeline.layout) || null; } catch (ignored) { }
-        var expectedBindLayout = pipelineLayoutSnapshot && pipelineLayoutSnapshot.bindGroupLayoutResourceIds[groupIndex] || '';
+        var expectedBindLayout = pipelineBindGroupLayoutResourceId(passSnapshot.pipeline, pipeline, groupIndex);
         var actualBindLayout = bindGroupSnapshot.layoutResourceId || '';
         var drawArguments = {};
-        if (methodName === 'draw') {
+        if (methodName === 'setBindGroup') {
+            drawArguments = { index: groupIndex, bindGroupResourceId: bindGroupSnapshot.resourceId,
+                dynamicOffsetCount: args[2] && typeof args[2].length === 'number' ? Number(args[2].length) : 0 };
+        } else if (methodName === 'draw') {
             drawArguments = { vertexCount: Number(args[0]) || 0, instanceCount: args.length > 1 ? Number(args[1]) || 0 : 1,
                 firstVertex: args.length > 2 ? Number(args[2]) || 0 : 0, firstInstance: args.length > 3 ? Number(args[3]) || 0 : 0 };
         } else if (methodName === 'drawIndexed') {
@@ -810,14 +860,25 @@
         }
         var textureResource = {
             kind: safeText(bindingResource.resource && bindingResource.resource.kind || '', 40),
+            label: safeText(texture.label || '', 100),
+            viewLabel: safeText(bindingResource.resource.label || '', 100),
             format: safeText(view.format || texture.format || '', 80),
             width: Number(texture.width) || null,
             height: Number(texture.height) || null,
+            depthOrArrayLayers: Number(texture.depthOrArrayLayers) || null,
+            textureDimension: safeText(texture.dimension || '', 40),
+            textureSampleCount: Number(texture.sampleCount) || null,
+            textureUsage: Number(texture.usage) || null,
             textureResourceId: safeText(texture.resourceId || '', 40),
             viewResourceId: safeText(bindingResource.resource.resourceId || viewSnapshot.resourceId || '', 40),
-            mipLevelCount: Number(texture.mipLevelCount) || null,
+            viewDimension: safeText(view.dimension || 'not specified', 40),
+            viewAspect: safeText(view.aspect || 'not specified', 40),
             viewBaseMipLevel: Number(view.baseMipLevel) || 0,
-            viewMipLevelCount: Number(view.mipLevelCount) || null
+            viewMipLevelCount: Number(view.mipLevelCount) || null,
+            viewBaseArrayLayer: Number(view.baseArrayLayer) || 0,
+            viewArrayLayerCount: Number(view.arrayLayerCount) || null,
+            mipLevelCount: Number(texture.mipLevelCount) || null,
+            textureMipLevelCount: Number(texture.mipLevelCount) || null
         };
         var trace = {
             pass: {
@@ -831,6 +892,7 @@
                 resourceId: pipeline.resourceId,
                 label: pipeline.label,
                 layoutResourceId: pipeline.pipelineLayoutResourceId,
+                layoutMode: pipeline.layoutMode,
                 fragmentShaderResourceId: pipeline.fragmentShaderResourceId,
                 fragmentShaderLabel: pipeline.fragmentShaderLabel,
                 fragmentEntryPoint: pipeline.fragmentEntryPoint,
@@ -852,6 +914,7 @@
                 sampleCounts: shaderBinding.sampleCounts || {},
                 sampleCallCount: Number(shaderBinding.sampleCallCount) || 0,
                 analysisScope: shaderBinding.analysisScope,
+                layoutEvidence: layoutEvidence,
                 layoutSampleType: safeText(bindingLayout && bindingLayout.texture && bindingLayout.texture.sampleType || '', 40),
                 layoutViewDimension: safeText(bindingLayout && bindingLayout.texture && bindingLayout.texture.viewDimension || '', 40),
                 layoutVisibility: Number(bindingLayout && bindingLayout.visibility) || 0,
@@ -859,9 +922,138 @@
                 samplers: samplerFacts
             }
         };
-        trace.traceId = JSON.stringify([pipeline.resourceId, bindGroupSnapshot.resourceId, textureResource.textureResourceId,
+        trace.traceId = JSON.stringify([methodName, pipeline.resourceId, bindGroupSnapshot.resourceId, textureResource.textureResourceId,
             textureResource.viewResourceId, expectedBindLayout, textureResource.format,
             trace.pass.colorAttachments.map(function (attachment) { return attachment.viewResourceId; })]);
+        return trace;
+    }
+
+    function gpuComputeCommandBinding39Trace(pass, methodName, args) {
+        var passSnapshot = null;
+        try { passSnapshot = gpuComputePassSnapshots.get(pass) || null; } catch (ignored) { }
+        if (!passSnapshot || !passSnapshot.pipeline) return null;
+        var pipeline = null;
+        try { pipeline = gpuPipelineSnapshots.get(passSnapshot.pipeline) || null; } catch (ignored) { }
+        if (!pipeline || !pipeline.computeBinding39) return null;
+        var shaderBinding = pipeline.computeBinding39;
+        var groupIndex = Number(shaderBinding.group);
+        if (!isFinite(groupIndex) || groupIndex < 0) return null;
+        var requestedGroupIndex = methodName === 'setBindGroup' ? Number(args[0]) : groupIndex;
+        if (methodName === 'setBindGroup' && requestedGroupIndex !== groupIndex) return null;
+        var bindGroup = methodName === 'setBindGroup' ? args[1] : passSnapshot.bindGroups[groupIndex];
+        if (!bindGroup) return null;
+        var bindGroupSnapshot = null;
+        try { bindGroupSnapshot = gpuBindGroupSnapshots.get(bindGroup) || null; } catch (ignored) { }
+        if (!bindGroupSnapshot || !bindGroupSnapshot.binding39Resource) return null;
+        var bindGroupLayoutSnapshot = null;
+        try { bindGroupLayoutSnapshot = gpuBindGroupLayoutSnapshots.get(bindGroupSnapshot.layout) || null; } catch (ignored) { }
+        var bindingLayout = bindGroupLayoutSnapshot && bindGroupLayoutSnapshot.binding39Layout;
+        var layoutEvidence = bindingLayout ? 'bind-group layout descriptor observed' :
+            pipeline.layoutMode === 'auto' ? 'auto layout descriptor opaque to JavaScript' : 'bind-group layout descriptor not observed';
+        var bindingResource = bindGroupSnapshot.binding39Resource;
+        var resource = bindingResource.resource || {};
+        var viewSnapshot = resource.texture || {};
+        var texture = viewSnapshot.texture || {};
+        var view = viewSnapshot.view || {};
+        var samplerFacts = (shaderBinding.samplerBindings || []).map(function (pair) {
+            var samplerGroupIndex = pair.group == null ? groupIndex : Number(pair.group);
+            var samplerGroup = methodName === 'setBindGroup' && samplerGroupIndex === groupIndex
+                ? bindGroup : passSnapshot.bindGroups[samplerGroupIndex];
+            var samplerGroupSnapshot = null;
+            try { samplerGroupSnapshot = samplerGroup && gpuBindGroupSnapshots.get(samplerGroup) || null; } catch (ignored) { }
+            var binding = Number(pair.binding);
+            var samplerEntry = samplerGroupSnapshot && (samplerGroupSnapshot.samplerBindings || []).find(function (entry) {
+                return Number(entry.binding) === binding;
+            });
+            var samplerLayoutSnapshot = null;
+            try { samplerLayoutSnapshot = samplerGroupSnapshot && gpuBindGroupLayoutSnapshots.get(samplerGroupSnapshot.layout) || null; } catch (ignored) { }
+            var samplerLayout = samplerLayoutSnapshot && (samplerLayoutSnapshot.samplerBindings || []).find(function (entry) {
+                return Number(entry.binding) === binding;
+            });
+            var sampler = samplerEntry && samplerEntry.resource && samplerEntry.resource.sampler || {};
+            return {
+                builtin: safeText(pair.builtin || '', 40),
+                name: safeText(pair.name || '', 80),
+                group: samplerGroupIndex,
+                binding: binding,
+                wgslType: safeText(pair.type || '', 80),
+                layoutType: safeText(samplerLayout && samplerLayout.sampler && samplerLayout.sampler.type ||
+                    (pipeline.layoutMode === 'auto' ? 'auto (opaque)' : 'not observed'), 40),
+                resourceId: safeText(sampler.resourceId || '', 40),
+                minFilter: safeText(sampler.minFilter || '', 32),
+                magFilter: safeText(sampler.magFilter || '', 32),
+                mipmapFilter: safeText(sampler.mipmapFilter || '', 32)
+            };
+        }).slice(0, 8);
+        var expectedBindLayout = pipelineBindGroupLayoutResourceId(passSnapshot.pipeline, pipeline, groupIndex);
+        var actualBindLayout = bindGroupSnapshot.layoutResourceId || '';
+        var dispatchArguments = methodName === 'setBindGroup'
+            ? { index: groupIndex, bindGroupResourceId: bindGroupSnapshot.resourceId,
+                dynamicOffsetCount: args[2] && typeof args[2].length === 'number' ? Number(args[2].length) : 0 }
+            : methodName === 'dispatchWorkgroups'
+                ? { workgroups: [Number(args[0]) || 0, args.length > 1 ? Number(args[1]) || 0 : 1, args.length > 2 ? Number(args[2]) || 0 : 1] }
+                : { indirectBufferLabel: objectLabel(args[0]), indirectOffset: Number(args[1]) || 0 };
+        var textureResource = {
+            kind: safeText(resource.kind || '', 40),
+            label: safeText(texture.label || '', 100),
+            viewLabel: safeText(resource.label || '', 100),
+            format: safeText(view.format || texture.format || '', 80),
+            width: Number(texture.width) || null,
+            height: Number(texture.height) || null,
+            depthOrArrayLayers: Number(texture.depthOrArrayLayers) || null,
+            textureDimension: safeText(texture.dimension || '', 40),
+            textureSampleCount: Number(texture.sampleCount) || null,
+            textureUsage: Number(texture.usage) || null,
+            textureResourceId: safeText(texture.resourceId || '', 40),
+            viewResourceId: safeText(resource.resourceId || viewSnapshot.resourceId || '', 40),
+            viewDimension: safeText(view.dimension || 'not specified', 40),
+            viewAspect: safeText(view.aspect || 'not specified', 40),
+            viewBaseMipLevel: Number(view.baseMipLevel) || 0,
+            viewMipLevelCount: Number(view.mipLevelCount) || null,
+            viewBaseArrayLayer: Number(view.baseArrayLayer) || 0,
+            viewArrayLayerCount: Number(view.arrayLayerCount) || null,
+            mipLevelCount: Number(texture.mipLevelCount) || null,
+            textureMipLevelCount: Number(texture.mipLevelCount) || null
+        };
+        var trace = {
+            stage: 'compute',
+            pass: { sequence: passSnapshot.sequence, label: passSnapshot.label },
+            command: { operation: 'GPUComputePassEncoder.' + methodName, arguments: dispatchArguments, apiCallReturned: false },
+            pipeline: {
+                resourceId: pipeline.resourceId,
+                label: pipeline.label,
+                layoutResourceId: pipeline.pipelineLayoutResourceId,
+                layoutMode: pipeline.layoutMode,
+                computeShaderResourceId: pipeline.computeShaderResourceId,
+                computeShaderLabel: pipeline.computeShaderLabel,
+                computeEntryPoint: pipeline.computeEntryPoint
+            },
+            bindGroup: {
+                index: groupIndex,
+                resourceId: bindGroupSnapshot.resourceId,
+                layoutResourceId: actualBindLayout,
+                pipelineExpectedLayoutResourceId: expectedBindLayout,
+                layoutMatchesPipeline: expectedBindLayout && actualBindLayout ? expectedBindLayout === actualBindLayout : null
+            },
+            binding39: {
+                group: groupIndex,
+                binding: 39,
+                wgslName: shaderBinding.name,
+                wgslType: shaderBinding.type,
+                textureLoadCount: Number(shaderBinding.textureLoadCount) || 0,
+                sampleCounts: shaderBinding.sampleCounts || {},
+                sampleCallCount: Number(shaderBinding.sampleCallCount) || 0,
+                analysisScope: shaderBinding.analysisScope,
+                layoutEvidence: layoutEvidence,
+                layoutSampleType: safeText(bindingLayout && bindingLayout.texture && bindingLayout.texture.sampleType || '', 40),
+                layoutViewDimension: safeText(bindingLayout && bindingLayout.texture && bindingLayout.texture.viewDimension || '', 40),
+                layoutVisibility: Number(bindingLayout && bindingLayout.visibility) || 0,
+                resource: textureResource,
+                samplers: samplerFacts
+            }
+        };
+        trace.traceId = JSON.stringify([methodName, pipeline.resourceId, bindGroupSnapshot.resourceId, textureResource.textureResourceId,
+            textureResource.viewResourceId, expectedBindLayout, textureResource.format]);
         return trace;
     }
 
@@ -870,6 +1062,13 @@
         gpuBindingTraceSignatures.add(trace.traceId);
         trace.observedAt = Date.now();
         send('gpu-binding-trace', trace);
+    }
+
+    function rememberGpuComputeBinding39Trace(trace) {
+        if (!trace || gpuComputeBinding39TraceSignatures.has(trace.traceId) || gpuComputeBinding39TraceSignatures.size >= 16) return;
+        gpuComputeBinding39TraceSignatures.add(trace.traceId);
+        trace.observedAt = Date.now();
+        send('gpu-compute-binding-trace', trace);
     }
 
     function snapshotGpuOperations() {
@@ -894,6 +1093,7 @@
             pipelineApiCalls[methodName] = (pipelineApiCalls[methodName] || 0) + 1;
         }
         var hot = methodName === 'draw' || methodName === 'drawIndexed' || methodName === 'dispatchWorkgroups' ||
+            methodName === 'dispatchWorkgroupsIndirect' ||
             methodName === 'submit' || methodName === 'getCurrentTexture' ||
             (interfaceName === 'GPURenderPassEncoder' && /^(setPipeline|setBindGroup|setVertexBuffer|setIndexBuffer|setViewport|setScissorRect)$/.test(methodName));
         var veryHot = methodName === 'draw' || methodName === 'drawIndexed' ||
@@ -1165,9 +1365,13 @@
                     var args = arguments;
                     var entry = noteGpuOperation(globalName, methodName, args, this);
                     var drawBindingTrace = null;
-                    if (globalName === 'GPURenderPassEncoder' && /^draw/.test(methodName)) {
+                    var computeBindingTrace = null;
+                    if (globalName === 'GPURenderPassEncoder' && (/^draw/.test(methodName) || methodName === 'setBindGroup')) {
                         try { drawBindingTrace = gpuRenderCommandBinding44Trace(this, methodName, args); } catch (ignored) { }
                         if (drawBindingTrace && entry && entry.details) entry.details.commandTrace = drawBindingTrace;
+                    } else if (globalName === 'GPUComputePassEncoder' && (/^(dispatchWorkgroups|dispatchWorkgroupsIndirect)$/.test(methodName) || methodName === 'setBindGroup')) {
+                        try { computeBindingTrace = gpuComputeCommandBinding39Trace(this, methodName, args); } catch (ignored) { }
+                        if (computeBindingTrace && entry && entry.details) entry.details.computeBinding39Trace = computeBindingTrace;
                     }
                     var result;
                     try {
@@ -1176,6 +1380,12 @@
                         if (drawBindingTrace) {
                             drawBindingTrace.command.apiCallReturned = false;
                             if (entry && entry.details) entry.details.commandTrace = drawBindingTrace;
+                            rememberGpuBinding44Trace(drawBindingTrace);
+                        }
+                        if (computeBindingTrace) {
+                            computeBindingTrace.command.apiCallReturned = false;
+                            if (entry && entry.details) entry.details.computeBinding39Trace = computeBindingTrace;
+                            rememberGpuComputeBinding39Trace(computeBindingTrace);
                         }
                         recordGpuError(error, 'thrown by ' + globalName + '.' + methodName, entry);
                         if (/create(Render|Compute)Pipeline/.test(methodName)) inspectShaderCompilation(args[0], 'synchronous pipeline creation failure', entry);
@@ -1185,6 +1395,11 @@
                         drawBindingTrace.command.apiCallReturned = true;
                         if (entry && entry.details) entry.details.commandTrace = drawBindingTrace;
                         rememberGpuBinding44Trace(drawBindingTrace);
+                    }
+                    if (computeBindingTrace) {
+                        computeBindingTrace.command.apiCallReturned = true;
+                        if (entry && entry.details) entry.details.computeBinding39Trace = computeBindingTrace;
+                        rememberGpuComputeBinding39Trace(computeBindingTrace);
                     }
                     if ((methodName === 'createRenderPipelineAsync' || methodName === 'createComputePipelineAsync') && result && typeof result.then === 'function') {
                         try {
@@ -1239,6 +1454,7 @@
                         gpuBindGroupLayoutSnapshots.set(result, {
                             resourceId: bindLayoutId,
                             binding44Layout: bindLayoutDetails.binding44Layout || null,
+                            binding39Layout: bindLayoutDetails.binding39Layout || null,
                             samplerBindings: bindLayoutDetails.samplerBindings || []
                         });
                     } else if (globalName === 'GPUDevice' && methodName === 'createPipelineLayout' && result) {
@@ -1258,17 +1474,39 @@
                             layout: (args[0] || {}).layout || null,
                             layoutResourceId: bindGroupDetails.layoutResourceId || '',
                             binding44Resource: bindGroupDetails.binding44Resource || null,
+                            binding39Resource: bindGroupDetails.binding39Resource || null,
                             textureBindings: bindGroupDetails.textureBindings || [],
                             samplerBindings: bindGroupDetails.samplerBindings || []
                         });
                     } else if (globalName === 'GPUDevice' && methodName === 'createShaderModule' && result) {
                         var shaderModuleId = gpuResourceId(result, 'shader-module');
                         if (entry && entry.details && shaderModuleId) entry.details.resourceId = shaderModuleId;
-                        try { gpuShaderBindingFacts.set(result, entry && entry.details && entry.details.binding44 || null); } catch (ignored) { }
+                        try {
+                            gpuShaderBindingFacts.set(result, {
+                                binding44: entry && entry.details && entry.details.binding44 || null,
+                                binding39: entry && entry.details && entry.details.binding39 || null
+                            });
+                        } catch (ignored) { }
                     } else if (globalName === 'GPUDevice' && /create(Render|Compute)Pipeline$/.test(methodName) && result) {
                         var pipelineId = gpuResourceId(result, 'pipeline');
                         if (entry && entry.details && pipelineId) entry.details.resourceId = pipelineId;
                         storeGpuPipelineSnapshot(result, args[0] || {}, entry && entry.details || {});
+                    }
+                    if ((globalName === 'GPURenderPipeline' || globalName === 'GPUComputePipeline') && methodName === 'getBindGroupLayout' && result) {
+                        var groupIndex = Number(args[0]);
+                        var autoLayoutId = gpuResourceId(result, 'bind-layout');
+                        if (entry && entry.details) {
+                            entry.details.groupIndex = groupIndex;
+                            entry.details.resourceId = autoLayoutId;
+                        }
+                        if (isFinite(groupIndex) && groupIndex >= 0) {
+                            var pipelineGroupLayoutIds = null;
+                            try { pipelineGroupLayoutIds = gpuPipelineBindGroupLayouts.get(this) || Object.create(null); } catch (ignored) { }
+                            if (pipelineGroupLayoutIds) {
+                                pipelineGroupLayoutIds[groupIndex] = autoLayoutId;
+                                try { gpuPipelineBindGroupLayouts.set(this, pipelineGroupLayoutIds); } catch (ignored) { }
+                            }
+                        }
                     }
                     if (globalName === 'GPUCommandEncoder' && methodName === 'beginRenderPass' && result) {
                         var passDetails = entry && entry.details || {};
@@ -1280,6 +1518,14 @@
                             pipeline: null,
                             bindGroups: Object.create(null)
                         });
+                    } else if (globalName === 'GPUCommandEncoder' && methodName === 'beginComputePass' && result) {
+                        var computePassDetails = entry && entry.details || {};
+                        gpuComputePassSnapshots.set(result, {
+                            sequence: ++gpuComputePassSequence,
+                            label: computePassDetails.label || '',
+                            pipeline: null,
+                            bindGroups: Object.create(null)
+                        });
                     } else if (globalName === 'GPURenderPassEncoder') {
                         var passSnapshot = null;
                         try { passSnapshot = gpuRenderPassSnapshots.get(this) || null; } catch (ignored) { }
@@ -1287,6 +1533,14 @@
                         if (passSnapshot && methodName === 'setBindGroup') passSnapshot.bindGroups[Number(args[0])] = args[1] || null;
                         if (passSnapshot && methodName === 'end') {
                             try { gpuRenderPassSnapshots.delete(this); } catch (ignored) { }
+                        }
+                    } else if (globalName === 'GPUComputePassEncoder') {
+                        var computePassSnapshot = null;
+                        try { computePassSnapshot = gpuComputePassSnapshots.get(this) || null; } catch (ignored) { }
+                        if (computePassSnapshot && methodName === 'setPipeline') computePassSnapshot.pipeline = args[0] || null;
+                        if (computePassSnapshot && methodName === 'setBindGroup') computePassSnapshot.bindGroups[Number(args[0])] = args[1] || null;
+                        if (computePassSnapshot && methodName === 'end') {
+                            try { gpuComputePassSnapshots.delete(this); } catch (ignored) { }
                         }
                     }
                     if (globalName === 'GPUTexture' && methodName === 'createView' && result && gpuTextureViewSnapshots) {
@@ -1478,6 +1732,8 @@
         installed += installPrototypeHooks('GPURenderPassEncoder', ['setPipeline', 'setBindGroup', 'setVertexBuffer', 'setIndexBuffer',
             'setViewport', 'setScissorRect', 'draw', 'drawIndexed', 'drawIndirect', 'drawIndexedIndirect', 'end']);
         installed += installPrototypeHooks('GPUComputePassEncoder', ['setPipeline', 'setBindGroup', 'dispatchWorkgroups', 'dispatchWorkgroupsIndirect', 'end']);
+        installed += installPrototypeHooks('GPURenderPipeline', ['getBindGroupLayout']);
+        installed += installPrototypeHooks('GPUComputePipeline', ['getBindGroupLayout']);
         installed += installPrototypeHooks('GPUCanvasContext', ['configure', 'getCurrentTexture']);
         installed += installPrototypeHooks('GPUTexture', ['createView', 'destroy']);
         installed += installPrototypeHooks('GPUBuffer', ['destroy']);

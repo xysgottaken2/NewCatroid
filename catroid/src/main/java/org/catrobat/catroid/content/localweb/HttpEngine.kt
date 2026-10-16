@@ -348,6 +348,8 @@ class HttpEngine(
         }
 
         var entry = store.resolve(relativeToPrefix)
+        var resolvedRelativePath = relativeToPrefix
+        var sourceResolution = "direct"
         if (entry == null) {
             // The path does not exist directly under the served root. Pages
             // reference absolute URLs relative to their site root, which may
@@ -357,17 +359,20 @@ class HttpEngine(
             // the request path - default-document and entry-point discovery
             // below must stay direct (they look inside the requested
             // directory).
-            entry = suffixSearcherFor(store).find(relativeToPrefix)
-            if (entry == null) {
+            val suffixMatch = suffixSearcherFor(store).findMatch(relativeToPrefix)
+            if (suffixMatch == null) {
                 out.writeSimpleError(404, "Not Found", "404 Not Found")
                 record.status = 404
                 record.detail = "document not resolved: $relativeToPrefix (no match anywhere in the selected tree)"
                 logger(LogLevel.INFO, "$method $rawPath -> 404 document not resolved ($relativeToPrefix)", null)
                 return
             }
+            entry = suffixMatch.entry
+            resolvedRelativePath = suffixMatch.relativePath
+            sourceResolution = suffixMatch.resolution
             logger(
                 LogLevel.INFO,
-                "$method $rawPath -> resolved under a nested site root (${entry.id})",
+                "$method $rawPath -> resolved under a nested site root (${entry.id}; $resolvedRelativePath)",
                 null
             )
         }
@@ -375,7 +380,12 @@ class HttpEngine(
         if (entry.isDirectory) {
             handleDirectory(store, entry, rawPath, relativeToPrefix, query, isHead, out, record)
         } else {
-            handleFile(store, entry, rawPath, headers, isHead, out, record, query)
+            handleFile(
+                store, entry, rawPath, headers, isHead, out, record, query,
+                requestedRelativePath = relativeToPrefix,
+                resolvedSourcePath = resolvedRelativePath,
+                sourceResolution = sourceResolution
+            )
         }
     }
 
@@ -658,7 +668,10 @@ class HttpEngine(
         isHead: Boolean,
         out: OutputStream,
         record: RequestRecord,
-        query: String = ""
+        query: String = "",
+        requestedRelativePath: String = "",
+        resolvedSourcePath: String = "",
+        sourceResolution: String = "direct"
     ) {
         val contentType = resolveContentType(entry)
         val size = entry.size
@@ -767,7 +780,11 @@ class HttpEngine(
                                 alphaFixWorkerVerificationBootstrap = buildAlphaFixWorkerVerificationBootstrap(
                                     digest = digest,
                                     hashMatches = hashMatches,
-                                    shimInjected = shimInjected
+                                    shimInjected = shimInjected,
+                                    requestedRelativePath = requestedRelativePath,
+                                    resolvedSourcePath = resolvedSourcePath,
+                                    sourceResolution = sourceResolution,
+                                    sourceBytes = bytes.size
                                 )
                                 if (shimInjected) {
                                     outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript!!)
@@ -1158,10 +1175,44 @@ class HttpEngine(
     private fun buildAlphaFixWorkerVerificationBootstrap(
         digest: String,
         hashMatches: Boolean,
-        shimInjected: Boolean
-    ): String = "self.__newcatroidAlphaFixServerVerification = " +
-        "{requested:true,expectedSha256:\"$ALPHA_FIX_WORKER_SHA256\",actualSha256:\"$digest\"," +
-        "hashMatches:$hashMatches,shimInjected:$shimInjected};"
+        shimInjected: Boolean,
+        requestedRelativePath: String,
+        resolvedSourcePath: String,
+        sourceResolution: String,
+        sourceBytes: Int
+    ): String {
+        val reason = when {
+            !hashMatches -> "hash-mismatch"
+            !shimInjected -> "compatibility-script-unavailable"
+            else -> "reviewed-worker-hash"
+        }
+        return "self.__newcatroidAlphaFixServerVerification = " +
+            "{requested:true,expectedSha256:\"$ALPHA_FIX_WORKER_SHA256\",actualSha256:\"$digest\"," +
+            "expectedSource:${javaScriptStringLiteral(ALPHA_FIX_WORKER_SOURCE_ID)}," +
+            "requestedRelativePath:${javaScriptStringLiteral(requestedRelativePath.take(MAX_WORKER_PATH_LENGTH))}," +
+            "resolvedSourcePath:${javaScriptStringLiteral(resolvedSourcePath.take(MAX_WORKER_PATH_LENGTH))}," +
+            "sourceResolution:${javaScriptStringLiteral(sourceResolution)},sourceBytes:$sourceBytes," +
+            "hashMatches:$hashMatches,shimInjected:$shimInjected,reason:${javaScriptStringLiteral(reason)}};"
+    }
+
+    private fun javaScriptStringLiteral(value: String): String = buildString {
+        append('"')
+        for (character in value) {
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\b' -> append("\\b")
+                '\u000c' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                '\u2028' -> append("\\u2028")
+                '\u2029' -> append("\\u2029")
+                else -> if (character < ' ') append("\\u%04x".format(character.code)) else append(character)
+            }
+        }
+        append('"')
+    }
 
     /** Appends observational hooks so an original worker's strict directive remains effective. */
     private fun appendWorkerDiagnosticsBootstrap(
@@ -1390,6 +1441,8 @@ class HttpEngine(
         const val ALPHA_FIX_QUERY = "newcatroid_alpha_fix"
         // shadany7824/playgta5 @ 2fb671adca55cd0317aa551b33ffd922f1639660
         const val ALPHA_FIX_WORKER_SHA256 = "e1b83d2b10a98d29d8f7ac45a4e42f68486144a8046df688667891af034716c7"
+        const val ALPHA_FIX_WORKER_SOURCE_ID = "shadany7824/playgta5@2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js"
+        const val MAX_WORKER_PATH_LENGTH = 512
         const val ADRENO_FIX_QUERY = "newcatroid_adreno_fix"
         const val WORKER_DIAGNOSTICS_QUERY = "newcatroid_worker_debug"
         const val WORKER_PIPELINE_QUERY = "newcatroid_pipeline_probe"

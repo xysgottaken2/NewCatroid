@@ -556,7 +556,12 @@ test('GPU binding 44 trace links direct WGSL use, sampler, layout, texture, pipe
     for (const listener of device.listeners.uncapturederror || []) listener({ error: validation });
 
     const messages = env.channel.messages;
-    const traceEvent = messages.find((message) => message.type === 'gpu-binding-trace');
+    const bindTraceEvent = messages.find((message) => message.type === 'gpu-binding-trace' &&
+        message.details.command.operation === 'GPURenderPassEncoder.setBindGroup');
+    assert.ok(bindTraceEvent, 'setting the target bind group should produce a trace before draw');
+    assert.equal(bindTraceEvent.details.command.apiCallReturned, true);
+    const traceEvent = messages.find((message) => message.type === 'gpu-binding-trace' &&
+        message.details.command.operation === 'GPURenderPassEncoder.draw');
     assert.ok(traceEvent, 'the direct draw should produce a targeted binding 44 trace');
     const trace = traceEvent.details;
     assert.equal(trace.binding44.group, 1);
@@ -566,7 +571,13 @@ test('GPU binding 44 trace links direct WGSL use, sampler, layout, texture, pipe
     assert.equal(trace.binding44.textureLoadCount, 0);
     assert.equal(trace.binding44.sampleCounts.textureSample, 1);
     assert.equal(trace.binding44.layoutSampleType, 'float');
+    assert.equal(trace.binding44.layoutEvidence, 'bind-group layout descriptor observed');
     assert.equal(trace.binding44.resource.format, 'r32float');
+    assert.equal(trace.binding44.resource.label, 'r32-height');
+    assert.equal(trace.binding44.resource.viewLabel, '');
+    assert.equal(trace.binding44.resource.textureUsage, 4);
+    assert.equal(trace.binding44.resource.textureDimension, '2d');
+    assert.equal(trace.binding44.resource.viewDimension, '2d');
     assert.equal(trace.binding44.resource.width, 256);
     assert.equal(trace.binding44.samplers[0].binding, 28);
     assert.equal(trace.binding44.samplers[0].layoutType, 'filtering');
@@ -597,6 +608,167 @@ test('GPU binding 44 trace links direct WGSL use, sampler, layout, texture, pipe
     assert.equal(drawOperation.details.commandTrace.pass.colorAttachments[0].format, 'bgra8unorm');
 });
 
+test('GPU compute binding 39 trace links auto layout, R32Float view, WGSL use, sampler and dispatch', async () => {
+    class FakeGpuSampler {
+        constructor(descriptor) { this.label = descriptor.label || ''; }
+    }
+    Object.defineProperty(FakeGpuSampler.prototype, Symbol.toStringTag, { value: 'GPUSampler' });
+    class FakeGpuTextureView {
+        constructor(descriptor) { this.label = descriptor.label || ''; }
+    }
+    Object.defineProperty(FakeGpuTextureView.prototype, Symbol.toStringTag, { value: 'GPUTextureView' });
+    class FakeGpuTexture {
+        constructor(descriptor) {
+            this.label = descriptor.label || '';
+            this.width = descriptor.size.width;
+            this.height = descriptor.size.height;
+            this.depthOrArrayLayers = descriptor.size.depthOrArrayLayers || 1;
+            this.mipLevelCount = descriptor.mipLevelCount || 1;
+            this.sampleCount = descriptor.sampleCount || 1;
+            this.dimension = descriptor.dimension || '2d';
+            this.format = descriptor.format;
+            this.usage = descriptor.usage || 0;
+        }
+        createView(descriptor) { return new FakeGpuTextureView(descriptor || {}); }
+    }
+    class FakeGpuComputePipeline {
+        constructor(layout) { this.label = 'r32-compute-auto-layout'; this.layout = layout; }
+        getBindGroupLayout(index) { assert.equal(index, 0); return this.layout; }
+    }
+    class FakeGpuComputePassEncoder {
+        setPipeline(pipeline) { this.pipeline = pipeline; }
+        setBindGroup(index, bindGroup) { this.bindGroupIndex = index; this.bindGroup = bindGroup; }
+        dispatchWorkgroups() {}
+        dispatchWorkgroupsIndirect() {}
+        end() {}
+    }
+    class FakeGpuCommandEncoder {
+        beginComputePass() { return new FakeGpuComputePassEncoder(); }
+    }
+    class FakeGpuDevice {
+        constructor() {
+            this.features = new Set();
+            this.limits = { maxBindGroups: 4 };
+            this.listeners = Object.create(null);
+            this.lost = new Promise(() => {});
+            this.autoLayout = null;
+        }
+        addEventListener(type, listener) { (this.listeners[type] || (this.listeners[type] = [])).push(listener); }
+        createTexture(descriptor) { return new FakeGpuTexture(descriptor); }
+        createSampler(descriptor) { return new FakeGpuSampler(descriptor || {}); }
+        createBindGroupLayout(descriptor) { return { label: descriptor.label || '' }; }
+        createBindGroup(descriptor) { return { label: descriptor.label || '' }; }
+        createShaderModule(descriptor) { return { label: descriptor.label || '', code: descriptor.code }; }
+        createComputePipeline() { return new FakeGpuComputePipeline(this.autoLayout); }
+        createCommandEncoder() { return new FakeGpuCommandEncoder(); }
+    }
+    class FakeGpuAdapter {
+        constructor(device) { this.device = device; this.features = new Set(); this.limits = { maxTextureDimension2D: 8192 }; this.info = {}; }
+        requestDevice() { return Promise.resolve(this.device); }
+    }
+    const device = new FakeGpuDevice();
+    const adapter = new FakeGpuAdapter(device);
+    const env = createWorkerContext('/wgpu_worker.js?newcatroid_worker_debug=1', {
+        self: {
+            GPUDevice: FakeGpuDevice,
+            GPUAdapter: FakeGpuAdapter,
+            GPUTexture: FakeGpuTexture,
+            GPUTextureView: FakeGpuTextureView,
+            GPUComputePipeline: FakeGpuComputePipeline,
+            GPUComputePassEncoder: FakeGpuComputePassEncoder,
+            GPUCommandEncoder: FakeGpuCommandEncoder,
+            GPU: function () {},
+            navigator: { gpu: { requestAdapter() { return Promise.resolve(adapter); } } }
+        }
+    });
+    await (await env.self.navigator.gpu.requestAdapter()).requestDevice({});
+
+    const shader = device.createShaderModule({ label: 'r32-compute-load', code: [
+        '@group(0) @binding(39) var heightTexture: texture_2d<f32>;',
+        '@group(0) @binding(40) var heightSampler: sampler;',
+        '@compute @workgroup_size(8, 8, 1) fn csMain() {',
+        '  let value = textureLoad(heightTexture, vec2<i32>(0, 0), 0);',
+        '  let filtered = textureSampleLevel(heightTexture, heightSampler, vec2<f32>(0.0), 0.0);',
+        '}'
+    ].join('\n') });
+    const layout = { label: 'opaque-compute-b39-auto-layout' };
+    device.autoLayout = layout;
+    const pipeline = device.createComputePipeline({ label: 'r32-compute-pipeline', layout: 'auto',
+        compute: { module: shader, entryPoint: 'csMain' } });
+    const actualAutoLayout = pipeline.getBindGroupLayout(0);
+    const texture = device.createTexture({ label: 'compute-r32-source', size: { width: 128, height: 64, depthOrArrayLayers: 1 },
+        format: 'r32float', usage: 4 });
+    const view = texture.createView({ label: 'compute-r32-view', format: 'r32float', dimension: '2d' });
+    const sampler = device.createSampler({ label: 'compute-b40-sampler', minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'nearest' });
+    const bindGroup = device.createBindGroup({ label: 'compute-b39-group', layout: actualAutoLayout,
+        entries: [{ binding: 39, resource: view }, { binding: 40, resource: sampler }] });
+    const pass = device.createCommandEncoder().beginComputePass({ label: 'height-convert-compute-pass' });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(16, 8, 1);
+    pass.end();
+
+    const validation = Object.assign(new Error('None of the supported sample types (UnfilterableFloat) of Texture R32Float match expected sample type Float'), {
+        name: 'GPUValidationError'
+    });
+    for (const listener of device.listeners.uncapturederror || []) listener({ error: validation });
+
+    const messages = env.channel.messages;
+    const bindTraceEvent = messages.find((message) => message.type === 'gpu-compute-binding-trace' &&
+        message.details.command.operation === 'GPUComputePassEncoder.setBindGroup');
+    assert.ok(bindTraceEvent, 'setting the compute bind group should produce a trace before dispatch');
+    assert.equal(bindTraceEvent.details.command.apiCallReturned, true);
+    const traceEvent = messages.find((message) => message.type === 'gpu-compute-binding-trace' &&
+        message.details.command.operation === 'GPUComputePassEncoder.dispatchWorkgroups');
+    assert.ok(traceEvent, 'compute dispatch should produce a targeted binding 39 trace');
+    const trace = traceEvent.details;
+    assert.equal(trace.stage, 'compute');
+    assert.equal(trace.binding39.group, 0);
+    assert.equal(trace.binding39.binding, 39);
+    assert.equal(trace.binding39.wgslName, 'heightTexture');
+    assert.equal(trace.binding39.wgslType, 'texture_2d<f32>');
+    assert.equal(trace.binding39.textureLoadCount, 1);
+    assert.equal(trace.binding39.sampleCallCount, 1);
+    assert.equal(trace.binding39.sampleCounts.textureSampleLevel, 1);
+    assert.equal(trace.binding39.samplers.length, 1);
+    assert.equal(trace.binding39.samplers[0].binding, 40);
+    assert.equal(trace.binding39.samplers[0].layoutType, 'auto (opaque)');
+    assert.equal(trace.binding39.samplers[0].minFilter, 'linear');
+    assert.equal(trace.binding39.layoutEvidence, 'auto layout descriptor opaque to JavaScript');
+    assert.equal(trace.binding39.layoutSampleType, '');
+    assert.equal(trace.binding39.layoutVisibility, 0);
+    assert.equal(trace.binding39.resource.format, 'r32float');
+    assert.equal(trace.binding39.resource.width, 128);
+    assert.equal(trace.binding39.resource.height, 64);
+    assert.equal(trace.binding39.resource.label, 'compute-r32-source');
+    assert.equal(trace.binding39.resource.viewLabel, 'compute-r32-view');
+    assert.equal(trace.binding39.resource.textureDimension, '2d');
+    assert.equal(trace.binding39.resource.textureUsage, 4);
+    assert.equal(trace.binding39.resource.viewDimension, '2d');
+    assert.equal(trace.pipeline.computeShaderLabel, 'r32-compute-load');
+    assert.equal(trace.pipeline.computeEntryPoint, 'csMain');
+    assert.equal(trace.pipeline.layoutMode, 'auto');
+    assert.equal(trace.bindGroup.layoutMatchesPipeline, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(trace.command.arguments.workgroups)), [16, 8, 1]);
+    assert.equal(trace.command.apiCallReturned, true);
+
+    const errorGroup = messages.find((message) => message.type === 'webgpu-error-group' && /R32Float/.test(message.details.message));
+    assert.ok(errorGroup);
+    const context = errorGroup.details.firstContext;
+    const shaderOperation = context.find((operation) => /createShaderModule/.test(operation.operation) && operation.details.label === 'r32-compute-load');
+    assert.equal(shaderOperation.details.binding39.textureLoadCount, 1);
+    const getLayoutOperation = context.find((operation) => /GPUComputePipeline.getBindGroupLayout/.test(operation.operation));
+    assert.ok(getLayoutOperation);
+    const bindGroupOperation = context.find((operation) => /createBindGroup$/.test(operation.operation));
+    assert.equal(bindGroupOperation.details.layoutResourceId, getLayoutOperation.details.resourceId);
+    assert.equal(bindGroupOperation.details.binding39Resource.resource.texture.texture.format, 'r32float');
+    const pipelineOperation = context.find((operation) => /createComputePipeline$/.test(operation.operation));
+    assert.equal(pipelineOperation.details.computeBinding39.textureLoadCount, 1);
+    const dispatchOperation = context.find((operation) => /GPUComputePassEncoder.dispatchWorkgroups$/.test(operation.operation));
+    assert.equal(dispatchOperation.details.computeBinding39Trace.binding39.resource.format, 'r32float');
+    assert.equal(dispatchOperation.details.computeBinding39Trace.bindGroup.layoutMatchesPipeline, true);
+});
+
 test('GPU worker reports alpha-fix URL propagation separately from shim and shader-variant counters', () => {
     const stats = {
         enabled: true,
@@ -607,8 +779,21 @@ test('GPU worker reports alpha-fix URL propagation separately from shim and shad
         firstNonVec4OutputType: 'f32',
         lastObservedAt: 12345
     };
+    const serverVerification = {
+        requested: true,
+        expectedSha256: 'e'.repeat(64),
+        actualSha256: 'e'.repeat(64),
+        expectedSource: 'shadany7824/playgta5@2fb671ad/wgpu_worker.js',
+        requestedRelativePath: 'wgpu_worker.js',
+        resolvedSourcePath: 'mirror/site/wgpu_worker.js',
+        sourceResolution: 'nested-suffix',
+        sourceBytes: 123456,
+        reason: 'reviewed-worker-hash',
+        hashMatches: true,
+        shimInjected: true
+    };
     const env = createWorkerContext('/wgpu_worker.js?newcatroid_worker_debug=1&syncpipelines=1&newcatroid_alpha_fix=1', {
-        self: { __newcatroidAlphaCompatibility: stats }
+        self: { __newcatroidAlphaCompatibility: stats, __newcatroidAlphaFixServerVerification: serverVerification }
     });
     const config = env.channel.messages.find((message) => message.type === 'gpu-worker-config');
     const bootstrap = env.channel.messages.find((message) => message.type === 'worker-bootstrap');
@@ -617,6 +802,12 @@ test('GPU worker reports alpha-fix URL propagation separately from shim and shad
     assert.equal(config.details.shaderCompatibility.hookInstalled, true);
     assert.equal(config.details.shaderCompatibility.alphaCoverageVariantsSeen, 7);
     assert.equal(config.details.shaderCompatibility.nonVec4AlphaTestsBypassed, 2);
+    assert.equal(config.details.alphaFixServerVerification.expectedSource, serverVerification.expectedSource);
+    assert.equal(config.details.alphaFixServerVerification.requestedRelativePath, 'wgpu_worker.js');
+    assert.equal(config.details.alphaFixServerVerification.resolvedSourcePath, 'mirror/site/wgpu_worker.js');
+    assert.equal(config.details.alphaFixServerVerification.sourceResolution, 'nested-suffix');
+    assert.equal(config.details.alphaFixServerVerification.sourceBytes, 123456);
+    assert.equal(config.details.alphaFixServerVerification.reason, 'reviewed-worker-hash');
     assert.equal(bootstrap.details.workerUrlAlphaFix, true);
     assert.equal(bootstrap.details.shaderCompatibility.firstNonVec4OutputType, 'f32');
 

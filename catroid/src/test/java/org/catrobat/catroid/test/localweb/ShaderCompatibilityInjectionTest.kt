@@ -85,7 +85,11 @@ class ShaderCompatibilityInjectionTest {
         ).bodyText()
         assertFalse(unknownWithDiagnostics.contains(bootstrap))
         assertTrue(unknownWithDiagnostics.contains("expectedSha256:\"${HttpEngine.ALPHA_FIX_WORKER_SHA256}\""))
-        assertTrue(unknownWithDiagnostics.contains("hashMatches:false,shimInjected:false"))
+        assertTrue(unknownWithDiagnostics.contains("expectedSource:\"${HttpEngine.ALPHA_FIX_WORKER_SOURCE_ID}\""))
+        assertTrue(unknownWithDiagnostics.contains("requestedRelativePath:\"wgpu_worker.js\""))
+        assertTrue(unknownWithDiagnostics.contains("resolvedSourcePath:\"wgpu_worker.js\""))
+        assertTrue(unknownWithDiagnostics.contains("sourceResolution:\"direct\",sourceBytes:${original.toByteArray().size}"))
+        assertTrue(unknownWithDiagnostics.contains("hashMatches:false,shimInjected:false,reason:\"hash-mismatch\""))
         assertTrue(unknownWithDiagnostics.endsWith("\nself.diagnostics = true;\n"))
         val response = rawHttpRequest(port, "GET", "/game/__newcatroid_shader_compat.js")
         assertEquals(bootstrap, response.bodyText())
@@ -93,6 +97,53 @@ class ShaderCompatibilityInjectionTest {
         val head = rawHttpRequest(port, "HEAD", "/game/__newcatroid_shader_compat.js")
         assertTrue(head.body.isEmpty())
         assertEquals(response.headers["content-length"], head.headers["content-length"])
+    }
+
+    @Test fun `nested worker verification reports request and resolved store paths without relaxing hash guard`() {
+        val nestedDirectory = File(root, "mirror/site/assets")
+        assertTrue(nestedDirectory.mkdirs())
+        File(nestedDirectory, "wgpu_worker.js").writeText("self.nestedUnknownWorker = true;")
+
+        val response = rawHttpRequest(
+            port,
+            "GET",
+            "/game/assets/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1"
+        )
+        val body = response.bodyText()
+        assertEquals(200, response.statusCode)
+        assertFalse(body.contains(bootstrap))
+        assertTrue(body.contains("requestedRelativePath:\"assets/wgpu_worker.js\""))
+        assertTrue(body.contains("resolvedSourcePath:\"mirror/site/assets/wgpu_worker.js\""))
+        assertTrue(body.contains("sourceResolution:\"anchor-search\""))
+        assertTrue(body.contains("hashMatches:false,shimInjected:false,reason:\"hash-mismatch\""))
+
+        val hinted = rawHttpRequest(
+            port,
+            "GET",
+            "/game/assets/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1"
+        ).bodyText()
+        assertTrue(hinted.contains("resolvedSourcePath:\"mirror/site/assets/wgpu_worker.js\""))
+        assertTrue(hinted.contains("sourceResolution:\"site-root-hint\""))
+    }
+
+    @Test fun `single-segment worker fallback reports full suffix-search selection`() {
+        assertTrue(File(root, "wgpu_worker.js").delete())
+        val nestedDirectory = File(root, "mirror/site")
+        assertTrue(nestedDirectory.mkdirs())
+        File(nestedDirectory, "wgpu_worker.js").writeText("self.nestedRootWorker = true;")
+
+        val response = rawHttpRequest(
+            port,
+            "GET",
+            "/game/wgpu_worker.js?newcatroid_alpha_fix=1&newcatroid_worker_debug=1"
+        )
+        val body = response.bodyText()
+        assertEquals(200, response.statusCode)
+        assertFalse(body.contains(bootstrap))
+        assertTrue(body.contains("requestedRelativePath:\"wgpu_worker.js\""))
+        assertTrue(body.contains("resolvedSourcePath:\"mirror/site/wgpu_worker.js\""))
+        assertTrue(body.contains("sourceResolution:\"suffix-search\""))
+        assertTrue(body.contains("hashMatches:false,shimInjected:false,reason:\"hash-mismatch\""))
     }
 
     @Test fun `reviewed real worker is patched only on request before diagnostic suffix`() {
@@ -110,7 +161,9 @@ class ShaderCompatibilityInjectionTest {
         assertEquals(200, patched.statusCode)
         val verification = "self.__newcatroidAlphaFixServerVerification = " +
             "{requested:true,expectedSha256:\"${HttpEngine.ALPHA_FIX_WORKER_SHA256}\",actualSha256:\"$originalSha256\"," +
-            "hashMatches:true,shimInjected:true};"
+            "expectedSource:\"${HttpEngine.ALPHA_FIX_WORKER_SOURCE_ID}\",requestedRelativePath:\"wgpu_worker.js\"," +
+            "resolvedSourcePath:\"wgpu_worker.js\",sourceResolution:\"direct\",sourceBytes:${original.size}," +
+            "hashMatches:true,shimInjected:true,reason:\"reviewed-worker-hash\"};"
         assertEquals(String(original, Charsets.UTF_8) + "\n$bootstrap\n\n$verification\nself.diagnostics = true;\n", patched.bodyText())
         assertEquals(patched.body.size.toString(), patched.headers["content-length"])
         assertEquals("no-store", patched.headers["cache-control"])
