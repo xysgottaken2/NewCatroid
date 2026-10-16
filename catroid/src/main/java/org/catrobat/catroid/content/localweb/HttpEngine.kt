@@ -30,6 +30,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.zip.GZIPOutputStream
 
 /** Severity for [HttpLogger] request diagnostics. */
@@ -68,7 +69,10 @@ class HttpEngine(
     private val logger: HttpLogSink = { _, _, _ -> },
     private val addCrossOriginIsolationHeaders: Boolean = true,
     private val requestLog: RequestLog? = null,
-    private val touchControlsScriptProvider: (() -> String?)? = null
+    private val touchControlsScriptProvider: (() -> String?)? = null,
+    private val gameDiagnosticsScriptProvider: (() -> String?)? = null,
+    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null,
+    private val shaderCompatibilityScriptProvider: (() -> String?)? = null
 ) {
 
     /** Cache of discovered entry points per directory (tree-relative path). */
@@ -85,6 +89,12 @@ class HttpEngine(
      */
     private var suffixSearcher: PathSuffixSearcher? = null
     private var suffixSearcherStore: DocumentStore? = null
+
+    /** Redacts query strings in diagnostics while leaving the HTTP target untouched. */
+    private fun sanitizedLogTarget(rawTarget: String): String {
+        val queryDelimiter = rawTarget.indexOf('?')
+        return if (queryDelimiter < 0) rawTarget else rawTarget.substring(0, queryDelimiter) + "?[query redacted]"
+    }
 
     /**
      * Handles a single HTTP request and writes the full response (status line,
@@ -104,7 +114,8 @@ class HttpEngine(
         body: ByteArray? = null
     ) {
         val response = ResponseStream(out)
-        val record = RequestRecord(method, rawTarget)
+        val loggedTarget = sanitizedLogTarget(rawTarget)
+        val record = RequestRecord(method, loggedTarget)
         val startedAt = System.nanoTime()
         try {
             handleInternal(method, rawTarget, headers, body, response, record)
@@ -112,7 +123,7 @@ class HttpEngine(
             if (!response.started) {
                 record.status = 500
                 record.detail = "internal error: ${e.message}"
-                logger(LogLevel.ERROR, "$method $rawTarget -> request failed before any response was sent", e)
+                logger(LogLevel.ERROR, "$method $loggedTarget -> request failed before any response was sent", e)
                 try {
                     response.writeSimpleError(500, "Internal Server Error", "500 Internal Server Error")
                 } catch (ignored: Exception) {
@@ -128,7 +139,7 @@ class HttpEngine(
                     is java.io.IOException -> "connection failed while writing (client closed early?)"
                     else -> "unexpected error: ${e.message}"
                 }
-                logger(LogLevel.ERROR, "$method $rawTarget -> response aborted mid-stream (${record.detail}, ${response.bytesWritten} body bytes sent)", e)
+                logger(LogLevel.ERROR, "$method $loggedTarget -> response aborted mid-stream (${record.detail}, ${response.bytesWritten} body bytes sent)", e)
             }
         } finally {
             try {
@@ -212,6 +223,7 @@ class HttpEngine(
     ) {
         val rawPath = rawTarget.substringBefore('?').ifEmpty { "/" }
         val query = if ('?' in rawTarget) rawTarget.substringAfter('?') else ""
+        val loggedTarget = sanitizedLogTarget(rawTarget)
 
         val normalizedEarly = HttpPaths.normalize(rawPath)
 
@@ -234,7 +246,7 @@ class HttpEngine(
             out.writeSimpleError(405, "Method Not Allowed", "405 Method Not Allowed", extraHeaders = listOf("Allow" to "GET, HEAD"))
             record.status = 405
             record.detail = "method not allowed"
-            logger(LogLevel.INFO, "$method $rawTarget -> 405 method not allowed", null)
+            logger(LogLevel.INFO, "$method $loggedTarget -> 405 method not allowed", null)
             return
         }
 
@@ -285,8 +297,8 @@ class HttpEngine(
         // Built-in optional touch controls overlay script. Served by the
         // server itself (a separate, removable file - no hosted game file is
         // modified). Injected into HTML pages only when requested with
-        // ?newcatroid_touch=1 (see handleFile); the overlay itself hides on
-        // non-touch devices and leaves desktop mouse/keyboard input alone.
+        // ?newcatroid_touch=1 (see handleFile); it is independent of both
+        // game diagnostics and the experimental graphics mode.
         if (relativeToPrefix == TOUCH_CONTROLS_PATH) {
             val script = touchControlsScriptProvider?.invoke()
             if (script == null) {
@@ -295,20 +307,34 @@ class HttpEngine(
                 record.detail = "touch controls script unavailable"
                 return
             }
-            val body = script.toByteArray(StandardCharsets.UTF_8)
-            writeResponseHeaders(
-                out, 200, "OK",
-                listOf(
-                    "Content-Type" to "text/javascript; charset=utf-8",
-                    "Content-Length" to body.size.toString(),
-                    "Cache-Control" to "no-store"
-                )
-            )
-            if (!isHead) out.write(body)
-            record.status = 200
-            record.mimeType = "text/javascript; charset=utf-8"
-            record.detail = "built-in touch controls overlay script"
-            logger(LogLevel.INFO, "$method $rawPath -> 200 touch controls script", null)
+            writeBuiltInScriptResponse(method, rawPath, script, "touch controls overlay script", isHead, out, record)
+            return
+        }
+
+        // The opt-in diagnostics are separate local resources. The page
+        // bootstrap is injected only for newcatroid_debug=1 or
+        // newcatroid_adreno_fix=1; the worker bootstrap is injected only into
+        // the game workers requested by the diagnostic bootstrap.
+        if (relativeToPrefix == GAME_DIAGNOSTICS_PATH) {
+            val script = gameDiagnosticsScriptProvider?.invoke()
+            if (script == null) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found (game diagnostics unavailable)")
+                record.status = 404
+                record.detail = "game diagnostics script unavailable"
+                return
+            }
+            writeBuiltInScriptResponse(method, rawPath, script, "opt-in game diagnostics script", isHead, out, record)
+            return
+        }
+
+        if (relativeToPrefix == SHADER_COMPATIBILITY_PATH) {
+            val script = shaderCompatibilityScriptProvider?.invoke()
+            if (script == null) {
+                out.writeSimpleError(404, "Not Found", "404 Not Found (shader compatibility unavailable)")
+                record.status = 404
+                return
+            }
+            writeBuiltInScriptResponse(method, rawPath, script, "scalar alpha-test compatibility", isHead, out, record)
             return
         }
 
@@ -322,6 +348,8 @@ class HttpEngine(
         }
 
         var entry = store.resolve(relativeToPrefix)
+        var resolvedRelativePath = relativeToPrefix
+        var sourceResolution = "direct"
         if (entry == null) {
             // The path does not exist directly under the served root. Pages
             // reference absolute URLs relative to their site root, which may
@@ -331,17 +359,20 @@ class HttpEngine(
             // the request path - default-document and entry-point discovery
             // below must stay direct (they look inside the requested
             // directory).
-            entry = suffixSearcherFor(store).find(relativeToPrefix)
-            if (entry == null) {
+            val suffixMatch = suffixSearcherFor(store).findMatch(relativeToPrefix)
+            if (suffixMatch == null) {
                 out.writeSimpleError(404, "Not Found", "404 Not Found")
                 record.status = 404
                 record.detail = "document not resolved: $relativeToPrefix (no match anywhere in the selected tree)"
                 logger(LogLevel.INFO, "$method $rawPath -> 404 document not resolved ($relativeToPrefix)", null)
                 return
             }
+            entry = suffixMatch.entry
+            resolvedRelativePath = suffixMatch.relativePath
+            sourceResolution = suffixMatch.resolution
             logger(
                 LogLevel.INFO,
-                "$method $rawPath -> resolved under a nested site root (${entry.id})",
+                "$method $rawPath -> resolved under a nested site root (${entry.id}; $resolvedRelativePath)",
                 null
             )
         }
@@ -349,7 +380,12 @@ class HttpEngine(
         if (entry.isDirectory) {
             handleDirectory(store, entry, rawPath, relativeToPrefix, query, isHead, out, record)
         } else {
-            handleFile(store, entry, rawPath, headers, isHead, out, record, query)
+            handleFile(
+                store, entry, rawPath, headers, isHead, out, record, query,
+                requestedRelativePath = relativeToPrefix,
+                resolvedSourcePath = resolvedRelativePath,
+                sourceResolution = sourceResolution
+            )
         }
     }
 
@@ -371,8 +407,9 @@ class HttpEngine(
                 extraHeaders = listOf("Location" to location)
             )
             record.status = 301
-            record.detail = "slash redirect to $location"
-            logger(LogLevel.INFO, "GET $rawPath -> 301 directory slash redirect to $location", null)
+            val loggedLocation = sanitizedLogTarget(location)
+            record.detail = "slash redirect to $loggedLocation"
+            logger(LogLevel.INFO, "GET $rawPath -> 301 directory slash redirect to $loggedLocation", null)
             return
         }
 
@@ -399,8 +436,9 @@ class HttpEngine(
             }
             writeEntryRedirect(out, location, isHead)
             record.status = 302
-            record.detail = "entry point redirect to $location"
-            logger(LogLevel.INFO, "GET $rawPath -> 302 entry point redirect to $location", null)
+            val loggedLocation = sanitizedLogTarget(location)
+            record.detail = "entry point redirect to $loggedLocation"
+            logger(LogLevel.INFO, "GET $rawPath -> 302 entry point redirect to $loggedLocation", null)
             return
         }
 
@@ -630,7 +668,10 @@ class HttpEngine(
         isHead: Boolean,
         out: OutputStream,
         record: RequestRecord,
-        query: String = ""
+        query: String = "",
+        requestedRelativePath: String = "",
+        resolvedSourcePath: String = "",
+        sourceResolution: String = "direct"
     ) {
         val contentType = resolveContentType(entry)
         val size = entry.size
@@ -695,34 +736,115 @@ class HttpEngine(
                     return
                 }
                 is HttpRanges.Result.Ignore -> {
-                    // Optional touch controls overlay: inject the overlay
-                    // script into HTML pages when the request asks for it
-                    // (?newcatroid_touch=1). The overlay is a separate script
-                    // served by this server; the hosted file itself is not
-                    // modified.
                     var outBytes = bytes
-                    if (query.split('&').any { it == "newcatroid_touch" || it == "newcatroid_touch=1" } &&
-                        contentType.startsWith("text/html")
+                    val injected = mutableListOf<String>()
+                    val isHtml = contentType.startsWith("text/html")
+                    var alphaFixWorkerVerificationBootstrap: String? = null
+
+                    // The diagnostics and graphics experiment are independent
+                    // opt-ins. Their shared bootstrap only observes the game
+                    // launch message and, for the experiment, sets the
+                    // existing synchronous-pipeline option. It never touches
+                    // the touch-controls code or input events.
+                    if (isHtml && (hasQueryFlag(query, GAME_DIAGNOSTICS_QUERY) ||
+                            hasQueryFlag(query, ADRENO_FIX_QUERY))
                     ) {
-                        outBytes = injectTouchControlsScript(bytes)
-                        record.detail = "touch controls overlay injected"
-                        logger(LogLevel.INFO, "GET $requestPath -> injected touch controls overlay", null)
+                        if (gameDiagnosticsScriptProvider?.invoke() != null) {
+                            outBytes = injectGameDiagnosticsScript(outBytes)
+                            injected += "opt-in game diagnostics bootstrap"
+                        }
                     }
+
+                    if (hasQueryFlag(query, ALPHA_FIX_QUERY)) {
+                        when {
+                            isHtml -> {
+                                if (shaderCompatibilityScriptProvider?.invoke() != null) {
+                                    outBytes = injectGameDiagnosticsScript(outBytes, SHADER_COMPATIBILITY_PATH)
+                                    injected += "scalar alpha-test page bootstrap"
+                                }
+                            }
+                            entry.name == "loader.js" -> {
+                                shaderCompatibilityScriptProvider?.invoke()?.let { compatibilityScript ->
+                                    outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript)
+                                    injected += "scalar alpha-test loader bootstrap"
+                                }
+                            }
+                            entry.name == "wgpu_worker.js" -> {
+                                // Verify the original bytes before diagnostics or other suffixes.
+                                // Never reinterpret an unknown engine's lexical symbols.
+                                val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                                val hashMatches = digest == ALPHA_FIX_WORKER_SHA256
+                                val compatibilityScript = shaderCompatibilityScriptProvider?.invoke()
+                                val shimInjected = hashMatches && compatibilityScript != null
+                                alphaFixWorkerVerificationBootstrap = buildAlphaFixWorkerVerificationBootstrap(
+                                    digest = digest,
+                                    hashMatches = hashMatches,
+                                    shimInjected = shimInjected,
+                                    requestedRelativePath = requestedRelativePath,
+                                    resolvedSourcePath = resolvedSourcePath,
+                                    sourceResolution = sourceResolution,
+                                    sourceBytes = bytes.size
+                                )
+                                if (shimInjected) {
+                                    outBytes = appendWorkerDiagnosticsBootstrap(outBytes, compatibilityScript!!)
+                                    injected += "scalar alpha-test renderer correction"
+                                    logger(LogLevel.INFO, "Scalar alpha-test worker SHA-256 verified; shim appended", null)
+                                } else if (!hashMatches) {
+                                    logger(LogLevel.WARN, "Scalar alpha-test correction not applied: unreviewed worker SHA-256 $digest", null)
+                                } else {
+                                    logger(LogLevel.WARN, "Scalar alpha-test correction not applied: compatibility script unavailable for verified worker SHA-256 $digest", null)
+                                }
+                            }
+                        }
+                    }
+
+                    // Full diagnostics mark the loader and its GPU/I/O
+                    // workers; fix-only mode marks just loader.js so a
+                    // minimal hook can confirm the existing pipeline URL
+                    // without enabling the diagnostics collection.
+                    val workerName = entry.name.lowercase()
+                    val fullWorkerDiagnostics = hasQueryFlag(query, WORKER_DIAGNOSTICS_QUERY) &&
+                        workerName in DIAGNOSTIC_WORKER_SCRIPT_NAMES
+                    val pipelineSelectionProbe = hasQueryFlag(query, WORKER_PIPELINE_QUERY) && workerName == "loader.js"
+                    if (fullWorkerDiagnostics || pipelineSelectionProbe) {
+                        val workerScript = workerDiagnosticsBootstrapProvider?.invoke()
+                        if (workerScript != null) {
+                            val verification = if (workerName == "wgpu_worker.js") alphaFixWorkerVerificationBootstrap else null
+                            outBytes = appendWorkerDiagnosticsBootstrap(outBytes, workerScript, verification)
+                            if (verification != null) injected += "scalar alpha-test worker hash verification"
+                            injected += "worker diagnostics bootstrap"
+                        }
+                    }
+
+                    // Keep the existing touch feature separately gated and
+                    // byte-for-byte unchanged when its own parameter is not
+                    // requested.
+                    if (isHtml && query.split('&').any { it == "newcatroid_touch" || it == "newcatroid_touch=1" }) {
+                        outBytes = injectTouchControlsScript(outBytes)
+                        injected += "touch controls overlay"
+                    }
+                    if (injected.isNotEmpty()) {
+                        record.detail = injected.joinToString("; ") + " injected"
+                        logger(LogLevel.INFO, "GET $requestPath -> injected ${injected.joinToString(" and ")}", null)
+                    }
+
                     val sent = outBytes.size.toLong()
                     writeResponseHeaders(
                         out, 200, "OK",
-                        listOf(
+                        listOfNotNull(
                             "Content-Type" to contentType,
                             "Content-Length" to sent.toString(),
-                            "Accept-Ranges" to "bytes"
+                            "Accept-Ranges" to "bytes",
+                            if (injected.any { it == "worker diagnostics bootstrap" || it.startsWith("scalar alpha-test") }) "Cache-Control" to "no-store" else null
                         )
                     )
                     if (!isHead) out.write(outBytes)
                     record.status = 200
                     record.mimeType = contentType
                     record.bytesSent = if (isHead) 0 else sent
-                    if (sent != size) {
-                        record.detail = "size mismatch: provider reported $size, sent $sent bytes"
+                    if (sent == bytes.size.toLong() && bytes.size.toLong() != size) {
+                        record.detail = "size mismatch: provider reported $size, sent ${bytes.size} bytes"
                     }
                     logger(LogLevel.INFO, "GET $requestPath -> 200 $contentType $sent bytes (${entry.id})", null)
                     return
@@ -1005,6 +1127,111 @@ class HttpEngine(
         return suffixSearcher!!
     }
 
+    private fun writeBuiltInScriptResponse(
+        method: String,
+        rawPath: String,
+        script: String,
+        description: String,
+        isHead: Boolean,
+        out: OutputStream,
+        record: RequestRecord
+    ) {
+        val body = script.toByteArray(StandardCharsets.UTF_8)
+        writeResponseHeaders(
+            out, 200, "OK",
+            listOf(
+                "Content-Type" to "text/javascript; charset=utf-8",
+                "Content-Length" to body.size.toString(),
+                "Cache-Control" to "no-store"
+            )
+        )
+        if (!isHead) out.write(body)
+        record.status = 200
+        record.mimeType = "text/javascript; charset=utf-8"
+        record.bytesSent = if (isHead) 0 else body.size.toLong()
+        record.detail = description
+        logger(LogLevel.INFO, "$method $rawPath -> 200 $description", null)
+    }
+
+    /** Injects the early page diagnostics bootstrap into an HTML document. */
+    private fun injectGameDiagnosticsScript(html: ByteArray, scriptPath: String = GAME_DIAGNOSTICS_PATH): ByteArray {
+        val prefix = HttpPaths.normalizePrefix(urlPrefixProvider())
+        val src = if (prefix == "/") "/$scriptPath" else "$prefix/$scriptPath"
+        val tag = "<script src=\"$src\"></script>"
+        val text = String(html, StandardCharsets.UTF_8)
+        val headStart = text.indexOf("<head", ignoreCase = true)
+        val tagBoundary = headStart + "<head".length
+        val isHeadTag = headStart >= 0 &&
+            (tagBoundary >= text.length || text[tagBoundary].isWhitespace() || text[tagBoundary] == '>')
+        val headEnd = if (isHeadTag) text.indexOf('>', headStart) else -1
+        val injected = if (headEnd >= 0) {
+            text.substring(0, headEnd + 1) + tag + text.substring(headEnd + 1)
+        } else {
+            tag + text
+        }
+        return injected.toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun buildAlphaFixWorkerVerificationBootstrap(
+        digest: String,
+        hashMatches: Boolean,
+        shimInjected: Boolean,
+        requestedRelativePath: String,
+        resolvedSourcePath: String,
+        sourceResolution: String,
+        sourceBytes: Int
+    ): String {
+        val reason = when {
+            !hashMatches -> "hash-mismatch"
+            !shimInjected -> "compatibility-script-unavailable"
+            else -> "reviewed-worker-hash"
+        }
+        return "self.__newcatroidAlphaFixServerVerification = " +
+            "{requested:true,expectedSha256:\"$ALPHA_FIX_WORKER_SHA256\",actualSha256:\"$digest\"," +
+            "expectedSource:${javaScriptStringLiteral(ALPHA_FIX_WORKER_SOURCE_ID)}," +
+            "requestedRelativePath:${javaScriptStringLiteral(requestedRelativePath.take(MAX_WORKER_PATH_LENGTH))}," +
+            "resolvedSourcePath:${javaScriptStringLiteral(resolvedSourcePath.take(MAX_WORKER_PATH_LENGTH))}," +
+            "sourceResolution:${javaScriptStringLiteral(sourceResolution)},sourceBytes:$sourceBytes," +
+            "hashMatches:$hashMatches,shimInjected:$shimInjected,reason:${javaScriptStringLiteral(reason)}};"
+    }
+
+    private fun javaScriptStringLiteral(value: String): String = buildString {
+        append('"')
+        for (character in value) {
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\b' -> append("\\b")
+                '\u000c' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                '\u2028' -> append("\\u2028")
+                '\u2029' -> append("\\u2029")
+                else -> if (character < ' ') append("\\u%04x".format(character.code)) else append(character)
+            }
+        }
+        append('"')
+    }
+
+    /** Appends observational hooks so an original worker's strict directive remains effective. */
+    private fun appendWorkerDiagnosticsBootstrap(
+        script: ByteArray,
+        bootstrap: String,
+        prelude: String? = null
+    ): ByteArray {
+        val suffixText = "\n" + (prelude?.let { "$it\n" } ?: "") + bootstrap + "\n"
+        val suffix = suffixText.toByteArray(StandardCharsets.UTF_8)
+        return ByteArray(script.size + suffix.size).also {
+            System.arraycopy(script, 0, it, 0, script.size)
+            System.arraycopy(suffix, 0, it, script.size, suffix.size)
+        }
+    }
+
+    private fun hasQueryFlag(query: String, name: String): Boolean = query.split('&').any { part ->
+        part.substringBefore('=') == name && part.substringAfter('=', "") == "1"
+    }
+
     /** Injects the touch controls overlay script tag into an HTML document. */
     private fun injectTouchControlsScript(html: ByteArray): ByteArray {
         val prefix = HttpPaths.normalizePrefix(urlPrefixProvider())
@@ -1208,6 +1435,18 @@ class HttpEngine(
          */
         const val ISOLATION_CHECK_PATH = "__newcatroid_isolation_check"
         const val TOUCH_CONTROLS_PATH = "__newcatroid_touch_controls.js"
+        const val GAME_DIAGNOSTICS_PATH = "__newcatroid_game_diagnostics.js"
+        const val GAME_DIAGNOSTICS_QUERY = "newcatroid_debug"
+        const val SHADER_COMPATIBILITY_PATH = "__newcatroid_shader_compat.js"
+        const val ALPHA_FIX_QUERY = "newcatroid_alpha_fix"
+        // shadany7824/playgta5 @ 2fb671adca55cd0317aa551b33ffd922f1639660
+        const val ALPHA_FIX_WORKER_SHA256 = "e1b83d2b10a98d29d8f7ac45a4e42f68486144a8046df688667891af034716c7"
+        const val ALPHA_FIX_WORKER_SOURCE_ID = "shadany7824/playgta5@2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js"
+        const val MAX_WORKER_PATH_LENGTH = 512
+        const val ADRENO_FIX_QUERY = "newcatroid_adreno_fix"
+        const val WORKER_DIAGNOSTICS_QUERY = "newcatroid_worker_debug"
+        const val WORKER_PIPELINE_QUERY = "newcatroid_pipeline_probe"
+        val DIAGNOSTIC_WORKER_SCRIPT_NAMES = setOf("loader.js", "wgpu_worker.js", "io_worker.js")
         const val DATA_BATCH_PATH = "data/batch"
         const val MAX_BATCH_RUNS = 1000
         const val MAX_BATCH_BODY_BYTES = 1024 * 1024
@@ -1245,6 +1484,12 @@ directly (no redirect) and compare with the hosted game's page.</p>
     log('crossOriginIsolated: ' + window.crossOriginIsolated);
     log('SharedArrayBuffer: ' + typeof SharedArrayBuffer);
     log('WebAssembly: ' + typeof WebAssembly);
+    log('Worker: ' + typeof Worker);
+    log('OffscreenCanvas: ' + typeof OffscreenCanvas);
+    log('AudioWorkletNode: ' + typeof AudioWorkletNode);
+    log('navigator.storage.getDirectory (OPFS): ' + (navigator.storage && typeof navigator.storage.getDirectory === 'function'));
+    log('FileSystemSyncAccessHandle: ' + typeof FileSystemSyncAccessHandle);
+    log('navigator.gpu: ' + (navigator.gpu ? 'present' : 'absent'));
     log('userAgent: ' + navigator.userAgent);
     try {
         var sab = new SharedArrayBuffer(8);
@@ -1253,12 +1498,24 @@ directly (no redirect) and compare with the hosted game's page.</p>
         log('SharedArrayBuffer(8): FAILED: ' + e);
     }
     try {
+        if (typeof BigInt !== 'function') throw new Error('BigInt is unavailable');
+        var memory64 = new WebAssembly.Memory({ initial: BigInt(1), maximum: BigInt(2), shared: true, address: 'i64' });
+        log('shared WebAssembly Memory64: OK (' + memory64.buffer.byteLength + ' bytes)');
+    } catch (e) {
+        log('shared WebAssembly Memory64: FAILED: ' + e);
+    }
+    try {
         WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(
             function () { log('WebAssembly.compile: OK'); },
             function (e) { log('WebAssembly.compile: FAILED: ' + e); }
         );
     } catch (e) {
         log('WebAssembly.compile: FAILED: ' + e);
+    }
+    if (navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
+        navigator.gpu.requestAdapter().then(function (adapter) {
+            log('WebGPU adapter: ' + (adapter ? 'available' : 'unavailable'));
+        }).catch(function (e) { log('WebGPU adapter: FAILED: ' + e); });
     }
     fetch(location.href, { method: 'HEAD' }).then(function (r) {
         log('own HEAD: status=' + r.status +
