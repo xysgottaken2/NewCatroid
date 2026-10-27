@@ -423,6 +423,13 @@ public final class XstreamSerializer {
 		xstream.alias("brick", PcShowLauncherBrick.class);
 		xstream.alias("brick", PcAddTouchControlBrick.class);
 		xstream.alias("brick", PcTouchEditorBrick.class);
+		xstream.alias("brick", PcChooseGameFolderBrick.class);
+		xstream.alias("brick", PcChooseDriverPackBrick.class);
+		xstream.alias("brick", PcChooseD3dPackBrick.class);
+		xstream.alias("brick", PcChooseRuntimePackBrick.class);
+		xstream.alias("brick", PcChooseRootfsPackBrick.class);
+		xstream.alias("brick", PcEditEnvBrick.class);
+		xstream.alias("brick", PcRequestFileAccessBrick.class);
 		xstream.alias("brick", KeyEventBrick.class);
 		xstream.alias("brick", BindVmOutputBrick.class);
 		xstream.alias("brick", SendVmInputBrick.class);

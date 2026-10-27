@@ -107,6 +107,7 @@ object PcGameManager {
     fun setGameDir(path: String) {
         ensureProjectConfig()
         config.gameDir = path.trim()
+        saveConfig()
         val resolved = PcGamePaths.resolve(PcGamePaths.appContext(), config.gameDir)
         if (resolved != null && resolved.isDirectory) {
             val detected = detectExecutables(resolved)
@@ -178,19 +179,44 @@ object PcGameManager {
             return
         }
         config.extraEnv[key] = value
+        saveConfig()
         appendLog("[newcatroid] env $key=$value")
     }
 
     fun clearEnvironment() {
         ensureProjectConfig()
         config.extraEnv.clear()
+        saveConfig()
         appendLog("[newcatroid] environment overrides cleared")
+    }
+
+    /**
+     * Replaces every environment override at once (used by the environment
+     * editor). Invalid names are dropped, the rest is stored as given.
+     */
+    fun replaceEnvironment(values: Map<String, String>) {
+        ensureProjectConfig()
+        val cleaned = LinkedHashMap<String, String>()
+        for ((key, value) in values) {
+            val name = key.trim()
+            if (name.isEmpty()) continue
+            if (!PcScriptBuilder.isValidVariableName(name)) {
+                appendLog("[newcatroid] invalid environment variable name: '$name'")
+                continue
+            }
+            cleaned[name] = value
+        }
+        config.extraEnv.clear()
+        config.extraEnv.putAll(cleaned)
+        saveConfig()
+        appendLog("[newcatroid] environment overrides replaced with ${cleaned.size} variable(s)")
     }
 
     fun setResolution(width: Int, height: Int) {
         ensureProjectConfig()
         config.resolutionWidth = width.coerceIn(320, 7680)
         config.resolutionHeight = height.coerceIn(240, 4320)
+        saveConfig()
     }
 
     fun setTouchProfileName(name: String) {
@@ -280,8 +306,20 @@ object PcGameManager {
 
         val gameDir = PcGamePaths.resolveExisting(context, cfg.gameDir)
         if (gameDir == null || !gameDir.isDirectory) {
-            lastError = "Game folder not found: '${cfg.gameDir}'. " +
-                "Use an absolute path such as /sdcard/Games/MyGame."
+            val raw = File(cfg.gameDir)
+            lastError = when {
+                cfg.gameDir.isBlank() ->
+                    "No game folder set. Use the \"choose the PC game folder\" block or the launcher."
+                raw.exists() && !PcPermissions.hasFileAccess(context) ->
+                    "The folder '${cfg.gameDir}' exists but Android does not allow reading it. " +
+                        PcPermissions.fileAccessHint(context)
+                raw.exists() ->
+                    "The folder '${cfg.gameDir}' is not readable. Check the path and the permissions."
+                else ->
+                    "Game folder not found: '${cfg.gameDir}'. " +
+                        "Pick it with the \"choose the PC game folder\" block (recommended) " +
+                        "or use an absolute path such as /sdcard/Games/MyGame."
+            }
             appendLog("[newcatroid] $lastError")
             return null
         }

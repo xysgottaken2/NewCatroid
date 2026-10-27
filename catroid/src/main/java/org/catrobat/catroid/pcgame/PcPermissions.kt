@@ -23,7 +23,18 @@
 
 package org.catrobat.catroid.pcgame
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.RandomAccessFile
 
@@ -44,6 +55,70 @@ object PcPermissions {
     )
 
     private const val MAX_INSPECT_SIZE = 64L * 1024L * 1024L
+
+    const val FILE_ACCESS_REQUEST_CODE = 4211
+
+    /**
+     * Whether the app may read arbitrary folders on the shared storage.
+     *
+     * The game folder (`/sdcard/Games/...`) is outside the app sandbox, so
+     * without "All files access" (Android 11+) every `File.listFiles()` on it
+     * returns null and the PC layer reports "game folder not found". This is the
+     * check the launcher, the folder browser and the launch path all use.
+     */
+    fun hasFileAccess(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    /**
+     * Asks for the "All files access" special permission. There is no runtime
+     * dialog for it on Android 11+, so the system settings screen is opened
+     * directly for this app (the user only has to flip one switch).
+     */
+    fun requestFileAccess(activity: Activity) {
+        if (hasFileAccess(activity)) {
+            Log.i(TAG, "File access already granted")
+            return
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val appIntent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + activity.packageName)
+                )
+                try {
+                    activity.startActivity(appIntent)
+                } catch (e: Exception) {
+                    activity.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                }
+            } else {
+                ActivityCompat.requestPermissions(
+                    activity,
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                    FILE_ACCESS_REQUEST_CODE
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot open the file access settings: ${e.message}")
+        }
+    }
+
+    /** Human readable hint shown when the game folder cannot be read. */
+    fun fileAccessHint(context: Context): String {
+        return if (hasFileAccess(context)) {
+            "File access is granted."
+        } else {
+            "NewCatroid needs \"All files access\" to read a game folder outside its sandbox. " +
+                "Open the settings and enable it for NewCatroid, then try again."
+        }
+    }
 
     fun markExecutable(file: File) {
         try {

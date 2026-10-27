@@ -5907,4 +5907,22 @@ public class ActionFactory extends Actions {
 		return action;
 	}
 
+
+	public Action createPcChooseGameFolderAction(Sprite sprite, SequenceAction sequence) {
+		return action(PcChooseGameFolderAction.class);
+	}
+
+	public Action createPcChoosePackAction(Sprite sprite, SequenceAction sequence, String packType) {
+		PcChoosePackAction action = action(PcChoosePackAction.class);
+		action.setPackType(packType);
+		return action;
+	}
+
+	public Action createPcEditEnvAction(Sprite sprite, SequenceAction sequence) {
+		return action(PcEditEnvAction.class);
+	}
+
+	public Action createPcRequestFileAccessAction(Sprite sprite, SequenceAction sequence) {
+		return action(PcRequestFileAccessAction.class);
+	}
 }

@@ -170,7 +170,14 @@ New subcategory **Device → PC games (Wine + Box64)**:
 | `Stop the running PC game` | Kills the container process, hides the surface and the overlay. |
 | `Bind the PC game log to [variable]` | Container output (Wine/Box64/DXVK errors) in a variable. |
 | `Check the PC environment and store the report in [variable]` | Component check: rootfs, runtime, proot, driver, D3D, game folder, prefix, imported packs, exec mode. |
-| `Open the PC game launcher` | The ready-made launcher dialog (see 4). |
+| `Open the PC game launcher` | The ready-made launcher dialog (see 5). |
+| `Choose the PC game folder (browse files)` | Opens the built-in file browser and stores the folder plus the first `.exe` it finds. |
+| `Choose a graphics driver zip (Turnip / Adreno) and install it` | File browser → import as a driver pack → select it. |
+| `Choose a DXVK / VKD3D zip and install it` | File browser → import as a D3D layer → select it. |
+| `Choose a Wine + Box64 archive and install it` | File browser → import as a runtime → select it. |
+| `Choose a container rootfs archive and install it` | File browser → import as a rootfs → select it. |
+| `Open the PC environment variable editor` | Editable list of variables plus one-tap tuning presets. |
+| `Grant NewCatroid access to the game folder` | Opens the system "All files access" screen. |
 | `Add touch control [label] keys [keys] at x% y% size%` | Adds/replaces one touch control. |
 | `PC touch layout editor [enabled]` | Drag-to-move editing of the overlay; saved into the project. |
 
@@ -178,18 +185,46 @@ Settings are stored per project in `<project>/files/pcgame/config.json`, touch
 layouts in `<project>/files/pcgame/touch_<profile>.json`, so a launcher project
 keeps its configuration and can be exported/built as an APK.
 
+### Choosing the game folder (and why it must be a real path)
+
+A game folder lives outside the app sandbox (`/sdcard/Games/GTAV`,
+`/storage/emulated/0/...`). Android 11+ only lets an app read it with the special
+**"All files access"** permission - without it `File.listFiles()` returns `null`
+and the layer reports *"game folder not found"* even for a correct path.
+
+So the flow is:
+
+1. `Grant NewCatroid access to the game folder` (or the first time you press
+   *Browse folder…* / *Choose the PC game folder*), allow *All files access* in
+   the system screen, come back.
+2. `Choose the PC game folder (browse files)` → tap through the folders →
+   *Use this folder*. The first `.exe` inside is detected automatically.
+3. Everything is saved in the project config, so the next start remembers it.
+
+The Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`) is deliberately **not**
+used for the game folder: it hands out a `content://` URI, and neither proot nor
+Wine can mount or start that. Pack archives *may* come through SAF, because they
+are copied into the app cache before extraction - the "import pack" block works
+with both pickers.
+
 ### Minimal launcher script
 
 ```
 when scene starts
     check the PC environment and store the report in "pc_report"
-    set PC game folder to "/sdcard/Games/GTAV"
-    set graphics driver to "turnip"
-    set D3D layer (DXVK/VKD3D) to "dxvk"
-    set Wine/Box64 runtime to "auto"
+    grant NewCatroid access to the game folder          # only needed once
+    choose the PC game folder (browse files)            # user taps the folder
+    choose a graphics driver zip and install it         # user taps the Turnip zip
+    choose a DXVK / VKD3D zip and install it            # user taps the dxvk tar.gz
+    choose a Wine + Box64 archive and install it        # user taps the runtime
     set PC game resolution to 1280 x 720
+    open the PC environment variable editor             # optional fine tuning
     launch PC game "GTA5.exe" arguments "-windowed" with touch profile "gamepad"
 ```
+
+Everything the player picks in those dialogs ends up in the project config, so a
+launcher only has to ask once. The "set … to [formula]" blocks stay available for
+projects that hard-code a setup instead.
 
 Optionally add a sprite with `when tapped → open the PC game launcher` so the
 player can change the driver without editing the project.
@@ -268,6 +303,25 @@ block, which is applied last):
 | `DXVK_STATE_CACHE`, `DXVK_LOG_LEVEL`, `DXVK_HUD`, `VKD3D_*` | D3D layer |
 | `NC_*` | container hints (`NC_XSERVER_CMD`, `NC_VNC_CMD`, `NC_WINE_CMD`, `NC_BOX64_CMD`, `NC_INSTALL_D3D`, `NC_D3D_PACK`, `NC_VNC_PORT`, …) |
 
+### The environment editor (no blocks needed)
+
+`Open the PC environment variable editor` shows every override as a
+name/value row: add a row, edit a value, delete a row, press *Save*. The values
+are written to the project config and exported by the generated script, winning
+over the defaults of the layer.
+
+*Presets…* inserts the tuning sets that the Wine/Box64/DXVK projects document:
+
+| Preset | Variables |
+| --- | --- |
+| DXVK HUD (fps + frametimes) | `DXVK_HUD=fps,frametimes,gpuload,devinfo` |
+| Frame limit 60 fps | `DXVK_FRAME_RATE=60` |
+| Box64 - performance | `BOX64_DYNAREC_BIGBLOCK=3`, `STRONGMEM=1`, `SAFEFLAGS=1`, `FASTROUND=1` |
+| Box64 - stability | `BOX64_DYNAREC_BIGBLOCK=0`, `STRONGMEM=2`, `SAFEFLAGS=2`, `FASTROUND=0` |
+| Old games (2003 GL extensions) | `MESA_EXTENSION_MAX_YEAR=2003` |
+| Zink (OpenGL over Vulkan) | `GALLIUM_DRIVER=zink`, `ZINK_DESCRIPTORS=lazy`, `MESA_GLTHREAD=true` |
+| Wine debug off / audio | `WINEDEBUG=-all`, `PULSE_LATENCY_MSEC=60` |
+
 Optional hook: put `hook_pre.sh` into `<project>/files/pcgame/`. It is copied
 into the container next to the launch script and sourced before the game starts -
 handy to fix a runtime without rebuilding anything.
@@ -303,7 +357,37 @@ logs to debug it.
 
 ---
 
-## 9. Кратко по-русски
+## 9. What is not implemented (yet)
+
+Honest list, so nobody expects more than there is. Everything below exists in
+Winlator/GameHub and is **not** in this layer:
+
+* **Physical controllers (XInput / DirectInput).** The bundled libGDX build has no
+  `controllers` extension, so a paired gamepad is not remapped onto Wine's XInput.
+  Use the touch overlay, or the existing `key event` blocks for a mapping.
+* **Drive letters.** Only the game folder, the Wine prefix, the runtime, the
+  driver and the D3D layer are mounted (`/game`, `/prefix`, `/runtime`,
+  `/drivers`, `/d3d`). There is no `D:` that points at `Downloads` and no way to
+  add a drive from a block; a Wine installer that insists on a CD-ROM drive will
+  not be happy.
+* **Running an installer from the UI.** You can launch any `.exe`
+  (`Launch PC game "setup.exe"`), but there is no dedicated "install into the
+  prefix" flow with a visible desktop afterwards.
+* **Per-container Wine versions.** One runtime pack is selected at a time; Wine
+  versions are not per project (each project has its own prefix, though).
+* **VirGL / Vortek presets.** `GALLIUM_DRIVER=zink` (plus the Zink preset) is the
+  non-Adreno path; there is no VirGL or Vortek toggle.
+* **Screen orientation lock, FPS overlay toggle outside DXVK, audio routing UI.**
+  Mostly covered by environment variables (`DXVK_HUD`, `PULSE_LATENCY_MSEC`).
+* **Anti-cheat, Rockstar launcher, online play.** Not possible through
+  Wine/Box64/proot at all.
+
+What *is* there: folder/pack pickers (with the "All files access" flow), the
+environment editor with presets, container and host run modes, display + input
+over the existing VNC bridge, touch layout with editor, logging and the
+environment self test.
+
+## 10. Кратко по-русски
 
 Добавлен слой совместимости с ПК-играми (как в Winlator/GameHub/Mobox), но
 полностью на блоках NewCatroid:

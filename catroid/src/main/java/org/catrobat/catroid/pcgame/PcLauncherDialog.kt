@@ -26,7 +26,6 @@ package org.catrobat.catroid.pcgame
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
-import android.content.Intent
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
@@ -85,7 +84,28 @@ object PcLauncherDialog {
         root.addView(gameFolder)
         root.addView(
             button(activity, "Browse folder…") {
-                pickFolder(activity, gameFolder)
+                if (!PcPermissions.hasFileAccess(activity)) {
+                    AlertDialog.Builder(activity)
+                        .setTitle("File access needed")
+                        .setMessage(PcPermissions.fileAccessHint(activity))
+                        .setPositiveButton("Open settings") { _, _ ->
+                            PcPermissions.requestFileAccess(activity)
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                    return@button
+                }
+                PcFileBrowser.show(activity, PcFileBrowser.Mode.FOLDER, gameFolder.text.toString()) { folder ->
+                    gameFolder.setText(folder.absolutePath)
+                    val found = PcGameManager.detectExecutables(folder)
+                    if (found.isNotEmpty() && executable.text.isBlank()) {
+                        executable.setText(found.first())
+                    }
+                    toast(
+                        activity,
+                        "Folder: ${folder.absolutePath} (${found.size} exe found)"
+                    )
+                }
             }
         )
 
@@ -237,6 +257,10 @@ object PcLauncherDialog {
             weight(1f)
         )
         secondRow.addView(
+            button(activity, "Environment…") { PcEnvEditorDialog.show(activity) },
+            weight(1f)
+        )
+        secondRow.addView(
             button(activity, "Self test") {
                 val report = PcGameManager.selfTest(activity)
                 showText(activity, "Environment check", report)
@@ -381,72 +405,40 @@ object PcLauncherDialog {
     }
 
     private fun importPack(activity: Activity, typeName: String) {
-        val stageActivity = activity as? StageActivity
-        if (stageActivity == null) {
-            toast(activity, "Import requires the stage")
+        if (!PcPermissions.hasFileAccess(activity)) {
+            AlertDialog.Builder(activity)
+                .setTitle("File access needed")
+                .setMessage(PcPermissions.fileAccessHint(activity))
+                .setPositiveButton("Open settings") { _, _ ->
+                    PcPermissions.requestFileAccess(activity)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
             return
         }
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-            type = "*/*"
-        }
-        stageActivity.queueIntent(object : StageActivity.IntentListener {
-            override fun getTargetIntent(): Intent = intent
-
-            override fun onIntentResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-                val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
-                if (uri == null) {
-                    toast(activity, "Import cancelled")
-                    return true
+        PcFileBrowser.show(activity, PcFileBrowser.Mode.ARCHIVE, null) { archive ->
+            Thread {
+                val type = if (typeName.isBlank()) null else PcPackType.fromName(typeName)
+                val result = try {
+                    PcPackManager.importFromPath(activity, type, archive.absolutePath)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Import failed", e)
+                    null
                 }
-                Thread {
-                    val type = if (typeName.isBlank()) null else PcPackType.fromName(typeName)
-                    val result = PcPackManager.importFromUri(activity, type, uri, null)
-                    activity.runOnUiThread {
-                        toast(activity, result.message)
-                        if (current?.isShowing == true) {
-                            current?.dismiss()
-                            show(activity)
-                        }
+                activity.runOnUiThread {
+                    val message = result?.message ?: "Import failed"
+                    PcGameManager.appendLog("[newcatroid] $message")
+                    toast(activity, message)
+                    if (chartShowsLauncher()) {
+                        current?.dismiss()
+                        show(activity)
                     }
-                }.start()
-                return true
-            }
-        })
-    }
-
-    private fun pickFolder(activity: Activity, target: EditText) {
-        val stageActivity = activity as? StageActivity
-        if (stageActivity == null) {
-            toast(activity, "Folder picking requires the stage")
-            return
-        }
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        }
-        stageActivity.queueIntent(object : StageActivity.IntentListener {
-            override fun getTargetIntent(): Intent = intent
-
-            override fun onIntentResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-                val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
-                if (uri == null) return true
-                val path = PcGamePaths.safReferenceToPath(uri.toString())
-                if (path == null) {
-                    toast(
-                        activity,
-                        "This folder cannot be mapped to a path. Type the absolute path instead."
-                    )
-                } else {
-                    target.setText(path)
-                    toast(activity, "Folder: $path")
                 }
-                return true
-            }
-        })
+            }.start()
+        }
     }
+
+    private fun chartShowsLauncher(): Boolean = current?.isShowing == true
 
     private fun showText(activity: Activity, title: String, text: String) {
         val view = TextView(activity).apply {

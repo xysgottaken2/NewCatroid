@@ -5341,4 +5341,11 @@
     <string formatted="false" name="brick_pc_touch_control_size">размер%</string>
     <string formatted="false" name="brick_pc_touch_editor">Редактор раскладки касаний ПК</string>
     <string formatted="false" name="brick_pc_touch_editor_value">включен</string>
+    <string formatted="false" name="brick_pc_choose_folder">Выбрать папку игры (через проводник)</string>
+    <string formatted="false" name="brick_pc_choose_driver">Выбрать zip графического драйвера (Turnip / Adreno) и установить</string>
+    <string formatted="false" name="brick_pc_choose_d3d">Выбрать zip DXVK / VKD3D и установить</string>
+    <string formatted="false" name="brick_pc_choose_runtime">Выбрать архив Wine + Box64 и установить</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">Выбрать архив rootfs контейнера и установить</string>
+    <string formatted="false" name="brick_pc_edit_env">Открыть редактор переменных окружения ПК-игры</string>
+    <string formatted="false" name="brick_pc_request_access">Дать NewCatroid доступ к папке игры</string>
 </resources>

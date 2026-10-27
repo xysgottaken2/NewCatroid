@@ -422,6 +422,13 @@ import org.catrobat.catroid.content.bricks.PcSelfTestBrick
 import org.catrobat.catroid.content.bricks.PcShowLauncherBrick
 import org.catrobat.catroid.content.bricks.PcAddTouchControlBrick
 import org.catrobat.catroid.content.bricks.PcTouchEditorBrick
+import org.catrobat.catroid.content.bricks.PcChooseGameFolderBrick
+import org.catrobat.catroid.content.bricks.PcChooseDriverPackBrick
+import org.catrobat.catroid.content.bricks.PcChooseD3dPackBrick
+import org.catrobat.catroid.content.bricks.PcChooseRuntimePackBrick
+import org.catrobat.catroid.content.bricks.PcChooseRootfsPackBrick
+import org.catrobat.catroid.content.bricks.PcEditEnvBrick
+import org.catrobat.catroid.content.bricks.PcRequestFileAccessBrick
 import org.catrobat.catroid.content.bricks.RunningStitchBrick
 import org.catrobat.catroid.content.bricks.SaveBufferBrick
 import org.catrobat.catroid.content.bricks.SaveLookBrick
@@ -2026,6 +2033,13 @@ print("Bot has stopped.")""", "myVar"))
                 deviceBrickList.add(DeleteWebBrick("myWebView"))
                 deviceBrickList.add(BindVmOutputBrick())
                 deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_pc), ResetTimerBrick()))
+                deviceBrickList.add(PcChooseGameFolderBrick())
+                deviceBrickList.add(PcChooseDriverPackBrick())
+                deviceBrickList.add(PcChooseD3dPackBrick())
+                deviceBrickList.add(PcChooseRuntimePackBrick())
+                deviceBrickList.add(PcChooseRootfsPackBrick())
+                deviceBrickList.add(PcEditEnvBrick())
+                deviceBrickList.add(PcRequestFileAccessBrick())
                 deviceBrickList.add(PcSetGameFolderBrick("/sdcard/Games/MyGame"))
                 deviceBrickList.add(PcSetGraphicsDriverBrick("auto"))
                 deviceBrickList.add(PcSetD3dLayerBrick("dxvk"))
@@ -2198,6 +2212,13 @@ bot.polling()""", "myVar"))
         deviceBrickList.add(SendVmInputBrick("ls ~/"))
         deviceBrickList.add(BindVmOutputBrick())
         deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_pc), template))
+        deviceBrickList.add(PcChooseGameFolderBrick())
+        deviceBrickList.add(PcChooseDriverPackBrick())
+        deviceBrickList.add(PcChooseD3dPackBrick())
+        deviceBrickList.add(PcChooseRuntimePackBrick())
+        deviceBrickList.add(PcChooseRootfsPackBrick())
+        deviceBrickList.add(PcEditEnvBrick())
+        deviceBrickList.add(PcRequestFileAccessBrick())
         deviceBrickList.add(PcSetGameFolderBrick("/sdcard/Games/MyGame"))
         deviceBrickList.add(PcSetGraphicsDriverBrick("auto"))
         deviceBrickList.add(PcSetD3dLayerBrick("dxvk"))

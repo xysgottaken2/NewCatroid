@@ -5120,4 +5120,11 @@ precisa de acesso de leitura e escrita a ele. Você sempre pode alterar as permi
     <string formatted="false" name="brick_pc_touch_control_size">tamanho%</string>
     <string formatted="false" name="brick_pc_touch_editor">Editor de layout de toque do PC</string>
     <string formatted="false" name="brick_pc_touch_editor_value">ativado</string>
+    <string formatted="false" name="brick_pc_choose_folder">Escolher a pasta do jogo de PC (navegar pelos arquivos)</string>
+    <string formatted="false" name="brick_pc_choose_driver">Escolher um zip de driver gráfico (Turnip / Adreno) e instalar</string>
+    <string formatted="false" name="brick_pc_choose_d3d">Escolher um zip do DXVK / VKD3D e instalar</string>
+    <string formatted="false" name="brick_pc_choose_runtime">Escolher um arquivo do Wine + Box64 e instalar</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">Escolher um arquivo rootfs do contêiner e instalar</string>
+    <string formatted="false" name="brick_pc_edit_env">Abrir o editor de variáveis de ambiente do PC</string>
+    <string formatted="false" name="brick_pc_request_access">Dar ao NewCatroid acesso à pasta do jogo</string>
 </resources>

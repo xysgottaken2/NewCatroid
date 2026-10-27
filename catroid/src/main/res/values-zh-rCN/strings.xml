@@ -5075,4 +5075,11 @@
     <string formatted="false" name="brick_pc_touch_control_size">大小%</string>
     <string formatted="false" name="brick_pc_touch_editor">PC 触摸布局编辑器</string>
     <string formatted="false" name="brick_pc_touch_editor_value">启用</string>
+    <string formatted="false" name="brick_pc_choose_folder">选择 PC 游戏文件夹（浏览文件）</string>
+    <string formatted="false" name="brick_pc_choose_driver">选择图形驱动 zip（Turnip / Adreno）并安装</string>
+    <string formatted="false" name="brick_pc_choose_d3d">选择 DXVK / VKD3D zip 并安装</string>
+    <string formatted="false" name="brick_pc_choose_runtime">选择 Wine + Box64 压缩包并安装</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">选择容器 rootfs 压缩包并安装</string>
+    <string formatted="false" name="brick_pc_edit_env">打开 PC 环境变量编辑器</string>
+    <string formatted="false" name="brick_pc_request_access">授予 NewCatroid 访问游戏文件夹的权限</string>
 </resources>

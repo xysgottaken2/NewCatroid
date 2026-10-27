@@ -494,7 +494,14 @@ public final class BrickInfo {
         add(StopParticleInstanceBrick.class, "Останавливает или мгновенно удаляет экземпляр частиц");
         add(UpdateScreenBrick.class, "Принудительно отрисовывает 1 кадр экрана во время моментального цикла");
         add(ApplyShaderBrick.class, "Применяет шейдерный эффект к экрану, спрайту или буферу (для спрайта - введите его имя. Для экрана - оставьте цель пустой. Для буффера введите buffer://имя_буфера)");
-    }
+            add(PcChooseGameFolderBrick.class, "Открывает встроенный проводник и запоминает выбранную папку с игрой (и первый найденный .exe).");
+        add(PcChooseDriverPackBrick.class, "Открывает проводник, импортирует выбранный zip как пакет графического драйвера и сразу выбирает его.");
+        add(PcChooseD3dPackBrick.class, "Импортирует выбранный zip как слой D3D (DXVK / VKD3D-Proton / D8VK) и выбирает его.");
+        add(PcChooseRuntimePackBrick.class, "Импортирует выбранный архив (zip/tar/tar.gz/tar.xz/tzst) как рантайм Wine + Box64 и выбирает его.");
+        add(PcChooseRootfsPackBrick.class, "Импортирует выбранный архив как rootfs контейнера и использует его при следующем запуске.");
+        add(PcEditEnvBrick.class, "Открывает редактор переменных окружения: добавить, изменить, удалить, готовые наборы (Box64, DXVK, Zink, MESA).");
+        add(PcRequestFileAccessBrick.class, "Открывает системный экран «Доступ ко всем файлам»: без него папку игры вне песочницы прочитать нельзя.");
+}
 
     private static void initEnglishDescriptions() {
         add(SetGeminiKeyBrick.class, "Sets a personal Gemini API key. You can get one from Google AI Studio.");
@@ -948,6 +955,13 @@ public final class BrickInfo {
         add(PcShowLauncherBrick.class, "Opens the built-in launcher: pick the folder, the exe, the driver, the D3D layer, the runtime and the resolution, then press Play.");
         add(PcAddTouchControlBrick.class, "Adds or replaces one touch control. Keys: 'look' for mouse look, 'mouse:0' for a mouse button, 'w,a,s,d' for a joystick, 'space' or 'ctrl+shift' for keys. Position and size are a percentage of the screen.");
         add(PcTouchEditorBrick.class, "Enables or disables the drag-to-move editor of the touch layout. The changes are saved in the project.");
+        add(PcChooseGameFolderBrick.class, "Opens the built-in file browser and remembers the chosen game folder (plus the first .exe found).");
+        add(PcChooseDriverPackBrick.class, "Opens the file browser, imports the chosen zip as a graphics driver pack and selects it right away.");
+        add(PcChooseD3dPackBrick.class, "Imports the chosen zip as a D3D layer (DXVK / VKD3D-Proton / D8VK) and selects it.");
+        add(PcChooseRuntimePackBrick.class, "Imports the chosen archive (zip/tar/tar.gz/tar.xz/tzst) as the Wine + Box64 runtime and selects it.");
+        add(PcChooseRootfsPackBrick.class, "Imports the chosen archive as the container rootfs and uses it on the next launch.");
+        add(PcEditEnvBrick.class, "Opens the environment variable editor: add, edit, delete and ready-made tuning sets (Box64, DXVK, Zink, MESA).");
+        add(PcRequestFileAccessBrick.class, "Opens the system \"All files access\" screen: without it a game folder outside the sandbox cannot be read.");
 }
 
     private static void initPortugueseDescriptions() {
@@ -1386,6 +1400,13 @@ public final class BrickInfo {
         add(PcShowLauncherBrick.class, "Abre o launcher embutido: escolha a pasta, o exe, o driver, a camada D3D, o runtime e a resolução e pressione Play.");
         add(PcAddTouchControlBrick.class, "Adiciona ou substitui um controle de toque. Teclas: 'look' para olhar com o mouse, 'mouse:0' para um botão do mouse, 'w,a,s,d' para um joystick, 'space' ou 'ctrl+shift' para teclas. Posição e tamanho em porcentagem da tela.");
         add(PcTouchEditorBrick.class, "Ativa ou desativa o editor de arrastar da disposição de toque. As alterações são salvas no projeto.");
+        add(PcChooseGameFolderBrick.class, "Abre o navegador de arquivos embutido e guarda a pasta do jogo escolhida (e o primeiro .exe encontrado).");
+        add(PcChooseDriverPackBrick.class, "Abre o navegador, importa o zip escolhido como pacote de driver gráfico e o seleciona.");
+        add(PcChooseD3dPackBrick.class, "Importa o zip escolhido como camada D3D (DXVK / VKD3D-Proton / D8VK) e a seleciona.");
+        add(PcChooseRuntimePackBrick.class, "Importa o arquivo escolhido (zip/tar/tar.gz/tar.xz/tzst) como runtime Wine + Box64 e o seleciona.");
+        add(PcChooseRootfsPackBrick.class, "Importa o arquivo escolhido como rootfs do contêiner e o usa na próxima inicialização.");
+        add(PcEditEnvBrick.class, "Abre o editor de variáveis de ambiente: adicionar, editar, excluir e conjuntos prontos (Box64, DXVK, Zink, MESA).");
+        add(PcRequestFileAccessBrick.class, "Abre a tela \"Acesso a todos os arquivos\": sem ela a pasta do jogo fora do sandbox não pode ser lida.");
 }
 
     private static void initChineseDescriptions() {
@@ -1830,6 +1851,13 @@ public final class BrickInfo {
         add(PcShowLauncherBrick.class, "打开内置启动器：选择文件夹、exe、驱动、D3D 层、运行环境和分辨率，然后按 Play。");
         add(PcAddTouchControlBrick.class, "添加或替换一个触控控件。按键：'look' 表示鼠标视角，'mouse:0' 表示鼠标按键，'w,a,s,d' 表示摇杆，'space' 或 'ctrl+shift' 表示按键。位置和大小是屏幕的百分比。");
         add(PcTouchEditorBrick.class, "启用或禁用触控布局的拖动编辑器。修改会保存在项目中。");
+        add(PcChooseGameFolderBrick.class, "打开内置文件浏览器并记住所选游戏文件夹（以及找到的第一个 .exe）。");
+        add(PcChooseDriverPackBrick.class, "打开文件浏览器，将所选 zip 导入为图形驱动包并立即选用。");
+        add(PcChooseD3dPackBrick.class, "将所选 zip 导入为 D3D 层（DXVK / VKD3D-Proton / D8VK）并选用。");
+        add(PcChooseRuntimePackBrick.class, "将所选压缩包（zip/tar/tar.gz/tar.xz/tzst）导入为 Wine + Box64 运行环境并选用。");
+        add(PcChooseRootfsPackBrick.class, "将所选压缩包导入为容器 rootfs，并在下次启动时使用。");
+        add(PcEditEnvBrick.class, "打开环境变量编辑器：添加、修改、删除，以及预设调优组合（Box64、DXVK、Zink、MESA）。");
+        add(PcRequestFileAccessBrick.class, "打开系统的“所有文件访问权限”界面：没有它无法读取沙盒外的游戏文件夹。");
 }
 
     private static <T extends Brick> void add(Class<T> brickClass, String description) {

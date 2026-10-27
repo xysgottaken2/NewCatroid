@@ -5550,4 +5550,11 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="brick_pc_touch_control_size">size%</string>
     <string formatted="false" name="brick_pc_touch_editor">PC touch layout editor</string>
     <string formatted="false" name="brick_pc_touch_editor_value">enabled</string>
+    <string formatted="false" name="brick_pc_choose_folder">Choose the PC game folder (browse files)</string>
+    <string formatted="false" name="brick_pc_choose_driver">Choose a graphics driver zip (Turnip / Adreno) and install it</string>
+    <string formatted="false" name="brick_pc_choose_d3d">Choose a DXVK / VKD3D zip and install it</string>
+    <string formatted="false" name="brick_pc_choose_runtime">Choose a Wine + Box64 archive and install it</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">Choose a container rootfs archive and install it</string>
+    <string formatted="false" name="brick_pc_edit_env">Open the PC environment variable editor</string>
+    <string formatted="false" name="brick_pc_request_access">Grant NewCatroid access to the game folder</string>
 </resources>
