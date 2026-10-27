@@ -665,7 +665,6 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 		currentVmMouseX = catroidX;
 		currentVmMouseY = catroidY;
 
-		if(!VirtualMachineManager.INSTANCE.isWorking()) return;
 		VncClient client = vncClients.get(DEFAULT_VM_NAME);
 		if (client == null) return;
 		if (stageListener == null) return;
@@ -689,7 +688,6 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 	}
 
 	public void sendVmKeyEvent(int keysym, boolean isDown) {
-		if(!VirtualMachineManager.INSTANCE.isWorking()) return;
 		VncClient client = vncClients.get(DEFAULT_VM_NAME);
 		if (client != null) {
 			client.sendKeyEvent(keysym, 0, isDown);
@@ -702,6 +700,45 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 			attachVMScreen(DEFAULT_VM_NAME);
 			stageListener.setVmDisplayVisible(visible);
 		}
+	}
+
+	/**
+	 * Shows or hides the PC game surface. The game runs inside a container that
+	 * publishes its framebuffer through a VNC bridge, so rendering and input both
+	 * reuse the VNC pipeline the QEMU blocks already use.
+	 *
+	 * @param port port of the VNC bridge inside the container (host loopback)
+	 * @param attempts how often the client tries to connect while the container boots
+	 */
+	public void showPcDisplay(final boolean visible, final int port, final int attempts) {
+		runOnUiThread(() -> {
+			if (stageListener == null) {
+				return;
+			}
+			if (visible) {
+				attachVncDisplay(DEFAULT_VM_NAME, "127.0.0.1", port, attempts);
+			}
+			stageListener.setVmDisplayVisible(visible);
+		});
+	}
+
+	/** Enables or disables the drag-to-move edit mode of the PC touch overlay. */
+	public void setPcTouchEditMode(final boolean enabled) {
+		runOnUiThread(() -> {
+			if (stageListener != null && stageListener.getPcTouchControls() != null) {
+				stageListener.getPcTouchControls().setEditMode(enabled);
+			}
+		});
+	}
+
+	/** Adds (or with {@code null} removes) the touch control overlay of the PC layer. */
+	public void setPcTouchOverlay(final com.badlogic.gdx.scenes.scene2d.Actor actor) {
+		runOnUiThread(() -> {
+			if (stageListener != null) {
+				stageListener.setPcTouchControls(
+						(org.catrobat.catroid.pcgame.PcTouchControlsActor) actor);
+			}
+		});
 	}
 
 
@@ -722,7 +759,18 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 	private boolean captureScheduled = false;
 
 	public void attachVMScreen(String viewId) {
-		if(!VirtualMachineManager.INSTANCE.isWorking()) return;
+		attachVncDisplay(viewId, "127.0.0.1", 5900, 1);
+	}
+
+	/**
+	 * Connects a VNC client for {@code viewId}. Retries the connection so a
+	 * container that is still booting (QEMU or the Wine/Xvfb/x11vnc stack) can be
+	 * attached as soon as its framebuffer is reachable.
+	 */
+	public void attachVncDisplay(final String viewId, final String host, final int port,
+							 final int attempts) {
+		// Also used by the PC game layer (Wine + Xvfb + x11vnc), which runs
+		// without a QEMU VM, so the VM state is not required here.
 		runOnUiThread(() -> {
 
 
@@ -788,7 +836,21 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 					vncClients.put(viewId, vncClient);
 
 					vncClient.configure(0, true, 5, false);
-					vncClient.connect("127.0.0.1", 5900);
+					int remaining = Math.max(1, attempts);
+					boolean connected = false;
+					while (remaining > 0 && !connected) {
+						try {
+							vncClient.connect(host, port);
+							connected = true;
+						} catch (Exception connectError) {
+							remaining--;
+							if (remaining <= 0) {
+								throw connectError;
+							}
+							Log.i(TAG, "VNC connect to " + host + ":" + port + " failed, retrying (" + remaining + ")");
+							Thread.sleep(1000);
+						}
+					}
 
 
 					while (vncClient.getConnected()) {
@@ -1690,6 +1752,21 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 		// the stage is destroyed so no sockets, threads or WebViews leak.
 		LocalHttpServer.INSTANCE.stop();
 		EmbeddedWebViewManager.INSTANCE.close();
+
+		// A PC game keeps running in its own process, so stop it together with
+		// the stage and forget this activity.
+		Thread stopPcGame = new Thread(() -> {
+			try {
+				org.catrobat.catroid.pcgame.PcGameManager.INSTANCE.stop();
+			} catch (Exception ignored) {
+				// stopping must never crash the stage shutdown
+			}
+		}, "pcgame-shutdown");
+		stopPcGame.setDaemon(true);
+		stopPcGame.start();
+		if (activeStageActivity != null && activeStageActivity.get() == this) {
+			activeStageActivity = null;
+		}
 	}
 
 	AndroidGraphics getGdxGraphics() {

@@ -5047,4 +5047,32 @@
     <string formatted="false" name="undo_sort">取消排序</string>
     <string formatted="false" name="sort">排序</string>
     <string formatted="false" name="checkbox">复选框</string>
+    <string formatted="false" name="subcategory_device_pc">PC 游戏（Wine + Box64）</string>
+    <string formatted="false" name="brick_pc_game_folder">设置 PC 游戏文件夹为</string>
+    <string formatted="false" name="brick_pc_graphics_driver">设置图形驱动为</string>
+    <string formatted="false" name="brick_pc_d3d_layer">设置 D3D 层（DXVK/VKD3D）为</string>
+    <string formatted="false" name="brick_pc_runtime">设置 Wine/Box64 运行时为</string>
+    <string formatted="false" name="brick_pc_container">设置容器 rootfs 为</string>
+    <string formatted="false" name="brick_pc_env">设置 PC 环境变量</string>
+    <string formatted="false" name="brick_pc_env_to">为</string>
+    <string formatted="false" name="brick_pc_env_clear">清除所有 PC 环境变量</string>
+    <string formatted="false" name="brick_pc_resolution">设置 PC 游戏分辨率为</string>
+    <string formatted="false" name="brick_pc_resolution_x">x</string>
+    <string formatted="false" name="brick_pc_import">导入 PC 资源包（zip），类型为</string>
+    <string formatted="false" name="brick_pc_launch">启动 PC 游戏</string>
+    <string formatted="false" name="brick_pc_launch_args">参数</string>
+    <string formatted="false" name="brick_pc_launch_touch">启动 PC 游戏</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">参数</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">触摸配置</string>
+    <string formatted="false" name="brick_pc_stop">停止正在运行的 PC 游戏</string>
+    <string formatted="false" name="brick_pc_bind_log">将 PC 游戏日志绑定到</string>
+    <string formatted="false" name="brick_pc_self_test">检查 PC 环境并将报告保存到</string>
+    <string formatted="false" name="brick_pc_launcher">打开 PC 游戏启动器</string>
+    <string formatted="false" name="brick_pc_touch_control">添加触摸控件</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">按键</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">大小%</string>
+    <string formatted="false" name="brick_pc_touch_editor">PC 触摸布局编辑器</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">启用</string>
 </resources>

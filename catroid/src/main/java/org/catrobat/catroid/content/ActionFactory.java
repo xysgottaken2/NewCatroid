@@ -5775,4 +5775,139 @@ public class ActionFactory extends Actions {
         action.setStrengthFormula(strength);
         return action;
     }
+	public Action createPcSetGameFolderAction(Sprite sprite, SequenceAction sequence, Formula folder) {
+		PcSetGameFolderAction action = action(PcSetGameFolderAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setFolder(folder);
+		return action;
+	}
+
+	public Action createPcSetGraphicsDriverAction(Sprite sprite, SequenceAction sequence, Formula driver) {
+		PcSetGraphicsDriverAction action = action(PcSetGraphicsDriverAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setDriver(driver);
+		return action;
+	}
+
+	public Action createPcSetD3dLayerAction(Sprite sprite, SequenceAction sequence, Formula layer) {
+		PcSetD3dLayerAction action = action(PcSetD3dLayerAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setLayer(layer);
+		return action;
+	}
+
+	public Action createPcSetRuntimeAction(Sprite sprite, SequenceAction sequence, Formula runtime) {
+		PcSetRuntimeAction action = action(PcSetRuntimeAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setRuntime(runtime);
+		return action;
+	}
+
+	public Action createPcSetContainerAction(Sprite sprite, SequenceAction sequence, Formula container) {
+		PcSetContainerAction action = action(PcSetContainerAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setContainer(container);
+		return action;
+	}
+
+	public Action createPcSetEnvAction(Sprite sprite, SequenceAction sequence, Formula name, Formula value) {
+		PcSetEnvAction action = action(PcSetEnvAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setName(name);
+		action.setValue(value);
+		return action;
+	}
+
+	public Action createPcClearEnvAction(Sprite sprite, SequenceAction sequence) {
+		PcClearEnvAction action = action(PcClearEnvAction.class);
+		return action;
+	}
+
+	public Action createPcSetResolutionAction(Sprite sprite, SequenceAction sequence, Formula width, Formula height) {
+		PcSetResolutionAction action = action(PcSetResolutionAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setWidth(width);
+		action.setHeight(height);
+		return action;
+	}
+
+	public Action createPcImportPackAction(Sprite sprite, SequenceAction sequence, Formula packType) {
+		PcImportPackAction action = action(PcImportPackAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setPackType(packType);
+		return action;
+	}
+
+	public Action createPcLaunchGameAction(Sprite sprite, SequenceAction sequence, Formula executable, Formula arguments) {
+		PcLaunchGameAction action = action(PcLaunchGameAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setExecutable(executable);
+		action.setArguments(arguments);
+		return action;
+	}
+
+	public Action createPcLaunchGameTouchAction(Sprite sprite, SequenceAction sequence, Formula executable, Formula arguments, Formula touchProfile) {
+		PcLaunchGameAction action = action(PcLaunchGameAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setExecutable(executable);
+		action.setArguments(arguments);
+		action.setTouchProfile(touchProfile);
+		action.setWithTouchControls(true);
+		return action;
+	}
+
+	public Action createPcStopGameAction(Sprite sprite, SequenceAction sequence) {
+		PcStopGameAction action = action(PcStopGameAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		return action;
+	}
+
+	public Action createPcBindGameLogAction(Sprite sprite, SequenceAction sequence, UserVariable variable) {
+		PcBindGameLogAction action = action(PcBindGameLogAction.class);
+		action.setUserVariable(variable);
+		return action;
+	}
+
+	public Action createPcSelfTestAction(Sprite sprite, SequenceAction sequence, UserVariable variable) {
+		PcSelfTestAction action = action(PcSelfTestAction.class);
+		action.setUserVariable(variable);
+		return action;
+	}
+
+	public Action createPcShowLauncherAction(Sprite sprite, SequenceAction sequence) {
+		PcShowLauncherAction action = action(PcShowLauncherAction.class);
+		return action;
+	}
+
+	public Action createPcAddTouchControlAction(Sprite sprite, SequenceAction sequence, Formula label, Formula keys, Formula x, Formula y, Formula size) {
+		PcAddTouchControlAction action = action(PcAddTouchControlAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setLabel(label);
+		action.setKeys(keys);
+		action.setX(x);
+		action.setY(y);
+		action.setSize(size);
+		return action;
+	}
+
+	public Action createPcTouchEditorAction(Sprite sprite, SequenceAction sequence, Formula enabled) {
+		PcShowTouchEditorAction action = action(PcShowTouchEditorAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setEnabled(enabled);
+		return action;
+	}
+
 }

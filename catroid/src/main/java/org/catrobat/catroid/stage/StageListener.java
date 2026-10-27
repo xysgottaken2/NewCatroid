@@ -882,6 +882,8 @@ public class StageListener implements ApplicationListener {
 
 	private VmMonitorActor vmMonitorActor;
 
+	private org.catrobat.catroid.pcgame.PcTouchControlsActor pcTouchControls;
+
     private void initActors(List<Sprite> sprites) {
         vmMonitorActor = new VmMonitorActor(vncSwizzleShader);
 
@@ -2106,6 +2108,12 @@ public class StageListener implements ApplicationListener {
 
 		executeExitScriptsSynchronously();
 
+		if (pcTouchControls != null) {
+			pcTouchControls.remove();
+			pcTouchControls.dispose();
+			pcTouchControls = null;
+		}
+
 		if (stage != null) {
 			for (Actor actor : stage.getActors()) {
 				if (actor instanceof Look) {
@@ -2366,6 +2374,35 @@ public class StageListener implements ApplicationListener {
 
 	public Stage getStage() {
 		return stage;
+	}
+
+	/**
+	 * Adds, replaces or removes the touch control overlay of the PC game layer.
+	 * Must be called on the GL thread; the actor is created by
+	 * {@code PcGameManager} and covers the whole virtual screen.
+	 */
+	public void setPcTouchControls(final org.catrobat.catroid.pcgame.PcTouchControlsActor actor) {
+		if (Gdx.app == null) {
+			return;
+		}
+		Gdx.app.postRunnable(() -> {
+			if (pcTouchControls != null) {
+				pcTouchControls.remove();
+				pcTouchControls.dispose();
+				pcTouchControls = null;
+			}
+			if (actor == null || stage == null) {
+				return;
+			}
+			actor.setSize(virtualWidth, virtualHeight);
+			actor.setPosition(-virtualWidthHalf, -virtualHeightHalf);
+			pcTouchControls = actor;
+			stage.addActor(actor);
+		});
+	}
+
+	public org.catrobat.catroid.pcgame.PcTouchControlsActor getPcTouchControls() {
+		return pcTouchControls;
 	}
 
 	private void setSchedulerStateForAllLooks(@ThreadScheduler.SchedulerState int state) {

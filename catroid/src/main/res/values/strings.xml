@@ -5522,4 +5522,32 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="undo_sort">Undo sort</string>
     <string formatted="false" name="sort">Sort</string>
     <string formatted="false" name="checkbox">checkbox</string>
+    <string formatted="false" name="subcategory_device_pc">PC games (Wine + Box64)</string>
+    <string formatted="false" name="brick_pc_game_folder">Set PC game folder to</string>
+    <string formatted="false" name="brick_pc_graphics_driver">Set graphics driver to</string>
+    <string formatted="false" name="brick_pc_d3d_layer">Set D3D layer (DXVK/VKD3D) to</string>
+    <string formatted="false" name="brick_pc_runtime">Set Wine/Box64 runtime to</string>
+    <string formatted="false" name="brick_pc_container">Set container rootfs to</string>
+    <string formatted="false" name="brick_pc_env">Set PC environment variable</string>
+    <string formatted="false" name="brick_pc_env_to">to</string>
+    <string formatted="false" name="brick_pc_env_clear">Clear all PC environment variables</string>
+    <string formatted="false" name="brick_pc_resolution">Set PC game resolution to</string>
+    <string formatted="false" name="brick_pc_resolution_x">x</string>
+    <string formatted="false" name="brick_pc_import">Import PC pack (zip) of type</string>
+    <string formatted="false" name="brick_pc_launch">Launch PC game</string>
+    <string formatted="false" name="brick_pc_launch_args">with arguments</string>
+    <string formatted="false" name="brick_pc_launch_touch">Launch PC game</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">arguments</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">with touch profile</string>
+    <string formatted="false" name="brick_pc_stop">Stop the running PC game</string>
+    <string formatted="false" name="brick_pc_bind_log">Bind the PC game log to</string>
+    <string formatted="false" name="brick_pc_self_test">Check the PC environment and store the report in</string>
+    <string formatted="false" name="brick_pc_launcher">Open the PC game launcher</string>
+    <string formatted="false" name="brick_pc_touch_control">Add touch control</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">keys</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">size%</string>
+    <string formatted="false" name="brick_pc_touch_editor">PC touch layout editor</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">enabled</string>
 </resources>

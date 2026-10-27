@@ -5092,4 +5092,32 @@ precisa de acesso de leitura e escrita a ele. Você sempre pode alterar as permi
     <string formatted="false" name="undo_sort">Desfazer ordenação</string>
     <string formatted="false" name="sort">Ordenar</string>
     <string formatted="false" name="checkbox">checkbox</string>
+    <string formatted="false" name="subcategory_device_pc">Jogos de PC (Wine + Box64)</string>
+    <string formatted="false" name="brick_pc_game_folder">Definir a pasta do jogo de PC como</string>
+    <string formatted="false" name="brick_pc_graphics_driver">Definir o driver gráfico como</string>
+    <string formatted="false" name="brick_pc_d3d_layer">Definir a camada D3D (DXVK/VKD3D) como</string>
+    <string formatted="false" name="brick_pc_runtime">Definir o runtime Wine/Box64 como</string>
+    <string formatted="false" name="brick_pc_container">Definir o rootfs do contêiner como</string>
+    <string formatted="false" name="brick_pc_env">Definir a variável de ambiente do PC</string>
+    <string formatted="false" name="brick_pc_env_to">para</string>
+    <string formatted="false" name="brick_pc_env_clear">Limpar todas as variáveis de ambiente do PC</string>
+    <string formatted="false" name="brick_pc_resolution">Definir a resolução do jogo de PC como</string>
+    <string formatted="false" name="brick_pc_resolution_x">por</string>
+    <string formatted="false" name="brick_pc_import">Importar pacote de PC (zip) do tipo</string>
+    <string formatted="false" name="brick_pc_launch">Iniciar jogo de PC</string>
+    <string formatted="false" name="brick_pc_launch_args">com argumentos</string>
+    <string formatted="false" name="brick_pc_launch_touch">Iniciar jogo de PC</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">argumentos</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">com perfil de toque</string>
+    <string formatted="false" name="brick_pc_stop">Parar o jogo de PC em execução</string>
+    <string formatted="false" name="brick_pc_bind_log">Vincular o log do jogo de PC a</string>
+    <string formatted="false" name="brick_pc_self_test">Verificar o ambiente do PC e guardar o relatório em</string>
+    <string formatted="false" name="brick_pc_launcher">Abrir o lançador de jogos de PC</string>
+    <string formatted="false" name="brick_pc_touch_control">Adicionar controle de toque</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">teclas</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">tamanho%</string>
+    <string formatted="false" name="brick_pc_touch_editor">Editor de layout de toque do PC</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">ativado</string>
 </resources>

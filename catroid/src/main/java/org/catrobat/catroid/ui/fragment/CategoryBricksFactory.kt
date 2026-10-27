@@ -405,6 +405,23 @@ import org.catrobat.catroid.content.bricks.RunPythonScriptBrick
 import org.catrobat.catroid.content.bricks.RunShellBrick
 import org.catrobat.catroid.content.bricks.RunVMBrick
 import org.catrobat.catroid.content.bricks.RunVm2Brick
+import org.catrobat.catroid.content.bricks.PcSetGameFolderBrick
+import org.catrobat.catroid.content.bricks.PcSetGraphicsDriverBrick
+import org.catrobat.catroid.content.bricks.PcSetD3dLayerBrick
+import org.catrobat.catroid.content.bricks.PcSetRuntimeBrick
+import org.catrobat.catroid.content.bricks.PcSetContainerBrick
+import org.catrobat.catroid.content.bricks.PcSetEnvBrick
+import org.catrobat.catroid.content.bricks.PcClearEnvBrick
+import org.catrobat.catroid.content.bricks.PcSetResolutionBrick
+import org.catrobat.catroid.content.bricks.PcImportPackBrick
+import org.catrobat.catroid.content.bricks.PcLaunchGameBrick
+import org.catrobat.catroid.content.bricks.PcLaunchGameTouchBrick
+import org.catrobat.catroid.content.bricks.PcStopGameBrick
+import org.catrobat.catroid.content.bricks.PcBindGameLogBrick
+import org.catrobat.catroid.content.bricks.PcSelfTestBrick
+import org.catrobat.catroid.content.bricks.PcShowLauncherBrick
+import org.catrobat.catroid.content.bricks.PcAddTouchControlBrick
+import org.catrobat.catroid.content.bricks.PcTouchEditorBrick
 import org.catrobat.catroid.content.bricks.RunningStitchBrick
 import org.catrobat.catroid.content.bricks.SaveBufferBrick
 import org.catrobat.catroid.content.bricks.SaveLookBrick
@@ -2008,6 +2025,24 @@ print("Bot has stopped.")""", "myVar"))
                 deviceBrickList.add(NativeViewBindSpriteBrick("myWebView", "Sprite1", 1, 50, 100))
                 deviceBrickList.add(DeleteWebBrick("myWebView"))
                 deviceBrickList.add(BindVmOutputBrick())
+                deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_pc), ResetTimerBrick()))
+                deviceBrickList.add(PcSetGameFolderBrick("/sdcard/Games/MyGame"))
+                deviceBrickList.add(PcSetGraphicsDriverBrick("auto"))
+                deviceBrickList.add(PcSetD3dLayerBrick("dxvk"))
+                deviceBrickList.add(PcSetRuntimeBrick("auto"))
+                deviceBrickList.add(PcSetContainerBrick(""))
+                deviceBrickList.add(PcSetEnvBrick("DXVK_HUD", "fps,frametimes"))
+                deviceBrickList.add(PcClearEnvBrick())
+                deviceBrickList.add(PcSetResolutionBrick("1280", "720"))
+                deviceBrickList.add(PcImportPackBrick("driver"))
+                deviceBrickList.add(PcLaunchGameBrick("Game.exe", ""))
+                deviceBrickList.add(PcLaunchGameTouchBrick("Game.exe", "", "gamepad"))
+                deviceBrickList.add(PcStopGameBrick())
+                deviceBrickList.add(PcBindGameLogBrick())
+                deviceBrickList.add(PcSelfTestBrick())
+                deviceBrickList.add(PcShowLauncherBrick())
+                deviceBrickList.add(PcAddTouchControlBrick("JUMP", "space", "86", "46", "17"))
+                deviceBrickList.add(PcTouchEditorBrick("1"))
                 deviceBrickList.add(RunVm2Brick("-kernel \"%PROJECT_FILES%/bzImage\" -initrd \"%PROJECT_FILES%/core.gz\" -append \"console=ttyS0 quiet\""))
                 deviceBrickList.add(RunVMBrick("1024", "2", "myDisk.qcow2", "flash.iso"))
                 deviceBrickList.add(CreateDiskBrick("myDisk.qcow2", "10G"))
@@ -2162,6 +2197,24 @@ bot.polling()""", "myVar"))
         deviceBrickList.add(KeyEventBrick("a", 1))
         deviceBrickList.add(SendVmInputBrick("ls ~/"))
         deviceBrickList.add(BindVmOutputBrick())
+        deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_pc), template))
+        deviceBrickList.add(PcSetGameFolderBrick("/sdcard/Games/MyGame"))
+        deviceBrickList.add(PcSetGraphicsDriverBrick("auto"))
+        deviceBrickList.add(PcSetD3dLayerBrick("dxvk"))
+        deviceBrickList.add(PcSetRuntimeBrick("auto"))
+        deviceBrickList.add(PcSetContainerBrick(""))
+        deviceBrickList.add(PcSetEnvBrick("DXVK_HUD", "fps,frametimes"))
+        deviceBrickList.add(PcClearEnvBrick())
+        deviceBrickList.add(PcSetResolutionBrick("1280", "720"))
+        deviceBrickList.add(PcImportPackBrick("driver"))
+        deviceBrickList.add(PcLaunchGameBrick("Game.exe", ""))
+        deviceBrickList.add(PcLaunchGameTouchBrick("Game.exe", "", "gamepad"))
+        deviceBrickList.add(PcStopGameBrick())
+        deviceBrickList.add(PcBindGameLogBrick())
+        deviceBrickList.add(PcSelfTestBrick())
+        deviceBrickList.add(PcShowLauncherBrick())
+        deviceBrickList.add(PcAddTouchControlBrick("JUMP", "space", "86", "46", "17"))
+        deviceBrickList.add(PcTouchEditorBrick("1"))
         deviceBrickList.add(RunChip8Brick("tetris.ch8"))
 
         deviceBrickList.add(SubCategoryHeaderBrick(context.getString(R.string.subcategory_device_views), template))

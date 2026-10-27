@@ -5313,4 +5313,32 @@
     <string formatted="false" name="undo_sort">Отменить сортировку</string>
     <string formatted="false" name="sort">Сортировка</string>
     <string formatted="false" name="checkbox">флажок</string>
+    <string formatted="false" name="subcategory_device_pc">ПК игры (Wine + Box64)</string>
+    <string formatted="false" name="brick_pc_game_folder">Задать папку игры ПК</string>
+    <string formatted="false" name="brick_pc_graphics_driver">Задать графический драйвер</string>
+    <string formatted="false" name="brick_pc_d3d_layer">Задать слой D3D (DXVK/VKD3D)</string>
+    <string formatted="false" name="brick_pc_runtime">Задать рантайм Wine/Box64</string>
+    <string formatted="false" name="brick_pc_container">Задать rootfs контейнера</string>
+    <string formatted="false" name="brick_pc_env">Задать переменную окружения ПК</string>
+    <string formatted="false" name="brick_pc_env_to">значение</string>
+    <string formatted="false" name="brick_pc_env_clear">Очистить все переменные окружения ПК</string>
+    <string formatted="false" name="brick_pc_resolution">Задать разрешение игры ПК</string>
+    <string formatted="false" name="brick_pc_resolution_x">на</string>
+    <string formatted="false" name="brick_pc_import">Импортировать пакет ПК (zip) типа</string>
+    <string formatted="false" name="brick_pc_launch">Запустить игру ПК</string>
+    <string formatted="false" name="brick_pc_launch_args">с аргументами</string>
+    <string formatted="false" name="brick_pc_launch_touch">Запустить игру ПК</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">аргументы</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">с профилем касаний</string>
+    <string formatted="false" name="brick_pc_stop">Остановить запущенную игру ПК</string>
+    <string formatted="false" name="brick_pc_bind_log">Привязать лог игры ПК к</string>
+    <string formatted="false" name="brick_pc_self_test">Проверить окружение ПК и записать отчет в</string>
+    <string formatted="false" name="brick_pc_launcher">Открыть лаунчер игр ПК</string>
+    <string formatted="false" name="brick_pc_touch_control">Добавить элемент управления</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">клавиши</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">размер%</string>
+    <string formatted="false" name="brick_pc_touch_editor">Редактор раскладки касаний ПК</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">включен</string>
 </resources>
