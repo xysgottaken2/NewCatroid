@@ -299,7 +299,7 @@ object PcGameManager {
         if (runtimeDir == null) {
             appendLog("[newcatroid] warning: no Wine/Box64 runtime pack imported")
         } else if (!hasRuntimeBinary(runtimeDir)) {
-            appendLog("[newcatroid] warning: runtime '${runtimePack.id}' has no box64/wine binary in bin/")
+            appendLog("[newcatroid] warning: runtime '${runtimePack?.id}' has no box64/wine binary in bin/")
         }
 
         val hostMode = containerRoot == null
@@ -315,7 +315,7 @@ object PcGameManager {
                     "the runtime pack must be self contained (box64, wine, X server, x11vnc)"
             )
         } else {
-            appendLog("[newcatroid] container: ${containerRoot.absolutePath}")
+            appendLog("[newcatroid] container: ${containerRoot?.absolutePath}")
         }
 
         val driverPack = if (PcEnvironment.hasGraphicsDriver(cfg)) {
