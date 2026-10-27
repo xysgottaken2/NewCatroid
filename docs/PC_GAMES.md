@@ -293,7 +293,8 @@ player can change the driver without editing the project.
 * resolution and DPI,
 * *Show the game inside the stage*, *Enable touch controls*,
   *Edit touch layout (drag the buttons)*, *DXVK performance HUD*,
-* `Play`, `Stop`, `Import pack…`, `Self test`, `Save settings`,
+* `Play`, `Stop`, `Import pack…`, `Get packs online…` (the catalogue from
+  section 2.0, with the category tabs), `Environment…`, `Self test`, `Save settings`,
 * a live log tail (last 20 lines).
 
 ---

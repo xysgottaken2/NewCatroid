@@ -258,17 +258,26 @@ object PcLauncherDialog {
             weight(1f)
         )
         secondRow.addView(
+            button(activity, "Get packs online…") {
+                PcOnlinePackDialog.show(activity, PcPackType.GRAPHICS_DRIVER)
+            },
+            weight(1f)
+        )
+        root.addView(secondRow)
+
+        val thirdRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        thirdRow.addView(
             button(activity, "Environment…") { PcEnvEditorDialog.show(activity) },
             weight(1f)
         )
-        secondRow.addView(
+        thirdRow.addView(
             button(activity, "Self test") {
                 val report = PcGameManager.selfTest(activity)
                 showText(activity, "Environment check", report)
             },
             weight(1f)
         )
-        root.addView(secondRow)
+        root.addView(thirdRow)
 
         root.addView(
             button(activity, "Save settings") {
