@@ -429,6 +429,8 @@ import org.catrobat.catroid.content.bricks.PcChooseRuntimePackBrick
 import org.catrobat.catroid.content.bricks.PcChooseRootfsPackBrick
 import org.catrobat.catroid.content.bricks.PcEditEnvBrick
 import org.catrobat.catroid.content.bricks.PcRequestFileAccessBrick
+import org.catrobat.catroid.content.bricks.PcDownloadPackBrick
+import org.catrobat.catroid.content.bricks.PcDownloadLinkBrick
 import org.catrobat.catroid.content.bricks.RunningStitchBrick
 import org.catrobat.catroid.content.bricks.SaveBufferBrick
 import org.catrobat.catroid.content.bricks.SaveLookBrick
