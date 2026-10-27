@@ -776,7 +776,7 @@ object PcGameManager {
             "[missing] Wine/Box64 runtime pack\n"
         })
         if (runtime != null) {
-            val proot = findProot(runtime.directory, container)
+            val proot = findProot(context, runtime.directory, container)
             report.append("[info] proot: $proot\n")
             report.append(
                 if (hasRuntimeBinary(runtime.directory)) {
@@ -786,6 +786,19 @@ object PcGameManager {
                 }
             )
         }
+
+        val xServer = findTool(container, runtime?.directory, "Xvfb")
+        report.append(
+            if (xServer != null) "[ok] X server: $xServer\n"
+            else "[warn] no Xvfb found in the rootfs/runtime - the stage will stay black " +
+                "(or point NC_XSERVER_CMD at your own X server)\n"
+        )
+        val vncBridge = findTool(container, runtime?.directory, "x11vnc")
+        report.append(
+            if (vncBridge != null) "[ok] VNC bridge: $vncBridge\n"
+            else "[warn] no x11vnc found - the framebuffer cannot reach the stage " +
+                "(or point NC_VNC_CMD at another VNC server)\n"
+        )
 
         val driver = if (PcEnvironment.hasGraphicsDriver(config)) {
             PcPackManager.resolve(context, PcPackType.GRAPHICS_DRIVER, config.graphicsDriver)
@@ -965,6 +978,25 @@ object PcGameManager {
             if (child.isFile && child.name.contains("box64")) return true
         }
         return false
+    }
+
+    /**
+     * Looks for a helper binary (`Xvfb`, `x11vnc`, …) in the usual places of a
+     * rootfs or a runtime pack. Purely informational: the start script resolves
+     * them through `PATH` at runtime, this only makes the self test readable.
+     */
+    private fun findTool(containerRoot: File?, runtimeDir: File?, name: String): String? {
+        val candidates = ArrayList<File>()
+        for (root in listOfNotNull(containerRoot, runtimeDir)) {
+            candidates.add(File(root, "bin/$name"))
+            candidates.add(File(root, "usr/bin/$name"))
+            candidates.add(File(root, "usr/local/bin/$name"))
+            candidates.add(File(root, "$name"))
+        }
+        for (candidate in candidates) {
+            if (candidate.isFile) return candidate.absolutePath
+        }
+        return null
     }
 
     private fun findProot(context: Context, runtimeDir: File?, containerRoot: File?): String {

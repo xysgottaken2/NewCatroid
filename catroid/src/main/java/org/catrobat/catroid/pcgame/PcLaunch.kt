@@ -140,6 +140,8 @@ object PcEnvironment {
             env["VK_DRIVER_FILES"] = icdList
             env["ADRENOTOOLS_DRIVER_PATH"] = paths.driverDir
             env["ADRENOTOOLS_HOOKS_PATH"] = paths.driverDir
+            // Mesa (Zink / Turnip via the system loader) finds its DRI drivers here
+            env["LIBGL_DRIVERS_PATH"] = paths.driverDir
             env["GALLIUM_DRIVER"] = "freedreno"
         } else {
             env["GALLIUM_DRIVER"] = "zink"

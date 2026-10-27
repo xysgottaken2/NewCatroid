@@ -16,6 +16,9 @@ Turnip, DXVK and the rootfs are imported by the user as ordinary `.zip` packs,
 so nothing GPL/proprietary is bundled into this repository or into an APK that
 is built from a project.
 
+How to *build* the four archives (driver, DXVK, runtime, rootfs) is described in
+[PC_GAMES_PACKS.md](PC_GAMES_PACKS.md).
+
 ---
 
 ## 1. What was added
