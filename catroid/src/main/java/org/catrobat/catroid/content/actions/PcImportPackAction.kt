@@ -38,8 +38,8 @@ import org.catrobat.catroid.pcgame.PcPackType
 import org.catrobat.catroid.stage.StageActivity
 
 /**
- * Opens the system file picker, imports the selected zip as a PC pack and
- * reports the result in the log and (optionally) in a user variable.
+ * Opens the system file picker, imports the selected archive (zip/tar/tzst) as a
+ * PC pack and reports the result in the log and (optionally) in a user variable.
  *
  * The pack type can be left empty: it is then detected from the archive
  * content (`libvulkan*.so` -> driver, `d3d11.dll` -> D3D layer, `box64` ->
