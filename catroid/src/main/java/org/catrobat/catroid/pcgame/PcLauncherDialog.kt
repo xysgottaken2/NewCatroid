@@ -80,6 +80,12 @@ object PcLauncherDialog {
             inputType = InputType.TYPE_CLASS_TEXT
             setSingleLine()
         }
+        // Declared before the folder button: its callback may auto-fill the exe.
+        val executable = EditText(activity).apply {
+            setText(config.executable)
+            hint = "Game.exe"
+            setSingleLine()
+        }
         root.addView(label(activity, "Game folder"))
         root.addView(gameFolder)
         root.addView(
@@ -109,11 +115,6 @@ object PcLauncherDialog {
             }
         )
 
-        val executable = EditText(activity).apply {
-            setText(config.executable)
-            hint = "Game.exe"
-            setSingleLine()
-        }
         root.addView(label(activity, "Executable (inside the game folder)"))
         root.addView(executable)
         root.addView(

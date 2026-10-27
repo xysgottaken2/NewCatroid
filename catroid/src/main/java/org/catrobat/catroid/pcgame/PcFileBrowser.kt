@@ -113,7 +113,7 @@ object PcFileBrowser {
                 labels.add(".. (up)")
             }
             for (entry in entries) {
-                labels.add(if (entry.isDirectory) entry.name + "/" else entry.name + "   " + PcEnvironment.humanSize(entry.length()))
+                labels.add(if (entry.isDirectory) entry.name + "/" else entry.name + "   " + PcScriptBuilder.humanSize(entry.length()))
             }
             listView.adapter = ArrayAdapter(activity, android.R.layout.simple_list_item_1, labels)
             pathField.setText(current.absolutePath)
