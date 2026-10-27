@@ -40,7 +40,20 @@ with a running PC game.
 
 ---
 
-## 2. Install order (once per device)
+## 2. Two run modes
+
+The layer picks the mode automatically on every launch:
+
+| Mode | When | What runs |
+| --- | --- | --- |
+| **proot container** | a `rootfs` pack (or a container folder) is available | `proot -r <rootfs>` → `/bin/sh /pcgame/scripts/launch.sh` → `box64 wine game.exe`, with the game folder, the Wine prefix, the runtime, the driver and the D3D layer bind-mounted to `/game`, `/prefix`, `/runtime`, `/drivers`, `/d3d` |
+| **host mode** | no rootfs, but a runtime pack exists | the same script is started by `/system/bin/sh` and uses the real app paths; `box64` is executed through `/system/bin/linker64` (Android 10+ forbids `execve` of files in the app data directory). The runtime pack must then be self contained: `box64`, `wine`, an X server and `x11vnc` in `bin/` |
+
+Both modes produce the same `launch.sh`, which always contains the full
+environment, so a bug report is one log dump away. The block "check the PC
+environment" prints the mode plus every component it found.
+
+## 3. Install order (once per device)
 
 All four components are optional at the same time - the layer tells you what is
 missing (see the "self test" block).
@@ -50,6 +63,13 @@ missing (see the "self test" block).
 A folder with a Linux user space: `bin/sh`, `usr/`, `etc/`, `lib/`. Any
 Ubuntu/Debian based rootfs that was prepared for proot works. Import it with the
 "import PC pack" block (`rootfs`) or with the launcher's *Import pack…* button.
+
+Supported containers: `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.tar.xz`/`.txz` and
+`.tzst`/`.tar.zst` (the format Winlator and Mobox distribute their rootfs in).
+The format is detected from the magic bytes, so a misnamed file still imports.
+Symlinks and hard links inside a tar rootfs are recreated as real links and the
+exec bit of `bin/*` is preserved - without that `bin/sh` and the dynamic linker
+of the rootfs would be broken.
 
 ```
 pcgame/packs/rootfs/<id>/bin/sh
@@ -127,7 +147,7 @@ while a D3D pack is selected.
 
 ---
 
-## 3. Block reference
+## 4. Block reference
 
 New subcategory **Device → PC games (Wine + Box64)**:
 
@@ -173,7 +193,7 @@ player can change the driver without editing the project.
 
 ---
 
-## 4. The launcher dialog
+## 5. The launcher dialog
 
 `Open the PC game launcher` shows a dialog with:
 
@@ -189,7 +209,7 @@ player can change the driver without editing the project.
 
 ---
 
-## 5. Touch controls
+## 6. Touch controls
 
 Positions/sizes are normalised (0..1 of the virtual screen), the same scheme the
 WebView touch controls of the local server use:
@@ -225,7 +245,7 @@ The overlay only uses key names the stage already understands
 
 ---
 
-## 6. Environment variables and hooks
+## 7. Environment variables and hooks
 
 The generated script is written to
 `<app files>/pcgame/scripts/launch.sh` and is human readable - it contains every
@@ -251,13 +271,14 @@ handy to fix a runtime without rebuilding anything.
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 Use the **self test** block first; it prints one line per component.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `Cannot execute proot` | The runtime has no `proot` in `bin/`. The layer tries `linker64 <proot>`, then direct exec, then `sh -c 'exec "$@"'`; the used mode is logged. |
+| `Cannot execute proot` | The runtime has no `proot` in `bin/`. The layer tries `linker64 <proot>`, then direct exec, then `sh -c 'exec "$@"'`; the used mode is logged. If the device runs Android 10+ and refuses to execute the file at all, import a rootfs and let a self contained runtime do the job in host mode. |
+| `Cannot start the runtime` in host mode | The runtime pack has no `bin/box64`. Host mode needs a pack with `box64`, `wine`, `Xvfb` and `x11vnc` inside. |
 | `Game folder not found` | Use an absolute path and grant "all files access" to NewCatroid (`MANAGE_EXTERNAL_STORAGE`). |
 | Black stage, log says x11vnc missing | The rootfs has no `x11vnc`; install it in the rootfs or point `NC_VNC_CMD` to another VNC server (`Set PC environment variable`). |
 | Black stage with frames in the log | Wrong GPU driver for the device (Turnip on a non-Adreno GPU). Try `system`, Zink or SwiftShader. |
@@ -279,7 +300,7 @@ logs to debug it.
 
 ---
 
-## 8. Кратко по-русски
+## 9. Кратко по-русски
 
 Добавлен слой совместимости с ПК-играми (как в Winlator/GameHub/Mobox), но
 полностью на блоках NewCatroid:

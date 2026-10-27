@@ -287,7 +287,7 @@ public final class BrickInfo {
         add(PcSetEnvBrick.class, "Добавляет переменную окружения в генерируемый скрипт запуска, например DXVK_HUD, BOX64_DYNAREC_BIGBLOCK, WINEESYNC или MESA_GL_VERSION_OVERRIDE.");
         add(PcClearEnvBrick.class, "Удаляет все переменные окружения, добавленные блоками.");
         add(PcSetResolutionBrick.class, "Задает размер фреймбуфера Xvfb и виртуального рабочего стола Wine.");
-        add(PcImportPackBrick.class, "Открывает выбор файла и импортирует выбранный zip как пакет. Тип: driver, d3d, runtime, rootfs; оставьте пустым для автоопределения.");
+        add(PcImportPackBrick.class, "Открывает выбор файла и импортирует архив как пакет (zip, tar, tar.gz, tar.xz, tzst). Тип: driver, d3d, runtime, rootfs; оставьте пустым для автоопределения.");
         add(PcLaunchGameBrick.class, "Запускает игру в контейнере. Изображение выводится на сцену, управление доступно существующими блоками мыши и клавиш.");
         add(PcLaunchGameTouchBrick.class, "Запускает игру и показывает настраиваемый оверлей касаний (джойстик, кнопки, обзор мышью) поверх нее.");
         add(PcStopGameBrick.class, "Останавливает запущенную игру и скрывает экран игры.");
@@ -939,7 +939,7 @@ public final class BrickInfo {
         add(PcSetEnvBrick.class, "Adds an environment variable to the generated start script, e.g. DXVK_HUD, BOX64_DYNAREC_BIGBLOCK, WINEESYNC or MESA_GL_VERSION_OVERRIDE.");
         add(PcClearEnvBrick.class, "Removes every environment variable that was added by blocks.");
         add(PcSetResolutionBrick.class, "Sets the size of the Xvfb framebuffer and of the Wine virtual desktop.");
-        add(PcImportPackBrick.class, "Opens the file picker and imports the selected zip as a pack. Type: driver, d3d, runtime or rootfs; leave it empty to detect it automatically.");
+        add(PcImportPackBrick.class, "Opens the file picker and imports the selected archive as a pack (zip, tar, tar.gz, tar.xz, tzst). Type: driver, d3d, runtime or rootfs; leave it empty to detect it automatically.");
         add(PcLaunchGameBrick.class, "Starts the game inside the container. The picture is shown on the stage and the existing mouse and key blocks control it.");
         add(PcLaunchGameTouchBrick.class, "Starts the game and shows a customizable touch overlay (joystick, buttons, mouse look) on top of it.");
         add(PcStopGameBrick.class, "Stops the running game and hides the game surface.");
@@ -1377,7 +1377,7 @@ public final class BrickInfo {
         add(PcSetEnvBrick.class, "Adiciona uma variável de ambiente ao script de inicialização gerado, por exemplo DXVK_HUD, BOX64_DYNAREC_BIGBLOCK, WINEESYNC ou MESA_GL_VERSION_OVERRIDE.");
         add(PcClearEnvBrick.class, "Remove todas as variáveis de ambiente adicionadas pelos blocos.");
         add(PcSetResolutionBrick.class, "Define o tamanho do framebuffer do Xvfb e da área de trabalho virtual do Wine.");
-        add(PcImportPackBrick.class, "Abre o seletor de arquivos e importa o zip escolhido como pacote. Tipo: driver, d3d, runtime ou rootfs; deixe vazio para detectar automaticamente.");
+        add(PcImportPackBrick.class, "Abre o seletor de arquivos e importa o arquivo escolhido como pacote (zip, tar, tar.gz, tar.xz, tzst). Tipo: driver, d3d, runtime ou rootfs; deixe vazio para detectar automaticamente.");
         add(PcLaunchGameBrick.class, "Inicia o jogo dentro do contêiner. A imagem aparece no palco e os blocos de mouse e teclado existentes controlam o jogo.");
         add(PcLaunchGameTouchBrick.class, "Inicia o jogo e mostra uma camada de toque personalizável (joystick, botões, olhar com o mouse) sobre ele.");
         add(PcStopGameBrick.class, "Para o jogo em execução e esconde a tela do jogo.");
@@ -1821,7 +1821,7 @@ public final class BrickInfo {
         add(PcSetEnvBrick.class, "向生成的启动脚本添加环境变量，例如 DXVK_HUD、BOX64_DYNAREC_BIGBLOCK、WINEESYNC 或 MESA_GL_VERSION_OVERRIDE。");
         add(PcClearEnvBrick.class, "删除所有由积木添加的环境变量。");
         add(PcSetResolutionBrick.class, "设置 Xvfb 帧缓冲和 Wine 虚拟桌面的尺寸。");
-        add(PcImportPackBrick.class, "打开文件选择器并把所选 zip 导入为包。类型：driver、d3d、runtime 或 rootfs；留空则自动识别。");
+        add(PcImportPackBrick.class, "打开文件选择器并把所选压缩包导入为包（zip、tar、tar.gz、tar.xz、tzst）。类型：driver、d3d、runtime 或 rootfs；留空则自动识别。");
         add(PcLaunchGameBrick.class, "在容器中启动游戏。画面会显示在舞台上，现有的鼠标和按键积木可以控制游戏。");
         add(PcLaunchGameTouchBrick.class, "启动游戏并在画面上方显示可自定义的触控层（摇杆、按钮、鼠标视角）。");
         add(PcStopGameBrick.class, "停止正在运行的游戏并隐藏游戏画面。");

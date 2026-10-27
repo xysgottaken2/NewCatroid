@@ -26,10 +26,19 @@ package org.catrobat.catroid.pcgame
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
+import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream
 import org.json.JSONObject
+import java.io.BufferedInputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.util.zip.ZipFile
 
 /**
@@ -289,20 +298,15 @@ object PcPackManager {
      * Guesses the pack type from the zip content so "import pack" can be used
      * without the user knowing the internal categories.
      */
-    fun detectType(zipFile: File): PcPackType {
+    fun detectType(archive: File): PcPackType {
         var hasVulkan = false
         var hasD3d = false
         var hasRuntime = false
         var hasRootfs = false
         try {
-            ZipFile(zipFile).use { zip ->
-                val entries = zip.entries()
-                var count = 0
-                while (entries.hasMoreElements() && count < 6000) {
-                    val entry = entries.nextElement()
-                    count++
-                    val name = entry.name.replace('\\', '/').lowercase()
-                    val base = name.substringAfterLast('/')
+            forEachEntryName(archive) { rawName ->
+                val name = rawName.replace('\\', '/').lowercase()
+                val base = name.substringAfterLast('/')
                     if (base.startsWith("libvulkan") || (base.endsWith(".json") && base.contains("icd"))) {
                         hasVulkan = true
                     }
@@ -321,10 +325,10 @@ object PcPackManager {
                     ) {
                         hasRootfs = true
                     }
-                }
+                true
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Cannot inspect ${zipFile.name}: ${e.message}")
+            Log.w(TAG, "Cannot inspect ${archive.name}: ${e.message}")
         }
         return when {
             hasD3d -> PcPackType.D3D_LAYER
@@ -332,6 +336,32 @@ object PcPackManager {
             hasRuntime -> PcPackType.RUNTIME
             hasRootfs -> PcPackType.ROOTFS
             else -> PcPackType.GRAPHICS_DRIVER
+        }
+    }
+
+    /**
+     * Visits the entry names of any supported archive. Returning `false` from
+     * [visitor] stops the scan early, which keeps the type detection cheap for
+     * multi-gigabyte rootfs archives.
+     */
+    private fun forEachEntryName(archive: File, visitLimit: Int = 6000, visitor: (String) -> Boolean) {
+        var count = 0
+        when (detectArchiveKind(archive)) {
+            PcArchiveKind.ZIP -> ZipFile(archive).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements() && count < visitLimit) {
+                    val entry = entries.nextElement()
+                    count++
+                    if (!visitor(entry.name)) return
+                }
+            }
+            else -> openTarStream(archive).use { stream ->
+                while (count < visitLimit) {
+                    val entry = stream.nextEntry ?: break
+                    count++
+                    if (!visitor(entry.name)) return
+                }
+            }
         }
     }
 
@@ -393,7 +423,7 @@ object PcPackManager {
         val staging = File(PcGamePaths.cache(context), "unpack_" + System.currentTimeMillis())
         try {
             if (!staging.mkdirs()) return PcImportResult.failure("Cannot create a temporary directory")
-            val extracted = extractZip(zipFile, staging)
+            val extracted = extractArchive(zipFile, staging)
             if (extracted <= 0) return PcImportResult.failure("The archive has no files")
 
             val contentRoot = singleTopLevelDirectory(staging) ?: staging
@@ -486,6 +516,144 @@ object PcPackManager {
         }
         Log.i(TAG, "Installed D3D layer '${pack.displayName}' ($copied DLLs) into ${prefixDir.absolutePath}")
         return copied
+    }
+
+    /** Archive containers that occur in the wild for the PC layer packs. */
+    enum class PcArchiveKind { ZIP, TAR, TAR_GZ, TAR_XZ, TAR_ZST }
+
+    /**
+     * Sniffs the container by its magic bytes, so a user can import a `.zip`, a
+     * plain `.tar`, a `.tar.gz`/`.tgz`, a `.tar.xz`/`.txz` or a Winlator style
+     * `.tzst` rootfs without renaming anything.
+     */
+    fun detectArchiveKind(file: File): PcArchiveKind {
+        val head = ByteArray(6)
+        val read = try {
+            FileInputStream(file).use { stream -> stream.read(head) }
+        } catch (e: Exception) {
+            0
+        }
+        val name = file.name.lowercase()
+        if (read >= 4 && head[0] == 0x50.toByte() && head[1] == 0x4B.toByte()) return PcArchiveKind.ZIP
+        if (read >= 2 && head[0] == 0x1F.toByte() && head[1] == 0x8B.toByte()) return PcArchiveKind.TAR_GZ
+        if (read >= 6 && head[0] == 0xFD.toByte() && head[1] == 0x37.toByte() &&
+            head[2] == 0x7A.toByte() && head[3] == 0x58.toByte() && head[4] == 0x5A.toByte()
+        ) {
+            return PcArchiveKind.TAR_XZ
+        }
+        if (read >= 4 && head[0] == 0x28.toByte() && head[1] == 0xB5.toByte() &&
+            head[2] == 0x2F.toByte() && head[3] == 0xFD.toByte()
+        ) {
+            return PcArchiveKind.TAR_ZST
+        }
+        if (name.endsWith(".zip") || name.endsWith(".apks")) return PcArchiveKind.ZIP
+        if (name.endsWith(".tar.gz") || name.endsWith(".tgz")) return PcArchiveKind.TAR_GZ
+        if (name.endsWith(".tar.xz") || name.endsWith(".txz")) return PcArchiveKind.TAR_XZ
+        if (name.endsWith(".tzst") || name.endsWith(".tar.zst") || name.endsWith(".zst")) {
+            return PcArchiveKind.TAR_ZST
+        }
+        return if (name.endsWith(".tar")) PcArchiveKind.TAR else PcArchiveKind.ZIP
+    }
+
+    fun extractArchive(archive: File, targetDir: File): Long {
+        return when (detectArchiveKind(archive)) {
+            PcArchiveKind.ZIP -> extractZip(archive, targetDir)
+            else -> openTarStream(archive).use { stream -> extractTar(stream, targetDir) }
+        }
+    }
+
+    private fun openTarStream(archive: File): TarArchiveInputStream {
+        val raw: InputStream = BufferedInputStream(FileInputStream(archive), 1024 * 256)
+        val decompressed: InputStream = when (detectArchiveKind(archive)) {
+            PcArchiveKind.TAR_GZ -> GzipCompressorInputStream(raw)
+            PcArchiveKind.TAR_XZ -> XZCompressorInputStream(raw)
+            PcArchiveKind.TAR_ZST -> ZstdCompressorInputStream(raw)
+            else -> raw
+        }
+        return TarArchiveInputStream(decompressed)
+    }
+
+    /**
+     * Extracts a tar (optionally compressed) archive. Symlinks and hard links of
+     * a Linux rootfs are recreated as real links, otherwise `bin/sh` and the
+     * dynamic linker of an imported rootfs would be broken. The exec bit of the
+     * original mode is restored as well.
+     */
+    private fun extractTar(stream: TarArchiveInputStream, targetDir: File): Long {
+        val canonicalRoot = targetDir.canonicalPath
+        val canonicalPrefix = canonicalRoot + File.separator
+        var extracted = 0L
+        var count = 0L
+        while (true) {
+            val entry: TarArchiveEntry = stream.nextEntry ?: break
+            count++
+            if (count > MAX_ENTRIES) throw IllegalStateException("The archive has too many entries")
+            val name = entry.name.replace('\\', '/').removePrefix("./").trimEnd('/')
+            if (name.isEmpty() || name.contains("..")) continue
+            val outFile = File(targetDir, name)
+            val canonical = try {
+                outFile.canonicalPath
+            } catch (e: Exception) {
+                continue
+            }
+            if (canonical != canonicalRoot && !canonical.startsWith(canonicalPrefix)) continue
+
+            when {
+                entry.isDirectory -> outFile.mkdirs()
+                entry.isSymbolicLink -> createSymbolicLink(outFile, entry.linkName)
+                entry.isLink -> {
+                    val source = File(targetDir, entry.linkName.removePrefix("./"))
+                    if (source.isFile) {
+                        try {
+                            source.copyTo(outFile, overwrite = true)
+                            extracted++
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Cannot link ${outFile.name}: ${e.message}")
+                        }
+                    }
+                }
+                else -> {
+                    val parent = outFile.parentFile
+                    if (parent != null && !parent.exists()) parent.mkdirs()
+                    try {
+                        FileOutputStream(outFile).use { output ->
+                            stream.copyTo(output, 1024 * 128)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Cannot extract ${outFile.absolutePath}: ${e.message}")
+                        continue
+                    }
+                    // 0x49 == any of the three execute bits of a tar mode
+                    if (entry.mode and 0x49 != 0) {
+                        outFile.setExecutable(true, false)
+                    }
+                    extracted++
+                }
+            }
+        }
+        return extracted
+    }
+
+    private fun createSymbolicLink(link: File, target: String) {
+        if (target.isEmpty()) return
+        try {
+            val parent = link.parentFile
+            if (parent != null && !parent.exists()) parent.mkdirs()
+            if (link.exists()) link.delete()
+            Files.createSymbolicLink(Paths.get(link.absolutePath), Paths.get(target))
+        } catch (e: Exception) {
+            // Some file systems (and older kernels) refuse links: fall back to a
+            // copy so the pack is still usable.
+            Log.w(TAG, "Cannot create the link ${link.name} -> $target: ${e.message}")
+            try {
+                val source = if (target.startsWith("/")) null else File(link.parentFile, target)
+                if (source != null && source.isFile) {
+                    source.copyTo(link, overwrite = true)
+                }
+            } catch (copyError: Exception) {
+                Log.w(TAG, "Cannot copy ${link.name}: ${copyError.message}")
+            }
+        }
     }
 
     private fun extractZip(zipFile: File, targetDir: File): Long {

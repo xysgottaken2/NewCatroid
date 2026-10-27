@@ -293,19 +293,29 @@ object PcGameManager {
             return null
         }
 
-        val containerRoot = resolveContainer(context) ?: run {
-            lastError = "No container rootfs. Import a rootfs pack (or set the container path)."
-            appendLog("[newcatroid] $lastError")
-            return null
-        }
-        appendLog("[newcatroid] container: ${containerRoot.absolutePath}")
-
+        val containerRoot = resolveContainer(context)
         val runtimePack = PcPackManager.resolve(context, PcPackType.RUNTIME, cfg.runtime)
         val runtimeDir = runtimePack?.directory
         if (runtimeDir == null) {
             appendLog("[newcatroid] warning: no Wine/Box64 runtime pack imported")
         } else if (!hasRuntimeBinary(runtimeDir)) {
             appendLog("[newcatroid] warning: runtime '${runtimePack.id}' has no box64/wine binary in bin/")
+        }
+
+        val hostMode = containerRoot == null
+        if (hostMode) {
+            if (runtimeDir == null) {
+                lastError = "Nothing to run: import a Wine/Box64 runtime pack, " +
+                    "or a container rootfs if your runtime needs a Linux user space."
+                appendLog("[newcatroid] $lastError")
+                return null
+            }
+            appendLog(
+                "[newcatroid] no container rootfs: running in host mode, " +
+                    "the runtime pack must be self contained (box64, wine, X server, x11vnc)"
+            )
+        } else {
+            appendLog("[newcatroid] container: ${containerRoot.absolutePath}")
         }
 
         val driverPack = if (PcEnvironment.hasGraphicsDriver(cfg)) {
@@ -337,12 +347,13 @@ object PcGameManager {
         }
 
         // Driver mount + ICD list (guest paths)
+        val driverMount = if (hostMode) (driverPack?.directory?.absolutePath ?: "") else PcLaunchPaths.GUEST_DRIVERS
         var driverIcdGuest: List<String> = emptyList()
         if (driverPack != null) {
             driverIcdGuest = driverPack.icdFiles().map { file ->
                 val relative = file.absolutePath.removePrefix(driverPack.directory.absolutePath)
                     .trimStart('/')
-                PcLaunchPaths.GUEST_DRIVERS + "/" + relative
+                driverMount + "/" + relative
             }
             if (driverIcdGuest.isEmpty()) {
                 appendLog("[newcatroid] warning: driver pack has no *icd*.json metadata, " +
@@ -353,28 +364,34 @@ object PcGameManager {
         val driverExtraEnv = readPackEnvironment(driverPack?.directory)
 
         val paths = PcLaunchPaths(
-            containerRoot = containerRoot.absolutePath,
+            containerRoot = containerRoot?.absolutePath ?: "",
             prefixDir = prefixDir.absolutePath,
             gameDir = gameDir.absolutePath,
             pcGameDir = PcGamePaths.root(context).absolutePath,
             runtimeDir = runtimeDir?.absolutePath,
             driverDir = driverPack?.directory?.absolutePath,
             driverIcdFiles = driverIcdGuest,
-            d3dDir = d3dPack?.directory?.absolutePath
+            d3dDir = d3dPack?.directory?.absolutePath,
+            hostMode = hostMode
         )
 
         val environment = PcEnvironment.build(cfg, paths, driverExtraEnv)
         environment["NC_INSTALL_D3D"] = if (d3dPack != null) "1" else "0"
         environment["NC_D3D_PACK"] = d3dPack?.id ?: ""
 
-        val executableGuest = PcLaunchPaths.GUEST_GAME + "/" + executableRelative
+        val executableGuest = paths.gameMount + "/" + executableRelative
         val script = writeLaunchScript(context, cfg, paths, environment, executableGuest)
 
-        val prootArgs = PcScriptBuilder.buildProotArguments(paths)
-        val prootBinary = findProot(runtimeDir, containerRoot)
         val command = ArrayList<String>()
-        command.add(prootBinary)
-        command.addAll(prootArgs)
+        if (hostMode) {
+            command.add("/system/bin/sh")
+            command.add(script.absolutePath)
+        } else {
+            val prootArgs = PcScriptBuilder.buildProotArguments(paths)
+            val prootBinary = findProot(runtimeDir, containerRoot)
+            command.add(prootBinary)
+            command.addAll(prootArgs)
+        }
 
         appendLog("[newcatroid] command: ${command.joinToString(" ")}")
         appendLog("[newcatroid] script: ${script.absolutePath}")
@@ -432,6 +449,9 @@ object PcGameManager {
     }
 
     private fun startProcess(prepared: PreparedLaunch): Process? {
+        if (prepared.paths.hostMode) {
+            return startHostProcess(prepared)
+        }
         val modes = when (config.execMode.trim().lowercase()) {
             "linker" -> listOf("linker")
             "direct" -> listOf("direct")
@@ -464,6 +484,31 @@ object PcGameManager {
         lastError = "Cannot execute proot: ${lastException?.message ?: "unknown error"}"
         appendLog("[newcatroid] $lastError")
         return null
+    }
+
+    /**
+     * Host mode: the runtime pack is self contained, so the generated script is
+     * started by `/system/bin/sh` directly - no proot, no rootfs. Keeps the same
+     * log streaming and exit code handling as the container path.
+     */
+    private fun startHostProcess(prepared: PreparedLaunch): Process? {
+        return try {
+            val command = prepared.command
+            appendLog("[newcatroid] host mode: ${command.joinToString(" ")}")
+            val builder = ProcessBuilder(command)
+            builder.directory(prepared.workingDirectory)
+            builder.redirectErrorStream(true)
+            builder.environment().putAll(prepared.environment)
+            val started = builder.start()
+            activeExecMode = "host"
+            consumeOutput(started)
+            started
+        } catch (e: Exception) {
+            lastError = "Cannot start the runtime: ${e.message}"
+            appendLog("[newcatroid] $lastError")
+            Log.e(TAG, "Host mode start failed", e)
+            null
+        }
     }
 
     private fun consumeOutput(started: Process) {
@@ -802,6 +847,20 @@ object PcGameManager {
         report.append("[info] exec mode preference: ${config.execMode}")
         if (activeExecMode.isNotEmpty()) report.append(" (last used: $activeExecMode)")
         report.append('\n')
+
+        val runtimeForMode = PcPackManager.resolve(context, PcPackType.RUNTIME, config.runtime)
+        val containerForMode = resolveContainer(context)
+        val mode = when {
+            containerForMode != null -> "proot container (${containerForMode.absolutePath})"
+            runtimeForMode != null -> "host mode - no rootfs, the runtime pack must contain " +
+                "box64, wine, an X server and x11vnc"
+            else -> "nothing to run yet"
+        }
+        report.append("[info] run mode: ").append(mode).append('\n')
+        report.append("[info] ABI: ").append(android.os.Build.SUPPORTED_ABIS.joinToString(", ")).append('\n')
+        if (android.os.Build.SUPPORTED_ABIS.none { it.startsWith("arm64") }) {
+            report.append("[warn] this device is not arm64: Box64 needs an arm64 CPU\n")
+        }
 
         val reportText = report.toString()
         appendLog(reportText)

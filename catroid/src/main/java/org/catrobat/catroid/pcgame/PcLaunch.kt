@@ -39,8 +39,36 @@ data class PcLaunchPaths(
     val runtimeDir: String? = null,
     val driverDir: String? = null,
     val driverIcdFiles: List<String> = emptyList(),
-    val d3dDir: String? = null
+    val d3dDir: String? = null,
+    /**
+     * `true` when the runtime pack is self contained and the game is started
+     * without proot (no Linux user space available on the device). In that case
+     * the generated script uses the real host paths instead of the guest mount
+     * points of a container.
+     */
+    val hostMode: Boolean = false
 ) {
+    /** Path of the project container folder as seen by the game process. */
+    val pcgameMount: String get() = if (hostMode) pcGameDir else GUEST_PCGAME
+
+    /** Path of the game folder as seen by the game process. */
+    val gameMount: String get() = if (hostMode) gameDir else GUEST_GAME
+
+    /** Path of the Wine prefix as seen by the game process. */
+    val prefixMount: String get() = if (hostMode) prefixDir else GUEST_PREFIX
+
+    /** Path of the Wine/Box64 runtime (empty when there is no runtime). */
+    val runtimeMount: String get() = if (hostMode) (runtimeDir ?: "") else GUEST_RUNTIME
+
+    /** Path of the graphics driver pack (empty when the device driver is used). */
+    val driverMount: String get() = if (hostMode) (driverDir ?: "") else GUEST_DRIVERS
+
+    /** Path of the D3D layer pack (empty when no layer is selected). */
+    val d3dMount: String get() = if (hostMode) (d3dDir ?: "") else GUEST_D3D
+
+    /** Path of the generated start script as seen by the game process. */
+    val scriptMount: String get() = pcgameMount + "/scripts/launch.sh"
+
     companion object {
         const val GUEST_PCGAME = "/pcgame"
         const val GUEST_GAME = "/game"
@@ -71,14 +99,14 @@ object PcEnvironment {
         val height = config.resolutionHeight.coerceIn(240, 4320)
 
         // --- session ------------------------------------------------------
-        env["HOME"] = "/home/pcuser"
+        env["HOME"] = if (paths.hostMode) paths.prefixDir else "/home/pcuser"
         env["TMPDIR"] = "/tmp"
         env["LANG"] = "C.UTF-8"
         env["DISPLAY"] = ":0"
-        env["PATH"] = "/runtime/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        env["PATH"] = runtimeBin(paths) + "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
         // --- wine ---------------------------------------------------------
-        env["WINEPREFIX"] = PcLaunchPaths.GUEST_PREFIX
+        env["WINEPREFIX"] = paths.prefixMount
         env["WINEARCH"] = "win64"
         env["WINEDEBUG"] = if (config.wineDebug.isBlank()) "-all" else config.wineDebug
         env["WINEESYNC"] = "1"
@@ -120,12 +148,12 @@ object PcEnvironment {
         // --- DXVK / VKD3D -------------------------------------------------
         if (hasD3dLayer(config)) {
             env["DXVK_STATE_CACHE"] = "1"
-            env["DXVK_STATE_CACHE_PATH"] = "/prefix/.dxvk-cache"
-            env["DXVK_LOG_PATH"] = "/pcgame/logs"
+            env["DXVK_STATE_CACHE_PATH"] = paths.prefixMount + "/.dxvk-cache"
+            env["DXVK_LOG_PATH"] = paths.pcgameMount + "/logs"
             env["DXVK_LOG_LEVEL"] = "none"
             env["DXVK_HUD"] = if (config.dxvkHud) "fps,frametimes,gpuload,devinfo" else "0"
             env["DXVK_ASYNC"] = "1"
-            env["VKD3D_SHADER_CACHE_PATH"] = "/prefix/.vkd3d-cache"
+            env["VKD3D_SHADER_CACHE_PATH"] = paths.prefixMount + "/.vkd3d-cache"
             env["VKD3D_FEATURE_LEVEL"] = "12_1"
             env["VKD3D_DEBUG"] = "none"
             env["VKD3D_CONFIG"] = "dxr,dxr11"
@@ -150,7 +178,15 @@ object PcEnvironment {
             .replace("%RES%", "${width}x$height")
         env["NC_VNC_CMD"] = config.vncCommand.replace("%PORT%", config.displayPort.toString())
         env["NC_WINE_CMD"] = config.wineCommand.ifBlank { "wine" }
-        env["NC_BOX64_CMD"] = config.box64Command.ifBlank { "box64" }
+        val box64 = config.box64Command.ifBlank { "box64" }
+        env["NC_BOX64_CMD"] = if (paths.hostMode && !box64.contains("/system/bin/")) {
+            // Android 10+ refuses to execve files inside the app data directory,
+            // but /system/bin/linker64 may map them.
+            val binary = if (box64.startsWith("/")) box64 else paths.runtimeMount + "/bin/" + box64
+            "/system/bin/linker64 " + binary
+        } else {
+            box64
+        }
         env["NC_SET_DPI"] = "1"
 
         // driver packs may ship their own environment (e.g. AdrenoTools hooks)
@@ -165,13 +201,22 @@ object PcEnvironment {
         return env
     }
 
+    fun runtimeBin(paths: PcLaunchPaths): String {
+        val runtime = paths.runtimeMount
+        return if (runtime.isEmpty()) "/bin:" else runtime + "/bin:"
+    }
+
     fun libraryPath(paths: PcLaunchPaths): String {
         val parts = ArrayList<String>()
-        parts.add("/runtime/lib")
-        parts.add("/runtime/lib/wine")
-        parts.add("/runtime/lib/x86_64-linux-gnu")
-        if (paths.driverDir != null) parts.add(PcLaunchPaths.GUEST_DRIVERS)
-        if (paths.d3dDir != null) parts.add(PcLaunchPaths.GUEST_D3D)
+        val runtime = paths.runtimeMount
+        if (runtime.isNotEmpty()) {
+            parts.add(runtime + "/lib")
+            parts.add(runtime + "/lib/wine")
+            parts.add(runtime + "/lib/x86_64-linux-gnu")
+            parts.add(runtime)
+        }
+        if (paths.driverDir != null) parts.add(paths.driverMount)
+        if (paths.d3dDir != null) parts.add(paths.d3dMount)
         parts.add("/usr/lib/x86_64-linux-gnu")
         parts.add("/usr/lib")
         parts.add("/lib/x86_64-linux-gnu")
@@ -279,7 +324,8 @@ object PcScriptBuilder {
         template.append("@@EXTRA@@\n")
         template.append("\n")
         template.append("# ---- sanity checks ----\n")
-        template.append("if ! command -v \"\$NC_BOX64_CMD\" >/dev/null 2>&1; then\n")
+        template.append("NC_BOX64_BIN=\${NC_BOX64_CMD%% *}\n")
+        template.append("if ! command -v \"\$NC_BOX64_BIN\" >/dev/null 2>&1; then\n")
         template.append("  echo \"[newcatroid] '\$NC_BOX64_CMD' is not in the container.\"\n")
         template.append("  echo \"[newcatroid] import a Wine + Box64 runtime pack, then launch again.\"\n")
         template.append("fi\n")
@@ -327,14 +373,14 @@ object PcScriptBuilder {
 
         return template.toString()
             .replace("@@GAMEDIR@@", shellEscape(config.gameDir))
-            .replace("@@GAMEDIR_GUEST@@", PcLaunchPaths.GUEST_GAME)
+            .replace("@@GAMEDIR_GUEST@@", paths.gameMount)
             .replace("@@W@@", config.resolutionWidth.toString())
             .replace("@@H@@", config.resolutionHeight.toString())
             .replace("@@DPI@@", config.dpi.coerceIn(72, 480).toString())
             .replace("@@ENV@@", environment.toString())
             .replace("@@EXTRA@@", extra.toString())
-            .replace("@@PCGAME@@", PcLaunchPaths.GUEST_PCGAME)
-            .replace("@@D3D@@", PcLaunchPaths.GUEST_D3D)
+            .replace("@@PCGAME@@", paths.pcgameMount)
+            .replace("@@D3D@@", paths.d3dMount)
             .replace("@@EXE@@", shellQuote(executableInGuest))
             .replace("@@EXE_NAME@@", shellEscape(executableInGuest))
             .replace("@@DESKTOP@@", desktop)
@@ -378,7 +424,7 @@ object PcScriptBuilder {
             args.add(paths.d3dDir + ":" + PcLaunchPaths.GUEST_D3D)
         }
         args.add("/bin/sh")
-        args.add(PcLaunchPaths.GUEST_SCRIPT)
+        args.add(paths.scriptMount)
         return args
     }
 
