@@ -5127,4 +5127,7 @@ precisa de acesso de leitura e escrita a ele. Você sempre pode alterar as permi
     <string formatted="false" name="brick_pc_choose_rootfs">Escolher um arquivo rootfs do contêiner e instalar</string>
     <string formatted="false" name="brick_pc_edit_env">Abrir o editor de variáveis de ambiente do PC</string>
     <string formatted="false" name="brick_pc_request_access">Dar ao NewCatroid acesso à pasta do jogo</string>
+    <string formatted="false" name="brick_pc_download">Baixar componentes de PC da internet (drivers, DXVK, runtime, rootfs)</string>
+    <string formatted="false" name="brick_pc_download_link">Baixar um componente de PC do endereço web</string>
+    <string formatted="false" name="brick_pc_download_as">como</string>
 </resources>

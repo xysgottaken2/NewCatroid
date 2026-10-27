@@ -22,6 +22,14 @@ archive there may be exactly one top level folder - it is flattened on import.
 }
 ```
 
+> **Shortcut:** for the driver, DXVK/VKD3D and Box64 you usually do not need to
+> build or download anything by hand. The block *Download PC components from the
+> internet* lists the releases of `K11MCH1/AdrenoToolsDrivers` (Turnip),
+> `doitsujin/dxvk`, `vkd3d-proton`, `d8vk`, `ptitSeb/box64` and
+> `olegos2/termux-box` (rootfs), downloads the one you tap and imports it as a
+> pack. The recipes below are for building your own archives, for Wine itself and
+> for offline use.
+
 ---
 
 ## 1. Graphics driver pack (`driver`)

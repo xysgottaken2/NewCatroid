@@ -5925,4 +5925,19 @@ public class ActionFactory extends Actions {
 	public Action createPcRequestFileAccessAction(Sprite sprite, SequenceAction sequence) {
 		return action(PcRequestFileAccessAction.class);
 	}
+
+	public Action createPcDownloadPacksAction(Sprite sprite, SequenceAction sequence, String packType) {
+		PcDownloadPacksAction action = action(PcDownloadPacksAction.class);
+		action.setPackType(packType);
+		return action;
+	}
+
+	public Action createPcDownloadLinkAction(Sprite sprite, SequenceAction sequence, Formula url, Formula packType) {
+		PcDownloadLinkAction action = action(PcDownloadLinkAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setUrlFormula(url);
+		action.setTypeFormula(packType);
+		return action;
+	}
 }

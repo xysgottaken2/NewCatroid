@@ -5557,4 +5557,7 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="brick_pc_choose_rootfs">Choose a container rootfs archive and install it</string>
     <string formatted="false" name="brick_pc_edit_env">Open the PC environment variable editor</string>
     <string formatted="false" name="brick_pc_request_access">Grant NewCatroid access to the game folder</string>
+    <string formatted="false" name="brick_pc_download">Download PC components from the internet (drivers, DXVK, runtime, rootfs)</string>
+    <string formatted="false" name="brick_pc_download_link">Download a PC component from the web address</string>
+    <string formatted="false" name="brick_pc_download_as">as</string>
 </resources>

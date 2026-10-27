@@ -30,6 +30,7 @@ import org.catrobat.catroid.pcgame.PcEnvEditorDialog
 import org.catrobat.catroid.pcgame.PcFileBrowser
 import org.catrobat.catroid.pcgame.PcGameManager
 import org.catrobat.catroid.pcgame.PcPackManager
+import org.catrobat.catroid.pcgame.PcPackSelection
 import org.catrobat.catroid.pcgame.PcPackType
 import org.catrobat.catroid.pcgame.PcPermissions
 import org.catrobat.catroid.stage.StageActivity
@@ -130,24 +131,7 @@ class PcChoosePackAction : TemporalAction() {
                     return@runOnUiThread
                 }
                 val pack = result.pack
-                val selected = when (type) {
-                    PcPackType.GRAPHICS_DRIVER -> {
-                        PcGameManager.setGraphicsDriver(pack?.id ?: "system")
-                        "graphics driver"
-                    }
-                    PcPackType.D3D_LAYER -> {
-                        PcGameManager.setD3dLayer(pack?.id ?: "")
-                        "D3D layer"
-                    }
-                    PcPackType.RUNTIME -> {
-                        PcGameManager.setRuntime(pack?.id ?: "auto")
-                        "runtime"
-                    }
-                    PcPackType.ROOTFS -> {
-                        PcGameManager.setContainer(pack?.directory?.absolutePath ?: "")
-                        "container"
-                    }
-                }
+                val selected = PcPackSelection.select(type, pack)
                 PcGameManager.saveConfig()
                 PcGameManager.appendLog("[newcatroid] ${result.message} -> selected as $selected")
                 Toast.makeText(

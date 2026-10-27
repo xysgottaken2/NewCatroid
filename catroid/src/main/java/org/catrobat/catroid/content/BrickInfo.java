@@ -501,6 +501,8 @@ public final class BrickInfo {
         add(PcChooseRootfsPackBrick.class, "Импортирует выбранный архив как rootfs контейнера и использует его при следующем запуске.");
         add(PcEditEnvBrick.class, "Открывает редактор переменных окружения: добавить, изменить, удалить, готовые наборы (Box64, DXVK, Zink, MESA).");
         add(PcRequestFileAccessBrick.class, "Открывает системный экран «Доступ ко всем файлам»: без него папку игры вне песочницы прочитать нельзя.");
+        add(PcDownloadPackBrick.class, "Открывает список компонентов из интернета (Turnip от K11MCH1, DXVK, VKD3D, D8VK, Box64, rootfs): нажали — скачалось и установилось.");
+        add(PcDownloadLinkBrick.class, "Скачивает компонент PC по прямой ссылке и устанавливает его. Тип можно оставить пустым — определится по содержимому архива.");
 }
 
     private static void initEnglishDescriptions() {
@@ -962,6 +964,8 @@ public final class BrickInfo {
         add(PcChooseRootfsPackBrick.class, "Imports the chosen archive as the container rootfs and uses it on the next launch.");
         add(PcEditEnvBrick.class, "Opens the environment variable editor: add, edit, delete and ready-made tuning sets (Box64, DXVK, Zink, MESA).");
         add(PcRequestFileAccessBrick.class, "Opens the system \"All files access\" screen: without it a game folder outside the sandbox cannot be read.");
+        add(PcDownloadPackBrick.class, "Lists the PC components the configured GitHub repositories publish (K11MCH1 Turnip drivers, DXVK, VKD3D, D8VK, Box64, rootfs): tap one and it is downloaded and installed.");
+        add(PcDownloadLinkBrick.class, "Downloads a PC component from a direct link and installs it. Leave the type empty to detect it from the archive content.");
 }
 
     private static void initPortugueseDescriptions() {
@@ -1407,6 +1411,8 @@ public final class BrickInfo {
         add(PcChooseRootfsPackBrick.class, "Importa o arquivo escolhido como rootfs do contêiner e o usa na próxima inicialização.");
         add(PcEditEnvBrick.class, "Abre o editor de variáveis de ambiente: adicionar, editar, excluir e conjuntos prontos (Box64, DXVK, Zink, MESA).");
         add(PcRequestFileAccessBrick.class, "Abre a tela \"Acesso a todos os arquivos\": sem ela a pasta do jogo fora do sandbox não pode ser lida.");
+        add(PcDownloadPackBrick.class, "Lista os componentes de PC publicados nos repositórios GitHub configurados (drivers Turnip do K11MCH1, DXVK, VKD3D, D8VK, Box64, rootfs): toque em um e ele é baixado e instalado.");
+        add(PcDownloadLinkBrick.class, "Baixa um componente de PC por um link direto e instala. Deixe o tipo vazio para detectá-lo pelo conteúdo do arquivo.");
 }
 
     private static void initChineseDescriptions() {
@@ -1858,6 +1864,8 @@ public final class BrickInfo {
         add(PcChooseRootfsPackBrick.class, "将所选压缩包导入为容器 rootfs，并在下次启动时使用。");
         add(PcEditEnvBrick.class, "打开环境变量编辑器：添加、修改、删除，以及预设调优组合（Box64、DXVK、Zink、MESA）。");
         add(PcRequestFileAccessBrick.class, "打开系统的“所有文件访问权限”界面：没有它无法读取沙盒外的游戏文件夹。");
+        add(PcDownloadPackBrick.class, "列出已配置 GitHub 仓库发布的 PC 组件（K11MCH1 的 Turnip 驱动、DXVK、VKD3D、D8VK、Box64、rootfs）：点一项即下载并安装。");
+        add(PcDownloadLinkBrick.class, "从直链下载 PC 组件并安装。类型可留空，将根据压缩包内容自动判断。");
 }
 
     private static <T extends Brick> void add(Class<T> brickClass, String description) {

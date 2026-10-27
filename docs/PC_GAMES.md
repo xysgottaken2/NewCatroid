@@ -33,8 +33,9 @@ How to *build* the four archives (driver, DXVK, runtime, rootfs) is described in
 | Touch overlay | `PcTouchControls.kt`, `PcTouchControlsActor.kt` |
 | File browser (folders + pack archives) | `PcFileBrowser.kt` |
 | Environment variable editor | `PcEnvEditorDialog.kt` |
-| Interactive blocks (pickers, editor) | `content/actions/PcPickActions.kt` |
-| Blocks (17) | `content/bricks/Pc*Brick.java`, `content/actions/Pc*.kt` |
+| Online catalogue (GitHub releases, downloads) | `PcOnlinePacks.kt`, `PcOnlinePackDialog.kt` |
+| Interactive blocks (pickers, editor, downloads) | `content/actions/PcPickActions.kt`, `content/actions/PcOnlineActions.kt` |
+| Blocks (26) | `content/bricks/Pc*Brick.java`, `content/actions/Pc*.kt` |
 | Display bridge | `StageActivity.attachVncDisplay(...)`, `StageActivity.showPcDisplay(...)`, `StageActivity.setPcTouchOverlay(...)`, `StageListener.setPcTouchControls(...)` |
 
 The game picture and the touch input travel over the **same VNC pipeline the
@@ -63,6 +64,51 @@ environment" prints the mode plus every component it found.
 
 All four components are optional at the same time - the layer tells you what is
 missing (see the "self test" block).
+
+### 2.0 Packs from the internet (easiest - nothing on the phone)
+
+`Download PC components from the internet` opens a catalogue with four tabs and
+lists, live from the GitHub API, every release archive of these repositories:
+
+| Tab | Repository | What you get |
+| --- | --- | --- |
+| Drivers | `K11MCH1/AdrenoToolsDrivers` | Turnip builds (`Turnip_v26.0.0_R8.zip`, `_Gmem`, `_Sysmem`, `_Autotuner`) and the Qualcomm `adpkg` drivers |
+| DXVK | `doitsujin/dxvk`, `HansKristian-Work/vkd3d-proton`, `AlpyneDreams/d8vk` | DXVK (D3D 9/10/11), VKD3D-Proton (D3D 12), D8VK (D3D 8) |
+| Runtime | `ptitSeb/box64` | Box64 builds and the x86 libs bundle |
+| Rootfs | `olegos2/termux-box` | A Debian rootfs prepared for Wine |
+
+Tap an entry → confirm the size → the archive is downloaded into the app cache,
+extracted, imported as a normal pack and selected for the next launch. The list
+is exactly the same set of packs you would get by downloading the file in a
+browser; the pack lives in `files/pcgame/packs/<type>/<id>/` either way, and an
+already installed pack is **not** downloaded twice (the importer refuses the
+duplicate id and keeps the existing folder).
+
+Above the list, *Installed* shows what is already on the device: tap to select
+it, long press to delete it.
+
+* **+ Add repository** - any public GitHub repository that publishes pack
+  archives as release assets (a fork, a mirror, another Turnip build). It is
+  remembered per category in `files/pcgame/online_repos.json`. Only assets that
+  the importer can open are listed (`.zip`, `.tar`, `.tar.gz`, `.tar.xz`,
+  `.tzst`); APKs, sources, symbols and checksums are filtered out.
+* **⟳ Reload** - re-reads the release lists.
+
+`Download a PC component from the web address [url] as [type]` does the same for
+a single direct link (a mirror, `https://.../dxvk-3.1.1.tar.gz`, an
+`ubuntu-base-*-arm64.tar.gz`). If the type is left empty it is detected from the
+archive content.
+
+Two honest notes:
+
+* The GitHub API allows 60 anonymous requests per hour per address. The list then
+  says so instead of failing silently; the fallback is always "download the file
+  in a browser and use a *Choose a … zip* block".
+* **Wine itself is not in the catalogue.** Ready-made aarch64 Wine builds for
+  Android are distributed inside emulator APKs, not as release archives, so the
+  runtime tab can only offer Box64. Put your Wine build into the runtime archive
+  (see [PC_GAMES_PACKS.md](PC_GAMES_PACKS.md)), or add a repository that
+  publishes one with *+ Add repository*.
 
 ### 2.1 Container rootfs (`rootfs`)
 
@@ -179,6 +225,8 @@ New subcategory **Device → PC games (Wine + Box64)**:
 | `Choose a DXVK / VKD3D zip and install it` | File browser → import as a D3D layer → select it. |
 | `Choose a Wine + Box64 archive and install it` | File browser → import as a runtime → select it. |
 | `Choose a container rootfs archive and install it` | File browser → import as a rootfs → select it. |
+| `Download PC components from the internet (drivers, DXVK, runtime, rootfs)` | Online catalogue: lists the release archives of the configured GitHub repositories, tap one to download + install + select. |
+| `Download a PC component from the web address [url] as [type]` | Same, for one direct link; type may be empty (detected). |
 | `Open the PC environment variable editor` | Editable list of variables plus one-tap tuning presets. |
 | `Grant NewCatroid access to the game folder` | Opens the system "All files access" screen. |
 | `Add touch control [label] keys [keys] at x% y% size%` | Adds/replaces one touch control. |
@@ -378,6 +426,8 @@ Winlator/GameHub and is **not** in this layer:
   prefix" flow with a visible desktop afterwards.
 * **Per-container Wine versions.** One runtime pack is selected at a time; Wine
   versions are not per project (each project has its own prefix, though).
+  The online catalogue can only list what a repository publishes as a release
+  archive, and ready-made Android Wine builds are shipped inside APKs.
 * **VirGL / Vortek presets.** `GALLIUM_DRIVER=zink` (plus the Zink preset) is the
   non-Adreno path; there is no VirGL or Vortek toggle.
 * **Screen orientation lock, FPS overlay toggle outside DXVK, audio routing UI.**
@@ -386,6 +436,7 @@ Winlator/GameHub and is **not** in this layer:
   Wine/Box64/proot at all.
 
 What *is* there: folder/pack pickers (with the "All files access" flow), the
+online catalogue that downloads Turnip/DXVK/Box64/rootfs straight from GitHub, the
 environment editor with presets, container and host run modes, display + input
 over the existing VNC bridge, touch layout with editor, logging and the
 environment self test.
@@ -395,6 +446,10 @@ environment self test.
 Добавлен слой совместимости с ПК-играми (как в Winlator/GameHub/Mobox), но
 полностью на блоках NewCatroid:
 
+* **Интернет-каталог**: блок «Скачать компоненты PC из интернета» показывает
+  список релизов прямо с GitHub (Turnip от K11MCH1/AdrenoToolsDrivers, DXVK,
+  VKD3D, D8VK, Box64, rootfs). Нажал — скачалось, распаковалось и выбралось.
+  Можно добавить свой репозиторий (`owner/repo`) или скачать по прямой ссылке.
 * **Пакеты** (zip) импортируются пользователем: `rootfs` (Linux-окружение с
   `Xvfb` и `x11vnc`), `runtime` (`bin/box64` + `bin/wine` для aarch64),
   графический драйвер (Turnip/AdrenoTools, Zink, SwiftShader) и слой D3D

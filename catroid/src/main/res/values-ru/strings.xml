@@ -5348,4 +5348,7 @@
     <string formatted="false" name="brick_pc_choose_rootfs">Выбрать архив rootfs контейнера и установить</string>
     <string formatted="false" name="brick_pc_edit_env">Открыть редактор переменных окружения ПК-игры</string>
     <string formatted="false" name="brick_pc_request_access">Дать NewCatroid доступ к папке игры</string>
+    <string formatted="false" name="brick_pc_download">Скачать компоненты PC из интернета (драйверы, DXVK, рантайм, rootfs)</string>
+    <string formatted="false" name="brick_pc_download_link">Скачать компонент PC по веб-адресу</string>
+    <string formatted="false" name="brick_pc_download_as">как</string>
 </resources>

@@ -430,6 +430,8 @@ public final class XstreamSerializer {
 		xstream.alias("brick", PcChooseRootfsPackBrick.class);
 		xstream.alias("brick", PcEditEnvBrick.class);
 		xstream.alias("brick", PcRequestFileAccessBrick.class);
+		xstream.alias("brick", PcDownloadPackBrick.class);
+		xstream.alias("brick", PcDownloadLinkBrick.class);
 		xstream.alias("brick", KeyEventBrick.class);
 		xstream.alias("brick", BindVmOutputBrick.class);
 		xstream.alias("brick", SendVmInputBrick.class);

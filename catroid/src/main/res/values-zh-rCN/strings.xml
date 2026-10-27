@@ -5082,4 +5082,7 @@
     <string formatted="false" name="brick_pc_choose_rootfs">选择容器 rootfs 压缩包并安装</string>
     <string formatted="false" name="brick_pc_edit_env">打开 PC 环境变量编辑器</string>
     <string formatted="false" name="brick_pc_request_access">授予 NewCatroid 访问游戏文件夹的权限</string>
+    <string formatted="false" name="brick_pc_download">从互联网下载 PC 组件（驱动、DXVK、运行时、rootfs）</string>
+    <string formatted="false" name="brick_pc_download_link">从网址下载 PC 组件</string>
+    <string formatted="false" name="brick_pc_download_as">作为</string>
 </resources>
