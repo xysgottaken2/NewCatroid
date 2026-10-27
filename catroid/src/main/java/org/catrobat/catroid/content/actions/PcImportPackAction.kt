@@ -113,7 +113,7 @@ class PcImportPackAction : Action() {
                                 context,
                                 type,
                                 uri,
-                                preferredName.ifBlank { null }
+                                preferredName.takeIf { it.isNotBlank() }
                             )
                             PcGameManager.appendLog(
                                 if (result.success) {

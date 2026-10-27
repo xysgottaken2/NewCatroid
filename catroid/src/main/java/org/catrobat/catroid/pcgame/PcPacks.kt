@@ -357,7 +357,7 @@ object PcPackManager {
             }
             else -> openTarStream(archive).use { stream ->
                 while (count < visitLimit) {
-                    val entry = stream.nextEntry ?: break
+                    val entry: TarArchiveEntry = stream.nextEntry ?: break
                     count++
                     if (!visitor(entry.name)) return
                 }
