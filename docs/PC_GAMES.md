@@ -31,6 +31,9 @@ How to *build* the four archives (driver, DXVK, runtime, rootfs) is described in
 | Orchestration, logging, self test | `PcGameManager.kt` |
 | Launcher UI | `PcLauncherDialog.kt` |
 | Touch overlay | `PcTouchControls.kt`, `PcTouchControlsActor.kt` |
+| File browser (folders + pack archives) | `PcFileBrowser.kt` |
+| Environment variable editor | `PcEnvEditorDialog.kt` |
+| Interactive blocks (pickers, editor) | `content/actions/PcPickActions.kt` |
 | Blocks (17) | `content/bricks/Pc*Brick.java`, `content/actions/Pc*.kt` |
 | Display bridge | `StageActivity.attachVncDisplay(...)`, `StageActivity.showPcDisplay(...)`, `StageActivity.setPcTouchOverlay(...)`, `StageListener.setPcTouchControls(...)` |
 
