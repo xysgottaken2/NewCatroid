@@ -1,0 +1,68 @@
+name: PC compile diagnostic (temporary)
+# Temporary: posts compiler errors as a commit comment. Removed before the PR is
+# finalized.
+on:
+  push:
+    branches: [arena/53445679-newcatroid]
+permissions:
+  contents: write
+env:
+  _JAVA_OPTIONS: "-Xmx5g"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx5g -Dorg.gradle.workers.max=4 -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+      - name: Prepare
+        run: |
+          sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
+          find . -name "google-services*.json" -exec sed -i 's/"org.DanVexTeam.NewCatroid"/"org.DanVexTeam.NewCatroid.ci"/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.pdrogfer.mididroid/com.leff.midi/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
+      - run: chmod +x ./gradlew
+      - name: Compile
+        run: |
+          set -o pipefail
+          ./gradlew assembleDanvexDebug -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/compile.log"
+      - name: Publish compiler errors
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - "${RUNNER_TEMP}/compile.log" <<'PY'
+          import json, os, sys, urllib.request
+          text = open(sys.argv[1], errors="replace").read()
+          lines = text.splitlines()
+          picked, i = [], 0
+          while i < len(lines):
+              line = lines[i]
+              if line.startswith("e: "):
+                  picked.append(line)
+                  look = i + 1
+                  while look < len(lines) and lines[look].startswith((" ", "\t")):
+                      picked.append(lines[look]); look += 1
+              elif "error:" in line:
+                  picked.append(line)
+                  for j in range(i + 1, min(i + 5, len(lines))):
+                      picked.append(lines[j])
+              elif line.startswith("> Task ") and "FAILED" in line:
+                  picked.append(line)
+              i += 1
+          body = "\n".join(picked[:250]) or text[-6000:]
+          req = urllib.request.Request(
+              "https://api.github.com/repos/%s/commits/%s/comments" % (os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"]),
+              data=json.dumps({"body": "### diag\n\n```\n" + body[:60000] + "\n```"}).encode(),
+              headers={"Authorization": "token " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"},
+              method="POST")
+          urllib.request.urlopen(req)
+          print("posted")
+          PY
