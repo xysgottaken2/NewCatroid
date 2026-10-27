@@ -3175,6 +3175,11 @@
     <string formatted="false" name="brick_show_toast_long">Long</string>
     <string formatted="false" name="formula_editor_sensor_internet">connected to internet</string>
     <string formatted="false" name="formula_editor_sensor_architecture">cpu architecture</string>
+    <string formatted="false" name="formula_editor_sensor_ram_total">device RAM total (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_available">device RAM free (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_used_percent">device RAM used (%)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_app_limit">app RAM limit (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_low">device low on RAM</string>
     <string formatted="false" name="formula_editor_sensor_micro">micro volume</string>
     <string formatted="false" name="formula_editor_sensor_micro_freq">micro frequency</string>
     <string formatted="false" name="brick_listen_micro">Start listen micro in times</string>
@@ -5560,4 +5565,11 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="brick_pc_download">Download PC components from the internet (drivers, DXVK, runtime, rootfs)</string>
     <string formatted="false" name="brick_pc_download_link">Download a PC component from the web address</string>
     <string formatted="false" name="brick_pc_download_as">as</string>
+    <string formatted="false" name="brick_pc_ram_value">Set</string>
+    <string formatted="false" name="brick_pc_ram_value_to">to device memory (MB)</string>
+    <string formatted="false" name="brick_pc_ram_value_hint">(total / available / used / percent / app / low)</string>
+    <string formatted="false" name="brick_pc_ram_check">Set</string>
+    <string formatted="false" name="brick_pc_ram_check_needs">to YES if the device has at least</string>
+    <string formatted="false" name="brick_pc_ram_check_mb_suffix">MB of RAM, checked as</string>
+    <string formatted="false" name="brick_pc_ram_check_mode_label">(total / free / both)</string>
 </resources>

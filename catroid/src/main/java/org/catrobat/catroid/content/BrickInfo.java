@@ -503,6 +503,8 @@ public final class BrickInfo {
         add(PcRequestFileAccessBrick.class, "Открывает системный экран «Доступ ко всем файлам»: без него папку игры вне песочницы прочитать нельзя.");
         add(PcDownloadPackBrick.class, "Открывает список компонентов из интернета (Turnip от K11MCH1, DXVK, VKD3D, D8VK, Box64, rootfs): нажали — скачалось и установилось.");
         add(PcDownloadLinkBrick.class, "Скачивает компонент PC по прямой ссылке и устанавливает его. Тип можно оставить пустым — определится по содержимому архива.");
+        add(PcRamValueBrick.class, "Записывает в переменную значение памяти устройства (МБ): total — всего, available — свободно сейчас, used — занято, percent — процент, app — лимит памяти приложения, low — 1 если система сообщает о нехватке памяти.");
+        add(PcRamCheckBrick.class, "Пишет в переменную YES, если на устройстве достаточно оперативной памяти, иначе NO. Последнее поле выбирает, что сравнивать: total (только железо), free (свободно сейчас) или both (по умолчанию оба).");
 }
 
     private static void initEnglishDescriptions() {
@@ -966,6 +968,8 @@ public final class BrickInfo {
         add(PcRequestFileAccessBrick.class, "Opens the system \"All files access\" screen: without it a game folder outside the sandbox cannot be read.");
         add(PcDownloadPackBrick.class, "Lists the PC components the configured GitHub repositories publish (K11MCH1 Turnip drivers, DXVK, VKD3D, D8VK, Box64, rootfs): tap one and it is downloaded and installed.");
         add(PcDownloadLinkBrick.class, "Downloads a PC component from a direct link and installs it. Leave the type empty to detect it from the archive content.");
+        add(PcRamValueBrick.class, "Stores one RAM value of the device in the variable (MB): total, available (free right now), used, percent, app (the memory limit of NewCatroid itself) or low (1 when Android reports that the device is running out of memory).");
+        add(PcRamCheckBrick.class, "Writes YES into the variable when the device has at least the given amount of RAM, otherwise NO. The last field picks what is compared: total (the hardware only), free (free right now) or both (the default).");
 }
 
     private static void initPortugueseDescriptions() {
@@ -1413,6 +1417,8 @@ public final class BrickInfo {
         add(PcRequestFileAccessBrick.class, "Abre a tela \"Acesso a todos os arquivos\": sem ela a pasta do jogo fora do sandbox não pode ser lida.");
         add(PcDownloadPackBrick.class, "Lista os componentes de PC publicados nos repositórios GitHub configurados (drivers Turnip do K11MCH1, DXVK, VKD3D, D8VK, Box64, rootfs): toque em um e ele é baixado e instalado.");
         add(PcDownloadLinkBrick.class, "Baixa um componente de PC por um link direto e instala. Deixe o tipo vazio para detectá-lo pelo conteúdo do arquivo.");
+        add(PcRamValueBrick.class, "Guarda na variável um valor de memória do aparelho (MB): total, available (livre agora), used, percent, app (o limite de memória do próprio NewCatroid) ou low (1 quando o Android avisa que o aparelho está sem memória).");
+        add(PcRamCheckBrick.class, "Escreve SIM na variável quando o aparelho tem pelo menos a memória pedida, senão NÃO. O último campo escolhe o que comparar: total (só o hardware), free (livre agora) ou both (padrão).");
 }
 
     private static void initChineseDescriptions() {
@@ -1866,6 +1872,8 @@ public final class BrickInfo {
         add(PcRequestFileAccessBrick.class, "打开系统的“所有文件访问权限”界面：没有它无法读取沙盒外的游戏文件夹。");
         add(PcDownloadPackBrick.class, "列出已配置 GitHub 仓库发布的 PC 组件（K11MCH1 的 Turnip 驱动、DXVK、VKD3D、D8VK、Box64、rootfs）：点一项即下载并安装。");
         add(PcDownloadLinkBrick.class, "从直链下载 PC 组件并安装。类型可留空，将根据压缩包内容自动判断。");
+        add(PcRamValueBrick.class, "把设备内存写入变量（MB）：total 总量、available 当前可用、used 已用、percent 占用百分比、app 本应用的内存上限、low 在系统提示内存不足时为 1。");
+        add(PcRamCheckBrick.class, "如果设备至少有指定的内存，就向变量写入 YES，否则写入 NO。最后一个字段决定比较方式：total（只看硬件）、free（只看当前空闲）或 both（默认）。");
 }
 
     private static <T extends Brick> void add(Class<T> brickClass, String description) {

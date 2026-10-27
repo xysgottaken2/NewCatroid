@@ -403,6 +403,16 @@ public class InternToExternGenerator {
 				R.string.formula_editor_sensor_internet);
 		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Sensors.ARCH.name(),
 				R.string.formula_editor_sensor_architecture);
+		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Sensors.RAM_TOTAL.name(),
+				R.string.formula_editor_sensor_ram_total);
+		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Sensors.RAM_AVAILABLE.name(),
+				R.string.formula_editor_sensor_ram_available);
+		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Sensors.RAM_USED_PERCENT.name(),
+				R.string.formula_editor_sensor_ram_used_percent);
+		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Sensors.RAM_APP_LIMIT.name(),
+				R.string.formula_editor_sensor_ram_app_limit);
+		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Sensors.RAM_LOW.name(),
+				R.string.formula_editor_sensor_ram_low);
 		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Functions.JSON_GET.name(), R.string.formula_editor_function_json_get);
 		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Functions.JSON_SET.name(), R.string.formula_editor_function_json_set);
 		INTERN_EXTERN_LANGUAGE_CONVERTER_MAP.put(Functions.JSON_IS_VALID.name(), R.string.formula_editor_function_json_is_valid);

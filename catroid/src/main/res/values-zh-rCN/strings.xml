@@ -2825,6 +2825,11 @@
     <string formatted="false" name="brick_show_toast_long">长</string>
     <string formatted="false" name="formula_editor_sensor_internet">已连接到互联网</string>
     <string formatted="false" name="formula_editor_sensor_architecture">CPU架构</string>
+    <string formatted="false" name="formula_editor_sensor_ram_total">设备内存总量（MB）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_available">设备可用内存（MB）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_used_percent">设备内存占用（%）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_app_limit">应用内存上限（MB）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_low">设备内存不足</string>
     <string formatted="false" name="formula_editor_sensor_micro">麦克风音量</string>
     <string formatted="false" name="formula_editor_sensor_micro_freq">麦克风频率</string>
     <string formatted="false" name="brick_listen_micro">开始监听麦克风持续</string>
@@ -5085,4 +5090,11 @@
     <string formatted="false" name="brick_pc_download">从互联网下载 PC 组件（驱动、DXVK、运行时、rootfs）</string>
     <string formatted="false" name="brick_pc_download_link">从网址下载 PC 组件</string>
     <string formatted="false" name="brick_pc_download_as">作为</string>
+    <string formatted="false" name="brick_pc_ram_value">将</string>
+    <string formatted="false" name="brick_pc_ram_value_to">设为设备内存（MB）</string>
+    <string formatted="false" name="brick_pc_ram_value_hint">(total / available / used / percent / app / low)</string>
+    <string formatted="false" name="brick_pc_ram_check">将</string>
+    <string formatted="false" name="brick_pc_ram_check_needs">设为 YES（若设备至少有）</string>
+    <string formatted="false" name="brick_pc_ram_check_mb_suffix">MB 内存，按</string>
+    <string formatted="false" name="brick_pc_ram_check_mode_label">(total / free / both)</string>
 </resources>

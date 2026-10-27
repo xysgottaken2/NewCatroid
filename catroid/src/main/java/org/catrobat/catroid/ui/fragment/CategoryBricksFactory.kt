@@ -431,6 +431,8 @@ import org.catrobat.catroid.content.bricks.PcEditEnvBrick
 import org.catrobat.catroid.content.bricks.PcRequestFileAccessBrick
 import org.catrobat.catroid.content.bricks.PcDownloadPackBrick
 import org.catrobat.catroid.content.bricks.PcDownloadLinkBrick
+import org.catrobat.catroid.content.bricks.PcRamValueBrick
+import org.catrobat.catroid.content.bricks.PcRamCheckBrick
 import org.catrobat.catroid.content.bricks.RunningStitchBrick
 import org.catrobat.catroid.content.bricks.SaveBufferBrick
 import org.catrobat.catroid.content.bricks.SaveLookBrick
@@ -2043,6 +2045,8 @@ print("Bot has stopped.")""", "myVar"))
                 deviceBrickList.add(PcEditEnvBrick())
                 deviceBrickList.add(PcRequestFileAccessBrick())
                 deviceBrickList.add(PcDownloadPackBrick())
+                deviceBrickList.add(PcRamValueBrick(null, "total"))
+                deviceBrickList.add(PcRamCheckBrick(null, "8000", "both"))
                 deviceBrickList.add(PcDownloadLinkBrick("https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-3.1.1.tar.gz", "d3d"))
                 deviceBrickList.add(PcSetGameFolderBrick("/sdcard/Games/MyGame"))
                 deviceBrickList.add(PcSetGraphicsDriverBrick("auto"))
@@ -2224,6 +2228,8 @@ bot.polling()""", "myVar"))
         deviceBrickList.add(PcEditEnvBrick())
         deviceBrickList.add(PcRequestFileAccessBrick())
         deviceBrickList.add(PcDownloadPackBrick())
+        deviceBrickList.add(PcRamValueBrick(null, "total"))
+        deviceBrickList.add(PcRamCheckBrick(null, "8000", "both"))
         deviceBrickList.add(PcDownloadLinkBrick("https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-3.1.1.tar.gz", "d3d"))
         deviceBrickList.add(PcSetGameFolderBrick("/sdcard/Games/MyGame"))
         deviceBrickList.add(PcSetGraphicsDriverBrick("auto"))

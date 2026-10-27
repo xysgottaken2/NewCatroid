@@ -3010,6 +3010,11 @@
     <string name="formula_editor_sensor_frequency" formatted="false">frequência do som</string>
     <string name="formula_editor_sensor_internet" formatted="false">conectado à internet</string>
     <string name="formula_editor_sensor_architecture" formatted="false">arquitetura do processador</string>
+    <string formatted="false" name="formula_editor_sensor_ram_total">RAM total do aparelho (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_available">RAM livre do aparelho (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_used_percent">RAM usada do aparelho (%)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_app_limit">limite de RAM do app (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_low">aparelho com pouca RAM</string>
     <string name="brick_listen_micro" formatted="false">Começar a ouvir o microfone em segmentos de</string>
     <string name="brick_listen_micro2" formatted="false">milissegundos</string>
     <string name="formula_editor_function_reverse" formatted="false">inverter</string>
@@ -5130,4 +5135,11 @@ precisa de acesso de leitura e escrita a ele. Você sempre pode alterar as permi
     <string formatted="false" name="brick_pc_download">Baixar componentes de PC da internet (drivers, DXVK, runtime, rootfs)</string>
     <string formatted="false" name="brick_pc_download_link">Baixar um componente de PC do endereço web</string>
     <string formatted="false" name="brick_pc_download_as">como</string>
+    <string formatted="false" name="brick_pc_ram_value">Definir</string>
+    <string formatted="false" name="brick_pc_ram_value_to">como memória do aparelho (MB)</string>
+    <string formatted="false" name="brick_pc_ram_value_hint">(total / available / used / percent / app / low)</string>
+    <string formatted="false" name="brick_pc_ram_check">Definir</string>
+    <string formatted="false" name="brick_pc_ram_check_needs">como SIM se o aparelho tiver pelo menos</string>
+    <string formatted="false" name="brick_pc_ram_check_mb_suffix">MB de RAM, verificado por</string>
+    <string formatted="false" name="brick_pc_ram_check_mode_label">(total / free / both)</string>
 </resources>

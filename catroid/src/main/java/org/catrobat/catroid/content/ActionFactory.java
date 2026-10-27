@@ -5940,4 +5940,23 @@ public class ActionFactory extends Actions {
 		action.setTypeFormula(packType);
 		return action;
 	}
+
+	public Action createPcDeviceMemoryAction(Sprite sprite, SequenceAction sequence, UserVariable variable, Formula kind) {
+		PcDeviceMemoryAction action = action(PcDeviceMemoryAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setUserVariable(variable);
+		action.setKind(kind);
+		return action;
+	}
+
+	public Action createPcRamCheckAction(Sprite sprite, SequenceAction sequence, UserVariable variable, Formula requiredMb, Formula mode) {
+		PcRamCheckAction action = action(PcRamCheckAction.class);
+		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
+		action.setScope(scope);
+		action.setUserVariable(variable);
+		action.setRequiredMb(requiredMb);
+		action.setMode(mode);
+		return action;
+	}
 }

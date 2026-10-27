@@ -34,8 +34,9 @@ How to *build* the four archives (driver, DXVK, runtime, rootfs) is described in
 | File browser (folders + pack archives) | `PcFileBrowser.kt` |
 | Environment variable editor | `PcEnvEditorDialog.kt` |
 | Online catalogue (GitHub releases, downloads) | `PcOnlinePacks.kt`, `PcOnlinePackDialog.kt` |
+| Device memory readings (RAM sensors + blocks) | `utils/DeviceMemory.kt`, `content/actions/PcMemoryActions.kt` |
 | Interactive blocks (pickers, editor, downloads) | `content/actions/PcPickActions.kt`, `content/actions/PcOnlineActions.kt` |
-| Blocks (26) | `content/bricks/Pc*Brick.java`, `content/actions/Pc*.kt` |
+| Blocks (28) | `content/bricks/Pc*Brick.java`, `content/actions/Pc*.kt` |
 | Display bridge | `StageActivity.attachVncDisplay(...)`, `StageActivity.showPcDisplay(...)`, `StageActivity.setPcTouchOverlay(...)`, `StageListener.setPcTouchControls(...)` |
 
 The game picture and the touch input travel over the **same VNC pipeline the
@@ -227,6 +228,8 @@ New subcategory **Device → PC games (Wine + Box64)**:
 | `Choose a container rootfs archive and install it` | File browser → import as a rootfs → select it. |
 | `Download PC components from the internet (drivers, DXVK, runtime, rootfs)` | Online catalogue: lists the release archives of the configured GitHub repositories, tap one to download + install + select. |
 | `Download a PC component from the web address [url] as [type]` | Same, for one direct link; type may be empty (detected). |
+| `Set [variable] to device memory [total/available/used/percent/app/low]` | Stores one RAM value of the phone in a variable (MB). |
+| `Set [variable] to YES if the device has at least [MB] of RAM, checked as [total/free/both]` | Writes `YES` or `NO` into a variable - the "can this phone run it" check. |
 | `Open the PC environment variable editor` | Editable list of variables plus one-tap tuning presets. |
 | `Grant NewCatroid access to the game folder` | Opens the system "All files access" screen. |
 | `Add touch control [label] keys [keys] at x% y% size%` | Adds/replaces one touch control. |
@@ -298,6 +301,79 @@ player can change the driver without editing the project.
 * a live log tail (last 20 lines).
 
 ---
+
+## 5.5 RAM: does this phone even have enough?
+
+Wine + Box64 + DXVK need a lot of memory, and the failure mode without a check
+is ugly: the game loads for a minute and then the Android low-memory killer
+removes NewCatroid. So there are two ways to ask the question.
+
+### Sensors (usable anywhere a formula is)
+
+In the formula editor, *Device* → *Sensors*:
+
+| Sensor | Value |
+| --- | --- |
+| `device RAM total (MB)` | physical RAM of the device, e.g. `8192` |
+| `device RAM free (MB)` | RAM that can be handed out right now |
+| `device RAM used (%)` | 0-100, for a HUD |
+| `app RAM limit (MB)` | how far the Java heap of NewCatroid may grow |
+| `device low on RAM` | 1 when Android itself reports low memory, else 0 |
+
+That is enough for a hand-made check, for example
+
+```
+if  device RAM total (MB)  >=  6000  then
+    launch PC game "GTA5.exe" with arguments ""
+else
+    say "This phone needs 6 GB of RAM for this game"
+end
+```
+
+### The two blocks
+
+* `Set [variable] to device memory [total]` - the same numbers as the sensors, but
+  written into a variable so it can be shown on screen, sent to a log or
+  compared later. Accepted values: `total`, `available`, `used`, `percent`,
+  `app`, `low`.
+* `Set [variable] to YES if the device has at least [8000] MB of RAM, checked as
+  [both]` - writes the text `YES` or `NO`. The last field picks the comparison:
+
+  | Mode | Meaning |
+  | --- | --- |
+  | `total` | only the hardware: "this phone has 8 GB, so it qualifies" |
+  | `free` | only what is free right now: "it has 8 GB but 3 GB are in use" |
+  | `both` | both of the above (default): the safe answer |
+
+  `NO` is also written when Android reports a low-memory state, because the
+  killer would end the game anyway.
+
+### A launcher that checks first
+
+```
+when project starts
+  set [ram_ok] to YES if the device has at least 6000 MB of RAM, checked as both
+  if [ram_ok] = "YES" then
+    open the PC game launcher
+  else
+    set [ram_total] to device memory total
+    say join "Not enough RAM: " join (join [ram_total] " MB of ") "6000 MB needed"
+  end
+```
+
+The numbers behind the answer are written to the PC log as well
+(`RAM check: needs 6000 MB (both) -> NO; 5.8 GB total, 2.1 GB free, 63% used,
+app limit 512.0 MB`), so a failed check can be diagnosed without guessing.
+
+**What counts as "free"**: Android's `availMem`, which already counts reclaimable
+page cache as available. It is not the same as "unused" - a phone that shows 55%
+used can still be able to hand out 4 GB to a game. That is exactly why the third
+field exists: `total` never fails because another app is running, `free` is the
+realistic answer at launch time.
+
+A note on expectations (same numbers as section 8): a 64-bit DX11 game through
+Box64 needs about 6-8 GB of RAM *and* an Adreno 7xx-class GPU to reach a menu.
+The RAM check answers "is it worth trying", not "will it run at 60 fps".
 
 ## 6. Touch controls
 
@@ -447,6 +523,11 @@ environment self test.
 Добавлен слой совместимости с ПК-играми (как в Winlator/GameHub/Mobox), но
 полностью на блоках NewCatroid:
 
+* **Память (RAM)**: датчики `всего_RAM_(МБ)`, `свободно_RAM_(МБ)`,
+  `занято_RAM_(%)`, `лимит_RAM_приложения_(МБ)`, `мало_RAM` плюс два блока —
+  записать значение памяти в переменную и получить `YES`/`NO` по требованию
+  (сравнение по `total`, `free` или `both`). Удобно, чтобы лаунчер не запускал
+  игру, которую телефон не потянет.
 * **Интернет-каталог**: блок «Скачать компоненты PC из интернета» показывает
   список релизов прямо с GitHub (Turnip от K11MCH1/AdrenoToolsDrivers, DXVK,
   VKD3D, D8VK, Box64, rootfs). Нажал — скачалось, распаковалось и выбралось.
