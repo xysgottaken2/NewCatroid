@@ -51,13 +51,13 @@ class PcLaunchGameAction : TemporalAction() {
     override fun update(percent: Float) {
         val context = CatroidApplication.getAppContext()
         if (withTouchControls) {
-            val profileName = touchProfile?.interpretString(scope) ?: ""
+            val profileName = safeString(touchProfile, scope, "")
             if (profileName.isNotBlank()) {
                 PcGameManager.setTouchProfileName(profileName)
             }
         }
-        val exe = executable?.interpretString(scope) ?: ""
-        val args = arguments?.interpretString(scope)
+        val exe = safeString(executable, scope, "")
+        val args = safeString(arguments, scope, "")
         val result = PcGameManager.launch(context, exe, args, withTouchControls)
         if (result.startsWith("Cannot") || result.startsWith("No ") || result.startsWith("Launch")) {
             val activity = StageActivity.activeStageActivity.get()
@@ -115,8 +115,8 @@ class PcShowTouchEditorAction : TemporalAction() {
     var enabled: Formula? = null
 
     override fun update(percent: Float) {
-        val value = enabled?.interpretString(scope) ?: "1"
-        PcLauncherDialog.setTouchEditMode(value.toBoolean())
+        val value = safeString(enabled, scope, "1")
+        PcLauncherDialog.setTouchEditMode(isTruthy(value))
     }
 }
 
@@ -138,11 +138,11 @@ class PcAddTouchControlAction : TemporalAction() {
     var size: Formula? = null
 
     override fun update(percent: Float) {
-        val controlLabel = label?.interpretString(scope) ?: "BTN"
-        val keySpec = keys?.interpretString(scope) ?: "space"
-        val positionX = (x?.interpretDouble(scope) ?: 50.0) / 100.0
-        val positionY = (y?.interpretDouble(scope) ?: 50.0) / 100.0
-        val controlSize = (size?.interpretDouble(scope) ?: 16.0) / 100.0
+        val controlLabel = safeString(label, scope, "BTN")
+        val keySpec = safeString(keys, scope, "space")
+        val positionX = safeDouble(x, scope, 50.0) / 100.0
+        val positionY = safeDouble(y, scope, 50.0) / 100.0
+        val controlSize = safeDouble(size, scope, 16.0) / 100.0
 
         val normalized = keySpec.trim()
         val control = PcTouchControl(
@@ -177,8 +177,32 @@ class PcRemoveTouchControlAction : TemporalAction() {
     var label: Formula? = null
 
     override fun update(percent: Float) {
-        val controlLabel = label?.interpretString(scope) ?: ""
+        val controlLabel = safeString(label, scope, "")
         val id = controlLabel.lowercase().replace(Regex("[^a-z0-9]"), "_")
         PcGameManager.removeTouchControl(id)
     }
+}
+
+/**
+ * Formula interpretation that never aborts a script: a block with a broken
+ * formula falls back to its default instead of throwing [org.catrobat.catroid.formulaeditor.InterpretationException].
+ */
+private fun safeString(formula: Formula?, scope: Scope?, fallback: String = ""): String {
+    return try {
+        formula?.interpretString(scope) ?: fallback
+    } catch (e: Exception) {
+        fallback
+    }
+}
+
+private fun safeDouble(formula: Formula?, scope: Scope?, fallback: Double): Double {
+    return try {
+        formula?.interpretDouble(scope) ?: fallback
+    } catch (e: Exception) {
+        fallback
+    }
+}
+
+private fun isTruthy(value: String): Boolean {
+    return value.trim().lowercase() in listOf("1", "true", "on", "yes", "enabled", "da")
 }

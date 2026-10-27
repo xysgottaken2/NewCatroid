@@ -388,7 +388,7 @@ object PcGameManager {
             command.add(script.absolutePath)
         } else {
             val prootArgs = PcScriptBuilder.buildProotArguments(paths)
-            val prootBinary = findProot(runtimeDir, containerRoot)
+            val prootBinary = findProot(context, runtimeDir, containerRoot)
             command.add(prootBinary)
             command.addAll(prootArgs)
         }
@@ -609,8 +609,9 @@ object PcGameManager {
         ensureProjectConfig()
         val folder = PcGamePaths.projectFolder()
         val profile = touchProfile ?: PcTouchProfile.load(folder, config.touchProfile)
-        profile.controls.removeAll { it.id == control.id }
-        profile.controls.add(control)
+        val cleaned = control.sanitized()
+        profile.controls.removeAll { it.id == cleaned.id }
+        profile.controls.add(cleaned)
         touchProfile = profile
         profile.save(folder)
         refreshTouchOverlay()
@@ -966,18 +967,23 @@ object PcGameManager {
         return false
     }
 
-    private fun findProot(runtimeDir: File?, containerRoot: File?): String {
+    private fun findProot(context: Context, runtimeDir: File?, containerRoot: File?): String {
         val candidates = ArrayList<File>()
         if (runtimeDir != null) {
             candidates.add(File(runtimeDir, "bin/proot"))
+            candidates.add(File(runtimeDir, "libproot.so"))
             candidates.add(File(runtimeDir, "proot"))
         }
         if (containerRoot != null) {
             candidates.add(File(containerRoot, "usr/bin/proot"))
             candidates.add(File(containerRoot, "bin/proot"))
         }
-        val nativeDir = File(android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "aarch64")
-        candidates.add(File(nativeDir, "proot"))
+        // A build may ship proot as a JNI library: only then is it executable on
+        // Android 10+ without the linker trick.
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        if (nativeDir != null) {
+            candidates.add(File(nativeDir, "libproot.so"))
+        }
         for (candidate in candidates) {
             if (candidate.isFile) {
                 PcPermissions.markExecutable(candidate)
@@ -1022,7 +1028,8 @@ object PcGameManager {
         if (target == null) return -1
         return try {
             val method = target.javaClass.getMethod("pid")
-            method.invoke(target) as Long
+            val value = method.invoke(target)
+            (value as? Number)?.toLong() ?: -1L
         } catch (e: Exception) {
             try {
                 val field = target.javaClass.getDeclaredField("pid")

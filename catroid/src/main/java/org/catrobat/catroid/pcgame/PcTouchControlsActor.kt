@@ -253,13 +253,13 @@ class PcTouchControlsActor(
     // ---------------------------------------------------------------- input
 
     private fun controlAt(x: Float, y: Float): PcTouchControl? {
-        val width = width
-        val height = height
-        if (width <= 0f || height <= 0f) return null
-        val base = min(width, height)
+        val areaWidth = width
+        val areaHeight = height
+        if (areaWidth <= 0f || areaHeight <= 0f) return null
+        val base = min(areaWidth, areaHeight)
         for (control in profile.controls.asReversed()) {
-            val centreX = control.x * width
-            val centreY = height - control.y * height
+            val centreX = control.x * areaWidth
+            val centreY = areaHeight - control.y * areaHeight
             val radius = control.size * base / 2f
             val dx = x - centreX
             val dy = y - centreY
