@@ -5867,10 +5867,7 @@ public class ActionFactory extends Actions {
 	}
 
 	public Action createPcStopGameAction(Sprite sprite, SequenceAction sequence) {
-		PcStopGameAction action = action(PcStopGameAction.class);
-		Scope scope = new Scope(ProjectManager.getInstance().getCurrentProject(), sprite, sequence);
-		action.setScope(scope);
-		return action;
+		return action(PcStopGameAction.class);
 	}
 
 	public Action createPcBindGameLogAction(Sprite sprite, SequenceAction sequence, UserVariable variable) {

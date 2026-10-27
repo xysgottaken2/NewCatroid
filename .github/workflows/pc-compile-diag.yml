@@ -68,13 +68,29 @@ jobs:
           text = open(log_path, errors="replace").read()
           lines = text.splitlines()
           picked = []
-          for line in lines:
-              if line.startswith("e: ") or line.startswith("w: file") and False:
+          index = 0
+          while index < len(lines):
+              line = lines[index]
+              if line.startswith("e: "):
                   picked.append(line)
-              elif "error:" in line and ("PC" in line or ".kt" in line or ".java" in line):
+                  # Kotlin prints the details of a single error indented below it
+                  look = index + 1
+                  while look < len(lines) and lines[look].startswith((" ", "\t")):
+                      picked.append(lines[look])
+                      look += 1
+              elif "error:" in line or "warning: [" in line:
                   picked.append(line)
+                  look = index + 1
+                  steps = 0
+                  while look < len(lines) and steps < 4 and not lines[look].startswith("> Task"):
+                      picked.append(lines[look])
+                      look += 1
+                      steps += 1
               elif line.startswith("> Task ") and "FAILED" in line:
                   picked.append(line)
+              elif "What went wrong" in line:
+                  picked.append(line)
+              index += 1
           if not picked:
               grabbed = False
               for line in lines:
