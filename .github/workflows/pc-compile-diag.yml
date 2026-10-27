@@ -1,0 +1,77 @@
+name: PC compile diagnostic
+
+# Temporary workflow: compiles the catroid module and posts the compiler output
+# as a comment on the pushed commit, because the build log download is not
+# reachable from the agent sandbox. Removed again once the branch is green.
+
+on:
+  push:
+    branches:
+      - arena/53445679-newcatroid
+
+permissions:
+  contents: write
+
+env:
+  _JAVA_OPTIONS: "-Xmx5g"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx5g -Dorg.gradle.workers.max=4"
+
+jobs:
+  compile:
+    name: Kotlin/Java compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: true
+
+      - name: Prepare project
+        run: |
+          sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
+          find . -name "google-services*.json" -exec sed -i 's/"org.DanVexTeam.NewCatroid"/"org.DanVexTeam.NewCatroid.ci"/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.pdrogfer.mididroid/com.leff.midi/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
+          chmod +x ./gradlew
+
+      - name: Compile
+        run: |
+          set -o pipefail
+          ./gradlew :catroid:compileDanvexDebugKotlin :catroid:compileDanvexDebugJavaWithJavac \
+            --stacktrace 2>&1 | tee /tmp/compile.log
+
+      - name: Post compiler output as a commit comment
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### PC compile diagnostic \`${GITHUB_SHA:0:8}\`"
+            echo
+            if grep -qE '^e: |error:' /tmp/compile.log; then
+              echo "**Compile errors found.**"
+            else
+              echo "**No compile errors found.**"
+            fi
+            echo
+            echo '```'
+            grep -E '^e: |^w: .*(PcOnline|PcDownload)|error:|FAILED|What went wrong|Caused by' /tmp/compile.log | head -n 200
+            echo '----- tail -----'
+            tail -n 40 /tmp/compile.log
+            echo '```'
+          } > /tmp/body.md
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/body.md
