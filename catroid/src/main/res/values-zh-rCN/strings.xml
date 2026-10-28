@@ -168,6 +168,9 @@
     <string name="customizing_apk">正在自定义和优化APK...</string>
     <string name="signing_apk">正在签名APK...</string>
     <string name="error_download_template">下载APK模板失败！</string>
+    <string name="warn_no_pc_template">此项目使用了 PC 游戏积木，但列表中没有包含它们的模板。请选择标有“PC blocks”的模板。</string>
+    <string name="error_template_no_pc_title">模板版本过旧</string>
+    <string name="error_template_no_pc">模板“%1$s”早于 PC 游戏积木和内存传感器，导出的 APK 会在缺少这些积木的情况下打开项目，因此已停止构建。请选择标有“PC blocks”的模板。</string>
     <string name="error_build_optimization">构建和优化错误！</string>
     <string name="error_signing_apk">签名已编译的APK失败！</string>
     <string name="success_build">构建成功完成！</string>
@@ -2825,6 +2828,11 @@
     <string formatted="false" name="brick_show_toast_long">长</string>
     <string formatted="false" name="formula_editor_sensor_internet">已连接到互联网</string>
     <string formatted="false" name="formula_editor_sensor_architecture">CPU架构</string>
+    <string formatted="false" name="formula_editor_sensor_ram_total">设备内存总量（MB）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_available">设备可用内存（MB）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_used_percent">设备内存占用（%）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_app_limit">应用内存上限（MB）</string>
+    <string formatted="false" name="formula_editor_sensor_ram_low">设备内存不足</string>
     <string formatted="false" name="formula_editor_sensor_micro">麦克风音量</string>
     <string formatted="false" name="formula_editor_sensor_micro_freq">麦克风频率</string>
     <string formatted="false" name="brick_listen_micro">开始监听麦克风持续</string>
@@ -5047,4 +5055,49 @@
     <string formatted="false" name="undo_sort">取消排序</string>
     <string formatted="false" name="sort">排序</string>
     <string formatted="false" name="checkbox">复选框</string>
+    <string formatted="false" name="subcategory_device_pc">PC 游戏（Wine + Box64）</string>
+    <string formatted="false" name="brick_pc_game_folder">设置 PC 游戏文件夹为</string>
+    <string formatted="false" name="brick_pc_graphics_driver">设置图形驱动为</string>
+    <string formatted="false" name="brick_pc_d3d_layer">设置 D3D 层（DXVK/VKD3D）为</string>
+    <string formatted="false" name="brick_pc_runtime">设置 Wine/Box64 运行时为</string>
+    <string formatted="false" name="brick_pc_container">设置容器 rootfs 为</string>
+    <string formatted="false" name="brick_pc_env">设置 PC 环境变量</string>
+    <string formatted="false" name="brick_pc_env_to">为</string>
+    <string formatted="false" name="brick_pc_env_clear">清除所有 PC 环境变量</string>
+    <string formatted="false" name="brick_pc_resolution">设置 PC 游戏分辨率为</string>
+    <string formatted="false" name="brick_pc_resolution_x">x</string>
+    <string formatted="false" name="brick_pc_import">导入 PC 资源包（zip），类型为</string>
+    <string formatted="false" name="brick_pc_launch">启动 PC 游戏</string>
+    <string formatted="false" name="brick_pc_launch_args">参数</string>
+    <string formatted="false" name="brick_pc_launch_touch">启动 PC 游戏</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">参数</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">触摸配置</string>
+    <string formatted="false" name="brick_pc_stop">停止正在运行的 PC 游戏</string>
+    <string formatted="false" name="brick_pc_bind_log">将 PC 游戏日志绑定到</string>
+    <string formatted="false" name="brick_pc_self_test">检查 PC 环境并将报告保存到</string>
+    <string formatted="false" name="brick_pc_launcher">打开 PC 游戏启动器</string>
+    <string formatted="false" name="brick_pc_touch_control">添加触摸控件</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">按键</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">大小%</string>
+    <string formatted="false" name="brick_pc_touch_editor">PC 触摸布局编辑器</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">启用</string>
+    <string formatted="false" name="brick_pc_choose_folder">选择 PC 游戏文件夹（浏览文件）</string>
+    <string formatted="false" name="brick_pc_choose_driver">选择图形驱动 zip（Turnip / Adreno）并安装</string>
+    <string formatted="false" name="brick_pc_choose_d3d">选择 DXVK / VKD3D zip 并安装</string>
+    <string formatted="false" name="brick_pc_choose_runtime">选择 Wine + Box64 压缩包并安装</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">选择容器 rootfs 压缩包并安装</string>
+    <string formatted="false" name="brick_pc_edit_env">打开 PC 环境变量编辑器</string>
+    <string formatted="false" name="brick_pc_request_access">授予 NewCatroid 访问游戏文件夹的权限</string>
+    <string formatted="false" name="brick_pc_download">从互联网下载 PC 组件（驱动、DXVK、运行时、rootfs）</string>
+    <string formatted="false" name="brick_pc_download_link">从网址下载 PC 组件</string>
+    <string formatted="false" name="brick_pc_download_as">作为</string>
+    <string formatted="false" name="brick_pc_ram_value">将</string>
+    <string formatted="false" name="brick_pc_ram_value_to">设为设备内存（MB）</string>
+    <string formatted="false" name="brick_pc_ram_value_hint">(total / available / used / percent / app / low)</string>
+    <string formatted="false" name="brick_pc_ram_check">将</string>
+    <string formatted="false" name="brick_pc_ram_check_needs">设为 YES（若设备至少有）</string>
+    <string formatted="false" name="brick_pc_ram_check_mb_suffix">MB 内存，按</string>
+    <string formatted="false" name="brick_pc_ram_check_mode_label">(total / free / both)</string>
 </resources>

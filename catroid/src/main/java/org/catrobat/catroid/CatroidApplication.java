@@ -31,6 +31,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.os.StrictMode;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -81,6 +82,8 @@ public class CatroidApplication extends Application {
 	@TargetApi(30)
 	@Override
 	public void onCreate() {
+        Log.i(TAG, "startup.stage.begin=application.onCreate");
+        Log.i(TAG, "startup.stage.begin=application.read-safe-mode-preference");
 		SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
 		boolean forceSafeMode = prefs.getBoolean("force_safe_mode", false);
 
@@ -90,9 +93,12 @@ public class CatroidApplication extends Application {
 					.remove("force_safe_mode")
 					.apply();
 		}
+        Log.i(TAG, "startup.stage.complete=application.read-safe-mode-preference forceSafeMode=" + forceSafeMode);
 
 		super.onCreate();
+        Log.i(TAG, "startup.stage.complete=application.super.onCreate");
 
+        Log.i(TAG, "startup.stage.begin=application.install-plugin-classloader");
         try {
             ClassLoader originalClassLoader = getClassLoader();
             globalPluginClassLoader = new PluginCompositeClassLoader(originalClassLoader);
@@ -104,39 +110,49 @@ public class CatroidApplication extends Application {
 
             mClassLoaderField.set(baseContext, globalPluginClassLoader);
             Log.d(TAG, "ClassLoader: Глобальный PluginCompositeClassLoader успешно внедрен в ContextImpl.");
+            Log.i(TAG, "startup.stage.complete=application.install-plugin-classloader");
         } catch (Exception e) {
-            Log.e(TAG, "ClassLoader: Ошибка внедрения глобального ClassLoader", e);
+            Log.e(TAG, "startup.stage.failed=application.install-plugin-classloader", e);
         }
 
 		Log.d(TAG, "CatroidApplication onCreate");
 		Log.d(TAG, "git commit info: " + BuildConfig.GIT_COMMIT_INFO);
 
 		if (BuildConfig.DEBUG && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Log.i(TAG, "startup.stage.begin=application.configure-strict-mode");
 			StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder()
 					.detectNonSdkApiUsage()
 					.penaltyLog()
 					.build());
+            Log.i(TAG, "startup.stage.complete=application.configure-strict-mode");
 		}
 
-		context = getApplicationContext();
+		runStartupStep("application.store-context", () -> context = getApplicationContext());
+		runStartupStep("application.start-koin", () -> CatroidKoinHelperKt.start(this, CatroidKoinHelperKt.getMyModules()));
+		runStartupStep("application.fetch-speech-languages", () -> Utils.fetchSpeechRecognitionSupportedLanguages(this));
+		runStartupStep("application.read-system-language", () -> defaultSystemLanguage = Locale.getDefault().toLanguageTag());
+		runStartupStep("application.initialize-google-analytics", () -> {
+			googleAnalytics = GoogleAnalytics.getInstance(this);
+			googleAnalytics.setDryRun(BuildConfig.DEBUG);
+		});
+		runStartupStep("application.initialize-huawei-services", this::setupHuaweiMobileServices);
+		runStartupStep("application.initialize-custom-formulas", () -> CustomFormulaManager.INSTANCE.initialize());
+		runStartupStep("application.prepare-plugin-environment", () -> PluginExecutor.getInstance(this).prepareEnvironment());
+		runStartupStep("application.register-lifecycle-callbacks", () -> registerActivityLifecycleCallbacks(new OverlayLifecycleCallbacks()));
+		runStartupStep("application.publish-current-instance", () -> current = this);
+		Log.i(TAG, "startup.result=application-ready");
+	}
 
-		CatroidKoinHelperKt.start(this, CatroidKoinHelperKt.getMyModules());
-
-		Utils.fetchSpeechRecognitionSupportedLanguages(this);
-
-		defaultSystemLanguage = Locale.getDefault().toLanguageTag();
-
-		googleAnalytics = GoogleAnalytics.getInstance(this);
-		googleAnalytics.setDryRun(BuildConfig.DEBUG);
-
-		setupHuaweiMobileServices();
-		CustomFormulaManager.INSTANCE.initialize();
-
-        PluginExecutor.getInstance(this).prepareEnvironment();
-
-		registerActivityLifecycleCallbacks(new OverlayLifecycleCallbacks());
-
-		current = this;
+	private void runStartupStep(String stage, Runnable action) {
+		long startedAt = SystemClock.elapsedRealtime();
+		Log.i(TAG, "startup.stage.begin=" + stage);
+		try {
+			action.run();
+			Log.i(TAG, "startup.stage.complete=" + stage + " durationMs=" + (SystemClock.elapsedRealtime() - startedAt));
+		} catch (RuntimeException | Error error) {
+			Log.e(TAG, "startup.stage.failed=" + stage + " durationMs=" + (SystemClock.elapsedRealtime() - startedAt), error);
+			throw error;
+		}
 	}
 
 	public void loadPluginsIfNotLoaded() {

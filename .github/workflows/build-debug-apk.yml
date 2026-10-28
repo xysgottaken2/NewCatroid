@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      run_full_suite:
+        description: 'Run the optional full unit test suite after APK upload (diagnostic only)'
+        required: false
+        type: boolean
+        default: false
   push:
 
 permissions:
@@ -19,9 +24,11 @@ env:
 
 jobs:
   localweb-tests:
-    name: Unit tests (local web blocks)
+    name: Unit tests (local web and streamed downloads)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      PLAYGTA5_WORKER_SOURCE: /tmp/newcatroid-playgta5-wgpu-worker.js
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,6 +46,11 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Prepare project (CI applicationId, Firebase config, midi packages)
         run: |
           sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
@@ -50,13 +62,21 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Fetch pinned public renderer for integration test (no game assets)
+        run: curl --fail --location --retry 3 --proto '=https' 'https://raw.githubusercontent.com/shadany7824/playgta5/2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js' --output "$PLAYGTA5_WORKER_SOURCE"
+
       - name: Run local web block tests
         run: |
           set -o pipefail
           ./gradlew :catroid:testDanvexDebugUnitTest \
             --tests "org.catrobat.catroid.test.localweb.*" \
+            --tests "org.catrobat.catroid.test.common.NewCatroidDownloadTest" \
+            --tests "org.catrobat.catroid.test.common.DownloadFileActionLifecycleTest" \
             --tests "org.catrobat.catroid.test.xmlformat.*" \
             --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/test-output.log"
+
+      - name: Run browser diagnostics and touch-control JS tests
+        run: node --test catroid/src/test/js/*.test.cjs
 
       - name: Extract test failure details
         if: failure()
@@ -85,7 +105,7 @@ jobs:
       - name: Report failure details as a commit comment (optional)
         # Reports on workflow_dispatch runs with report_failures=true and on
         # every failed push run of the local-web feature branch.
-        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -135,9 +155,33 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  shader-validation:
+    name: Real WGSL compiler regression (Dawn null backend, no rendering)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Dawn validator
+        run: npm ci --prefix tools/playgta5-validation --no-audit --no-fund
+      - name: Reproduce original failure and validate corrected shader variants
+        run: |
+          set -o pipefail
+          curl --fail --location --retry 3 --proto '=https' 'https://raw.githubusercontent.com/shadany7824/playgta5/2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js' --output "${RUNNER_TEMP}/wgpu_worker.js"
+          node tools/playgta5-validation/validate.mjs "${RUNNER_TEMP}/wgpu_worker.js" 2>&1 | tee "${RUNNER_TEMP}/shader-validation.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PlayGTA5-shader-validation-${{ github.sha }}
+          path: ${{ runner.temp }}/shader-validation.log
+          if-no-files-found: error
+          retention-days: 30
+
+  # Run in parallel with focused tests so their results stay visible without delaying the APK artifact.
   build-apk:
     name: Debug APK (danvex)
-    needs: localweb-tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -168,10 +212,34 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Test APK verifier
+        run: python3 -m unittest discover -s tools -p 'test_verify_debug_apk.py' -v
+
       - name: Build debug APK (danvex)
         run: |
           set -o pipefail
           ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
+
+      - name: Verify APK launcher, compiled UI, assets, and ARM64 libraries
+        run: |
+          set -euo pipefail
+          APK_PATH="$(find catroid/build/outputs/apk/danvex/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No danvexDebug APK was produced" >&2
+            exit 1
+          fi
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Neither ANDROID_HOME nor ANDROID_SDK_ROOT is set" >&2
+            exit 1
+          fi
+          AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
+          if [ -z "$AAPT" ] || [ ! -x "$AAPT" ]; then
+            echo "Could not find executable aapt in $SDK_ROOT/build-tools" >&2
+            exit 1
+          fi
+          python3 tools/verify_debug_apk.py --apk "$APK_PATH" --aapt "$AAPT" | tee "${RUNNER_TEMP}/apk-verification.txt"
+          cat "${RUNNER_TEMP}/apk-verification.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -182,7 +250,7 @@ jobs:
           retention-days: 30
 
       - name: Report failure details as a commit comment (optional)
-        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -224,8 +292,11 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # Optional manual diagnostic. Wait until the APK and focused tests finish so this job cannot delay the artifact.
   full-unit-tests:
-    name: Full unit test suite (informational, does not block the APK)
+    name: Full unit test suite (manual diagnostic, does not block the APK)
+    needs: [build-apk, localweb-tests]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_suite == 'true' }}
     runs-on: ubuntu-latest
     # NOTE: no job-level timeout-minutes here. A job that exceeds its timeout
     # is cancelled, and a cancelled job cancels the whole run even with
@@ -292,7 +363,7 @@ jobs:
           echo "extracted $(wc -l < "$OUT") lines of failure details"
 
       - name: Report failure details as a commit comment (optional)
-        if: failure() && github.ref == 'refs/heads/arena/329868a7-newcatroid'
+        if: failure() && github.ref == 'refs/heads/arena/5736be66-newcatroid'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

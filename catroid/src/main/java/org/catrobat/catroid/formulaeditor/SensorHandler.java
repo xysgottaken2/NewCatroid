@@ -58,6 +58,7 @@ import org.catrobat.catroid.devices.mindstorms.nxt.LegoNXT;
 import org.catrobat.catroid.nfc.NfcHandler;
 import org.catrobat.catroid.stage.StageActivity;
 import org.catrobat.catroid.ui.MainMenuActivity;
+import org.catrobat.catroid.utils.DeviceMemory;
 import org.catrobat.catroid.utils.TouchUtil;
 import org.catrobat.catroid.content.VolumeManager;
 
@@ -487,6 +488,16 @@ public final class SensorHandler implements SensorEventListener, SensorCustomEve
 				return NetworkUtils.isInternetAvailable();
 			case ARCH:
 				return MainMenuActivity.Companion.getCpuArchitecture();
+			case RAM_TOTAL:
+				return (double) DeviceMemory.INSTANCE.snapshot().getTotalMb();
+			case RAM_AVAILABLE:
+				return (double) DeviceMemory.INSTANCE.snapshot().getAvailableMb();
+			case RAM_USED_PERCENT:
+				return (double) DeviceMemory.INSTANCE.snapshot().getUsedPercent();
+			case RAM_APP_LIMIT:
+				return (double) DeviceMemory.INSTANCE.snapshot().getAppLimitMb();
+			case RAM_LOW:
+				return DeviceMemory.INSTANCE.snapshot().getLowMemory();
 			default:
 				return Objects.requireNonNull(instance.sensorValueMap.getOrDefault(sensor, 0.0d));
 		}

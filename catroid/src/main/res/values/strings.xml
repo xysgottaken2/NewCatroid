@@ -464,6 +464,9 @@
     <string name="customizing_apk">Customizing and optimizing APK...</string>
     <string name="signing_apk">Signing APK...</string>
     <string name="error_download_template">Failed to download APK template!</string>
+    <string name="warn_no_pc_template">This project uses the PC game blocks, but no template in the list was built with them. Pick a template marked &quot;PC blocks&quot;.</string>
+    <string name="error_template_no_pc_title">Template too old for this project</string>
+    <string name="error_template_no_pc">The template &quot;%1$s&quot; was built before the PC game blocks and the RAM sensors existed. The exported APK would open this project without them, so the build was stopped. Choose a template marked &quot;PC blocks&quot;.</string>
     <string name="error_build_optimization">Build and optimization error!</string>
     <string name="error_signing_apk">Failed to sign compiled APK!</string>
     <string name="success_build">Build completed successfully!</string>
@@ -3175,6 +3178,11 @@
     <string formatted="false" name="brick_show_toast_long">Long</string>
     <string formatted="false" name="formula_editor_sensor_internet">connected to internet</string>
     <string formatted="false" name="formula_editor_sensor_architecture">cpu architecture</string>
+    <string formatted="false" name="formula_editor_sensor_ram_total">device RAM total (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_available">device RAM free (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_used_percent">device RAM used (%)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_app_limit">app RAM limit (MB)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_low">device low on RAM</string>
     <string formatted="false" name="formula_editor_sensor_micro">micro volume</string>
     <string formatted="false" name="formula_editor_sensor_micro_freq">micro frequency</string>
     <string formatted="false" name="brick_listen_micro">Start listen micro in times</string>
@@ -5522,4 +5530,49 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="undo_sort">Undo sort</string>
     <string formatted="false" name="sort">Sort</string>
     <string formatted="false" name="checkbox">checkbox</string>
+    <string formatted="false" name="subcategory_device_pc">PC games (Wine + Box64)</string>
+    <string formatted="false" name="brick_pc_game_folder">Set PC game folder to</string>
+    <string formatted="false" name="brick_pc_graphics_driver">Set graphics driver to</string>
+    <string formatted="false" name="brick_pc_d3d_layer">Set D3D layer (DXVK/VKD3D) to</string>
+    <string formatted="false" name="brick_pc_runtime">Set Wine/Box64 runtime to</string>
+    <string formatted="false" name="brick_pc_container">Set container rootfs to</string>
+    <string formatted="false" name="brick_pc_env">Set PC environment variable</string>
+    <string formatted="false" name="brick_pc_env_to">to</string>
+    <string formatted="false" name="brick_pc_env_clear">Clear all PC environment variables</string>
+    <string formatted="false" name="brick_pc_resolution">Set PC game resolution to</string>
+    <string formatted="false" name="brick_pc_resolution_x">x</string>
+    <string formatted="false" name="brick_pc_import">Import PC pack (zip) of type</string>
+    <string formatted="false" name="brick_pc_launch">Launch PC game</string>
+    <string formatted="false" name="brick_pc_launch_args">with arguments</string>
+    <string formatted="false" name="brick_pc_launch_touch">Launch PC game</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">arguments</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">with touch profile</string>
+    <string formatted="false" name="brick_pc_stop">Stop the running PC game</string>
+    <string formatted="false" name="brick_pc_bind_log">Bind the PC game log to</string>
+    <string formatted="false" name="brick_pc_self_test">Check the PC environment and store the report in</string>
+    <string formatted="false" name="brick_pc_launcher">Open the PC game launcher</string>
+    <string formatted="false" name="brick_pc_touch_control">Add touch control</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">keys</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">size%</string>
+    <string formatted="false" name="brick_pc_touch_editor">PC touch layout editor</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">enabled</string>
+    <string formatted="false" name="brick_pc_choose_folder">Choose the PC game folder (browse files)</string>
+    <string formatted="false" name="brick_pc_choose_driver">Choose a graphics driver zip (Turnip / Adreno) and install it</string>
+    <string formatted="false" name="brick_pc_choose_d3d">Choose a DXVK / VKD3D zip and install it</string>
+    <string formatted="false" name="brick_pc_choose_runtime">Choose a Wine + Box64 archive and install it</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">Choose a container rootfs archive and install it</string>
+    <string formatted="false" name="brick_pc_edit_env">Open the PC environment variable editor</string>
+    <string formatted="false" name="brick_pc_request_access">Grant NewCatroid access to the game folder</string>
+    <string formatted="false" name="brick_pc_download">Download PC components from the internet (drivers, DXVK, runtime, rootfs)</string>
+    <string formatted="false" name="brick_pc_download_link">Download a PC component from the web address</string>
+    <string formatted="false" name="brick_pc_download_as">as</string>
+    <string formatted="false" name="brick_pc_ram_value">Set</string>
+    <string formatted="false" name="brick_pc_ram_value_to">to device memory (MB)</string>
+    <string formatted="false" name="brick_pc_ram_value_hint">(total / available / used / percent / app / low)</string>
+    <string formatted="false" name="brick_pc_ram_check">Set</string>
+    <string formatted="false" name="brick_pc_ram_check_needs">to YES if the device has at least</string>
+    <string formatted="false" name="brick_pc_ram_check_mb_suffix">MB of RAM, checked as</string>
+    <string formatted="false" name="brick_pc_ram_check_mode_label">(total / free / both)</string>
 </resources>

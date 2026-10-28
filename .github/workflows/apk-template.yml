@@ -1,0 +1,135 @@
+name: APK template (PC blocks)
+
+# Builds the `apktemplate` variant from this branch and publishes it as a release
+# asset, so the in-app "Build APK" dialog can offer a template that actually
+# contains the PC game bricks and the RAM sensors.
+#
+# The dialog (see TemplateManager) lists the releases of this repository first and
+# checks the downloaded APK for the brick classes before it builds anything, so an
+# asset named *Template*_PC.apk is what makes the exported APK work.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/53445679-newcatroid
+    paths:
+      - 'catroid/src/**'
+      - 'catroid/build.gradle'
+      - 'catroid/proguard-rules-template.pro'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle/**'
+      - 'gradlew'
+      - '.github/workflows/apk-template.yml'
+
+permissions:
+  contents: write
+
+env:
+  _JAVA_OPTIONS: "-Xmx5g"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx5g -Dorg.gradle.workers.max=4 -Dorg.gradle.parallel=true"
+  RELEASE_TAG: NewCatroid-Template
+  ASSET_NAME: NewCatroid_APKTemplate_PC.apk
+
+jobs:
+  template:
+    name: Build the PC APK template
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Prepare project
+        run: |
+          sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
+          find . -name "google-services*.json" -exec sed -i 's/"org.DanVexTeam.NewCatroid"/"org.DanVexTeam.NewCatroid.ci"/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.pdrogfer.mididroid/com.leff.midi/g' {} +
+          find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
+          chmod +x ./gradlew
+
+      - name: Assemble the template APK
+        run: |
+          set -o pipefail
+          ./gradlew :catroid:assembleApktemplateTemplateRelease --stacktrace 2>&1 | tee /tmp/template-build.log
+
+      - name: Locate the APK
+        id: locate
+        run: |
+          APK=$(find catroid/build/outputs/apk -path '*apktemplate*' -name '*.apk' | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "No APK was produced" >&2
+            find catroid/build/outputs -name '*.apk' || true
+            exit 1
+          fi
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          ls -la "$APK"
+          # The dialog checks for these class names before it builds; fail early
+          # here if the template somehow lost them.
+          for marker in PcLaunchGameBrick PcShowLauncherBrick PcDownloadPackBrick PcRamCheckBrick; do
+            if unzip -p "$APK" 'classes*.dex' | grep -qa "$marker"; then
+              echo "found $marker"
+            else
+              echo "missing $marker in the template" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload the APK as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NewCatroid-APKTemplate-PC-${{ github.sha }}
+          path: ${{ steps.locate.outputs.apk }}
+          retention-days: 14
+
+      - name: Publish it to the NewCatroid-Template release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "NewCatroid APK template (PC game blocks)" \
+              --notes "Template for the in-app *Build APK* dialog, built from \`$GITHUB_SHA\`.
+
+          Exported APKs need a template that contains the same bricks as the app doing
+          the export. This one is built from the \`PC game emulation layer\` branch, so
+          the PC game bricks, the online pack catalogue and the RAM sensors survive the
+          export. The in-app dialog downloads it automatically and verifies the brick
+          classes before it starts a build."
+          fi
+          # `gh release upload` keeps the file name, so copy it first: the dialog
+          # recognises the template by this name.
+          cp "${{ steps.locate.outputs.apk }}" "/tmp/${ASSET_NAME}"
+          gh release upload "$RELEASE_TAG" "/tmp/${ASSET_NAME}" --clobber
+          # Remove leftovers of earlier runs that used the build file name.
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while read -r name; do
+            if [ -n "$name" ] && [ "$name" != "$ASSET_NAME" ]; then
+              gh release delete-asset "$RELEASE_TAG" "$name" --yes || true
+            fi
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"'
+
+      - name: Keep the log for troubleshooting
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: template-build-log-${{ github.sha }}
+          path: /tmp/template-build.log
+          if-no-files-found: ignore
+          retention-days: 7

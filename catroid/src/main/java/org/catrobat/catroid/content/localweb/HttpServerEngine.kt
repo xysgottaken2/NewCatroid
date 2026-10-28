@@ -62,7 +62,10 @@ class HttpServerEngine(
     private val logger: HttpLogSink = { _, _, _ -> },
     private val addCrossOriginIsolationHeaders: Boolean = true,
     private val requestLog: RequestLog? = null,
-    private val touchControlsScriptProvider: (() -> String?)? = null
+    private val touchControlsScriptProvider: (() -> String?)? = null,
+    private val gameDiagnosticsScriptProvider: (() -> String?)? = null,
+    private val workerDiagnosticsBootstrapProvider: (() -> String?)? = null,
+    private val shaderCompatibilityScriptProvider: (() -> String?)? = null
 ) {
 
     @Volatile
@@ -114,7 +117,10 @@ class HttpServerEngine(
                 logger,
                 addCrossOriginIsolationHeaders,
                 requestLog,
-                touchControlsScriptProvider
+                touchControlsScriptProvider,
+                gameDiagnosticsScriptProvider,
+                workerDiagnosticsBootstrapProvider,
+                shaderCompatibilityScriptProvider
             )
 
             val socket: ServerSocket = try {
@@ -133,8 +139,15 @@ class HttpServerEngine(
                 return Result.Error("Unable to bind $address:$port: ${e.message}")
             }
 
+            // With a non-empty work queue, a zero-core ThreadPoolExecutor
+            // normally runs only one worker until that queue fills; its
+            // maximum pool size is not a useful concurrency limit in that
+            // configuration. The embedded browser can issue many independent
+            // range requests at once, so make the bounded target the core as
+            // well as maximum size. Threads are still created on demand and
+            // time out after inactivity.
             val pool = ThreadPoolExecutor(
-                0, MAX_WORKER_THREADS,
+                MAX_WORKER_THREADS, MAX_WORKER_THREADS,
                 30L, TimeUnit.SECONDS,
                 ArrayBlockingQueue(MAX_QUEUED_CONNECTIONS),
                 DaemonThreadFactory("NewCatroidHttp")
@@ -337,7 +350,10 @@ class HttpServerEngine(
 
     companion object {
         const val DEFAULT_BIND_ADDRESS = "127.0.0.1"
-        const val MAX_WORKER_THREADS = 8
+        // 32 concurrent range reads plus four compressed batch reads are
+        // used by the researched hosted-game client. Keep the server at least
+        // that concurrent without using an unbounded worker/connection queue.
+        const val MAX_WORKER_THREADS = 36
         const val MAX_QUEUED_CONNECTIONS = 64
         const val SOCKET_BACKLOG = 64
         const val SOCKET_TIMEOUT_MS = 15000

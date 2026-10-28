@@ -464,6 +464,9 @@
     <string name="customizing_apk">Кастомизация и оптимизация APK...</string>
     <string name="signing_apk">Цифровая подпись APK...</string>
     <string name="error_download_template">Не удалось скачать шаблон APK!</string>
+    <string name="warn_no_pc_template">В проекте есть блоки ПК-игр, но ни один шаблон в списке их не содержит. Выберите шаблон с пометкой «PC blocks».</string>
+    <string name="error_template_no_pc_title">Шаблон старше проекта</string>
+    <string name="error_template_no_pc">Шаблон «%1$s» собран до появления блоков ПК-игр и датчиков памяти. Собранный APK открыл бы проект без них, поэтому сборка остановлена. Выберите шаблон с пометкой «PC blocks».</string>
     <string name="error_build_optimization">Ошибка сборки и оптимизации APK!</string>
     <string name="error_signing_apk">Не удалось подписать собранный APK!</string>
     <string name="success_build">Сборка успешно завершена!</string>
@@ -3082,6 +3085,11 @@
     <string formatted="false" name="formula_editor_sensor_frequency">частота_звука</string>
     <string formatted="false" name="formula_editor_sensor_internet">подключен_к_интернету</string>
     <string formatted="false" name="formula_editor_sensor_architecture">архитектура_процессора</string>
+    <string formatted="false" name="formula_editor_sensor_ram_total">всего_RAM_(МБ)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_available">свободно_RAM_(МБ)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_used_percent">занято_RAM_(%)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_app_limit">лимит_RAM_приложения_(МБ)</string>
+    <string formatted="false" name="formula_editor_sensor_ram_low">мало_RAM</string>
     <string formatted="false" name="brick_listen_micro">Начать слушать микрофон в отрезках
         по</string>
     <string formatted="false" name="brick_listen_micro2">милисекунд</string>
@@ -5313,4 +5321,49 @@
     <string formatted="false" name="undo_sort">Отменить сортировку</string>
     <string formatted="false" name="sort">Сортировка</string>
     <string formatted="false" name="checkbox">флажок</string>
+    <string formatted="false" name="subcategory_device_pc">ПК игры (Wine + Box64)</string>
+    <string formatted="false" name="brick_pc_game_folder">Задать папку игры ПК</string>
+    <string formatted="false" name="brick_pc_graphics_driver">Задать графический драйвер</string>
+    <string formatted="false" name="brick_pc_d3d_layer">Задать слой D3D (DXVK/VKD3D)</string>
+    <string formatted="false" name="brick_pc_runtime">Задать рантайм Wine/Box64</string>
+    <string formatted="false" name="brick_pc_container">Задать rootfs контейнера</string>
+    <string formatted="false" name="brick_pc_env">Задать переменную окружения ПК</string>
+    <string formatted="false" name="brick_pc_env_to">значение</string>
+    <string formatted="false" name="brick_pc_env_clear">Очистить все переменные окружения ПК</string>
+    <string formatted="false" name="brick_pc_resolution">Задать разрешение игры ПК</string>
+    <string formatted="false" name="brick_pc_resolution_x">на</string>
+    <string formatted="false" name="brick_pc_import">Импортировать пакет ПК (zip) типа</string>
+    <string formatted="false" name="brick_pc_launch">Запустить игру ПК</string>
+    <string formatted="false" name="brick_pc_launch_args">с аргументами</string>
+    <string formatted="false" name="brick_pc_launch_touch">Запустить игру ПК</string>
+    <string formatted="false" name="brick_pc_launch_touch_args">аргументы</string>
+    <string formatted="false" name="brick_pc_launch_touch_profile">с профилем касаний</string>
+    <string formatted="false" name="brick_pc_stop">Остановить запущенную игру ПК</string>
+    <string formatted="false" name="brick_pc_bind_log">Привязать лог игры ПК к</string>
+    <string formatted="false" name="brick_pc_self_test">Проверить окружение ПК и записать отчет в</string>
+    <string formatted="false" name="brick_pc_launcher">Открыть лаунчер игр ПК</string>
+    <string formatted="false" name="brick_pc_touch_control">Добавить элемент управления</string>
+    <string formatted="false" name="brick_pc_touch_control_keys">клавиши</string>
+    <string formatted="false" name="brick_pc_touch_control_x">x%</string>
+    <string formatted="false" name="brick_pc_touch_control_y">y%</string>
+    <string formatted="false" name="brick_pc_touch_control_size">размер%</string>
+    <string formatted="false" name="brick_pc_touch_editor">Редактор раскладки касаний ПК</string>
+    <string formatted="false" name="brick_pc_touch_editor_value">включен</string>
+    <string formatted="false" name="brick_pc_choose_folder">Выбрать папку игры (через проводник)</string>
+    <string formatted="false" name="brick_pc_choose_driver">Выбрать zip графического драйвера (Turnip / Adreno) и установить</string>
+    <string formatted="false" name="brick_pc_choose_d3d">Выбрать zip DXVK / VKD3D и установить</string>
+    <string formatted="false" name="brick_pc_choose_runtime">Выбрать архив Wine + Box64 и установить</string>
+    <string formatted="false" name="brick_pc_choose_rootfs">Выбрать архив rootfs контейнера и установить</string>
+    <string formatted="false" name="brick_pc_edit_env">Открыть редактор переменных окружения ПК-игры</string>
+    <string formatted="false" name="brick_pc_request_access">Дать NewCatroid доступ к папке игры</string>
+    <string formatted="false" name="brick_pc_download">Скачать компоненты PC из интернета (драйверы, DXVK, рантайм, rootfs)</string>
+    <string formatted="false" name="brick_pc_download_link">Скачать компонент PC по веб-адресу</string>
+    <string formatted="false" name="brick_pc_download_as">как</string>
+    <string formatted="false" name="brick_pc_ram_value">Задать</string>
+    <string formatted="false" name="brick_pc_ram_value_to">значение памяти устройства (МБ)</string>
+    <string formatted="false" name="brick_pc_ram_value_hint">(total / available / used / percent / app / low)</string>
+    <string formatted="false" name="brick_pc_ram_check">Задать</string>
+    <string formatted="false" name="brick_pc_ram_check_needs">в YES, если на устройстве есть минимум</string>
+    <string formatted="false" name="brick_pc_ram_check_mb_suffix">МБ RAM, проверять по</string>
+    <string formatted="false" name="brick_pc_ram_check_mode_label">(total / free / both)</string>
 </resources>

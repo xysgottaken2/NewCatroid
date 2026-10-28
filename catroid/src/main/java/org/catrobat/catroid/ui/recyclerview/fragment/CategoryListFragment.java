@@ -284,7 +284,10 @@ public class CategoryListFragment extends Fragment implements CategoryListRVAdap
 			R.string.formula_editor_sensor_stage_height, R.string.formula_editor_sensor_micro, R.string.formula_editor_sensor_micro_freq,
             R.string.formula_editor_sensor_ip, R.string.formula_editor_sensor_port, R.string.formula_editor_sensor_battary,
 			R.string.formula_editor_sensor_internet, R.string.formula_editor_sensor_architecture, R.string.formula_editor_sensor_fps,
-            R.string.formula_clipboard_text, R.string.formula_keyboard_height);
+            R.string.formula_clipboard_text, R.string.formula_keyboard_height,
+			R.string.formula_editor_sensor_ram_total, R.string.formula_editor_sensor_ram_available,
+			R.string.formula_editor_sensor_ram_used_percent, R.string.formula_editor_sensor_ram_app_limit,
+			R.string.formula_editor_sensor_ram_low);
 	private static final List<Integer> OBJECT_COLOR_COLLISION =
 			asList(R.string.formula_editor_function_collides_with_color, R.string.formula_editor_function_color_touches_color);
 	private static final List<Integer> OBJECT_COLOR_PARAMS =
