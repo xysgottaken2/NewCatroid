@@ -287,8 +287,10 @@ class ProjectOptionsFragment : Fragment() {
         etVersionName.setText("1.0.0")
         etVersionCode.setText("1")
 
-        switchPermInternet.isChecked = scanResult.needsInternet
-        switchPermStorage.isChecked = scanResult.needsStorage
+        // A PC launcher always needs both: the game folder/packs live outside the
+        // sandbox and the pack catalogue downloads from GitHub.
+        switchPermInternet.isChecked = scanResult.needsInternet || scanResult.hasPcGames
+        switchPermStorage.isChecked = scanResult.needsStorage || scanResult.hasPcGames
         switchPermCamera.isChecked = scanResult.needsCamera
         switchPermAudio.isChecked = scanResult.needsAudioRecord
         switchPermLocation.isChecked = scanResult.needsLocation
@@ -653,8 +655,10 @@ class ProjectOptionsFragment : Fragment() {
                     excludedArches.add("x86_64")
 
                     val useManual = switchCustomizePermissions.isChecked
-                    val internet = if (useManual) switchPermInternet.isChecked else scanResult.needsInternet
-                    val storage = if (useManual) switchPermStorage.isChecked else scanResult.needsStorage
+                    val internet = if (useManual) switchPermInternet.isChecked
+                        else scanResult.needsInternet || scanResult.hasPcGames
+                    val storage = if (useManual) switchPermStorage.isChecked
+                        else scanResult.needsStorage || scanResult.hasPcGames
                     val camera = if (useManual) switchPermCamera.isChecked else scanResult.needsCamera
                     val audio = if (useManual) switchPermAudio.isChecked else scanResult.needsAudioRecord
                     val location = if (useManual) switchPermLocation.isChecked else scanResult.needsLocation
