@@ -370,7 +370,7 @@ class ProjectOptionsFragment : Fragment() {
                 if (availableTemplates.isEmpty()) {
                     ToastUtil.showError(context, getString(R.string.error_fetch_templates))
                 } else {
-                    val templateNames = availableTemplates.map { "${it.tagName} (${it.fileName})" }
+                    val templateNames = availableTemplates.map { it.label() }
                     val templateAdapter = ArrayAdapter(context, android.R.layout.simple_dropdown_item_1line, templateNames)
                     spinnerTemplates.setAdapter(templateAdapter)
 
@@ -417,7 +417,17 @@ class ProjectOptionsFragment : Fragment() {
                         }
                     }
 
-                    val defaultIndex = if (bestMatchIndex != -1) bestMatchIndex else 0
+                    var defaultIndex = if (bestMatchIndex != -1) bestMatchIndex else 0
+                    // A project that uses the PC game blocks needs a template that has
+                    // them; preselect the first one that advertises the support.
+                    if (scanResult.hasPcGames) {
+                        val pcIndex = availableTemplates.indexOfFirst { it.supportsPc }
+                        if (pcIndex >= 0) {
+                            defaultIndex = pcIndex
+                        } else {
+                            ToastUtil.showError(context, getString(R.string.warn_no_pc_template))
+                        }
+                    }
 
                     if (defaultIndex != -1) {
                         spinnerTemplates.setText(templateNames[defaultIndex], false)
@@ -796,6 +806,29 @@ class ProjectOptionsFragment : Fragment() {
                 hideProgressDialog()
                 ToastUtil.showError(context, getString(R.string.error_download_template))
                 return@launch
+            }
+
+            // The template is a finished APK: it can only run the bricks of the
+            // source tree it was built from. Building a project that uses bricks the
+            // template does not have produces an APK that opens the project without
+            // them (at best a black screen), so refuse instead of shipping that.
+            val needsPcBlocks = withContext(Dispatchers.IO) {
+                ProjectScanner.scanProject(projectDir).hasPcGames
+            }
+            if (needsPcBlocks) {
+                val supportsPc = withContext(Dispatchers.IO) {
+                    TemplateManager.templateSupportsPc(downloadedTemplateApk)
+                }
+                if (!supportsPc) {
+                    hideProgressDialog()
+                    Log.e("BUILD", "Template ${template.fileName} has no PC game bricks")
+                    AlertDialog.Builder(context)
+                        .setTitle(getString(R.string.error_template_no_pc_title))
+                        .setMessage(getString(R.string.error_template_no_pc, template.fileName))
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                    return@launch
+                }
             }
 
             updateProgressDialogMessage(getString(R.string.preparing_project))

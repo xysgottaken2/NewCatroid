@@ -458,6 +458,9 @@
     <string name="customizing_apk">Personalizando e otimizando o APK...</string>
     <string name="signing_apk">Assinando digitalmente o APK...</string>
     <string name="error_download_template">Falha ao baixar o modelo do APK!</string>
+    <string name="warn_no_pc_template">Este projeto usa os blocos de jogos de PC, mas nenhum modelo da lista foi criado com eles. Escolha um modelo marcado com &quot;PC blocks&quot;.</string>
+    <string name="error_template_no_pc_title">Modelo antigo demais para este projeto</string>
+    <string name="error_template_no_pc">O modelo &quot;%1$s&quot; foi criado antes dos blocos de jogos de PC e dos sensores de RAM. O APK gerado abriria este projeto sem eles, então a compilação foi interrompida. Escolha um modelo marcado com &quot;PC blocks&quot;.</string>
     <string name="error_build_optimization">Erro ao compilar e otimizar o APK!</string>
     <string name="error_signing_apk">Falha ao assinar o APK compilado!</string>
     <string name="success_build">Compilação concluída com sucesso!</string>

@@ -464,6 +464,9 @@
     <string name="customizing_apk">Кастомизация и оптимизация APK...</string>
     <string name="signing_apk">Цифровая подпись APK...</string>
     <string name="error_download_template">Не удалось скачать шаблон APK!</string>
+    <string name="warn_no_pc_template">В проекте есть блоки ПК-игр, но ни один шаблон в списке их не содержит. Выберите шаблон с пометкой «PC blocks».</string>
+    <string name="error_template_no_pc_title">Шаблон старше проекта</string>
+    <string name="error_template_no_pc">Шаблон «%1$s» собран до появления блоков ПК-игр и датчиков памяти. Собранный APK открыл бы проект без них, поэтому сборка остановлена. Выберите шаблон с пометкой «PC blocks».</string>
     <string name="error_build_optimization">Ошибка сборки и оптимизации APK!</string>
     <string name="error_signing_apk">Не удалось подписать собранный APK!</string>
     <string name="success_build">Сборка успешно завершена!</string>

@@ -464,6 +464,9 @@
     <string name="customizing_apk">Customizing and optimizing APK...</string>
     <string name="signing_apk">Signing APK...</string>
     <string name="error_download_template">Failed to download APK template!</string>
+    <string name="warn_no_pc_template">This project uses the PC game blocks, but no template in the list was built with them. Pick a template marked &quot;PC blocks&quot;.</string>
+    <string name="error_template_no_pc_title">Template too old for this project</string>
+    <string name="error_template_no_pc">The template &quot;%1$s&quot; was built before the PC game blocks and the RAM sensors existed. The exported APK would open this project without them, so the build was stopped. Choose a template marked &quot;PC blocks&quot;.</string>
     <string name="error_build_optimization">Build and optimization error!</string>
     <string name="error_signing_apk">Failed to sign compiled APK!</string>
     <string name="success_build">Build completed successfully!</string>

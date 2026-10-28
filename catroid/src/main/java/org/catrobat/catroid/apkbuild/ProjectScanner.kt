@@ -20,14 +20,20 @@ object ProjectScanner {
         val needsVibrate: Boolean,
         val needsOverlay: Boolean,
         val needsStorage: Boolean,
-        val needsBackground: Boolean
+        val needsBackground: Boolean,
+        /**
+         * The project uses one of the PC game bricks or one of the RAM sensors,
+         * so the APK template must be built from a tree that has them - otherwise
+         * the exported APK loads the project without those bricks.
+         */
+        val hasPcGames: Boolean = false
     )
 
     fun scanProject(projectDir: File): ScanResult {
         val codeXml = File(projectDir, "code.xml")
         if (!codeXml.exists()) {
             return ScanResult(false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false)
+                false, false, false, false, false, false, false, false, false, false, false)
         }
 
         var hasQemu = false
@@ -47,6 +53,11 @@ object ProjectScanner {
         var needsOverlay = false
         var needsStorage = false
         var needsBackground = false
+        var hasPcGames = false
+
+        // `Pc...Brick` in code.xml plus the RAM sensors that were added with them.
+        val pcBrickPattern = Regex("Pc[A-Za-z0-9]*Brick")
+        val ramSensors = listOf("RAM_TOTAL", "RAM_AVAILABLE", "RAM_USED_PERCENT", "RAM_APP_LIMIT", "RAM_LOW")
 
         try {
             codeXml.bufferedReader().use { reader ->
@@ -108,6 +119,10 @@ object ProjectScanner {
                     if (line.contains("Background") || line.contains("Service") || line.contains("Foreground")) {
                         needsBackground = true
                     }
+
+                    if (pcBrickPattern.containsMatchIn(line) || ramSensors.any { line.contains(it) }) {
+                        hasPcGames = true
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -117,7 +132,8 @@ object ProjectScanner {
         return ScanResult(
             hasQemu, hasPython, hasCompiler, hasMkit, hasOnnx, hasMnn,
             needsInternet, needsCamera, needsLocation, needsBluetooth, needsNfc,
-            needsAudioRecord, needsVibrate, needsOverlay, needsStorage, needsBackground
+            needsAudioRecord, needsVibrate, needsOverlay, needsStorage, needsBackground,
+            hasPcGames
         )
     }
 }

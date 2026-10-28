@@ -168,6 +168,9 @@
     <string name="customizing_apk">正在自定义和优化APK...</string>
     <string name="signing_apk">正在签名APK...</string>
     <string name="error_download_template">下载APK模板失败！</string>
+    <string name="warn_no_pc_template">此项目使用了 PC 游戏积木，但列表中没有包含它们的模板。请选择标有“PC blocks”的模板。</string>
+    <string name="error_template_no_pc_title">模板版本过旧</string>
+    <string name="error_template_no_pc">模板“%1$s”早于 PC 游戏积木和内存传感器，导出的 APK 会在缺少这些积木的情况下打开项目，因此已停止构建。请选择标有“PC blocks”的模板。</string>
     <string name="error_build_optimization">构建和优化错误！</string>
     <string name="error_signing_apk">签名已编译的APK失败！</string>
     <string name="success_build">构建成功完成！</string>
