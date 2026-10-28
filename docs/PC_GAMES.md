@@ -467,6 +467,7 @@ Use the **self test** block first; it prints one line per component.
 | `Game folder not found` | Use an absolute path and grant "all files access" to NewCatroid (`MANAGE_EXTERNAL_STORAGE`). |
 | Black stage, log says x11vnc missing | The rootfs has no `x11vnc`; install it in the rootfs or point `NC_VNC_CMD` to another VNC server (`Set PC environment variable`). |
 | Black stage with frames in the log | Wrong GPU driver for the device (Turnip on a non-Adreno GPU). Try `system`, Zink or SwiftShader. |
+| "Nothing can run '…': the runtime pack has no Wine binary" | Box64 only translates x86 instructions; the `.exe` needs Wine. Import a runtime archive that contains `bin/wine` (see [PC_GAMES_PACKS.md](PC_GAMES_PACKS.md)) - the launch now stops with this message instead of starting X and showing a black screen. |
 | `wine: module not found` / `d3d11` errors | D3D pack not installed yet (first launch installs it) or 32/64-bit mismatch: a 64-bit game needs `x64/` DLLs. |
 | Game starts and immediately exits | Check the log; often a missing dependency (`vcrun`, `.NET`, `d3dx9`) that must be installed in the prefix, or an anti-cheat that cannot work in a container. |
 | Very slow | Box64 + DXVK on a mobile SoC is heavy: lower the resolution, disable the virtual desktop, use `DXVK_HUD=fps` to measure, consider `BOX64_DYNAREC_BIGBLOCK=4`. |
@@ -518,6 +519,42 @@ environment editor with presets, container and host run modes, display + input
 over the existing VNC bridge, touch layout with editor, logging and the
 environment self test.
 
+## 9.5 Exporting an APK that keeps the PC blocks
+
+The in-app *Build APK* button does **not** compile anything. It downloads a
+prebuilt NewCatroid APK ("template"), rewrites its package name, icon,
+permissions and version, injects `assets/project.zip` and signs the result.
+
+That means a template can only run the bricks of the source tree it was built
+from. The public template (`2.2.0`, July 2026) predates the PC layer, so an APK
+built with it opens the project **without** the PC bricks - a black stage, or a
+project that stops loading.
+
+What the layer does about it:
+
+* `TemplateManager` lists the releases of this repository first. The workflow
+  `.github/workflows/apk-template.yml` builds `assembleApktemplateTemplateRelease`
+  from this branch and publishes it as
+  `NewCatroid_APKTemplate_PC.apk` on the **NewCatroid-Template** release, so the
+  dialog offers a template with the PC bricks.
+* `ProjectScanner` reports `hasPcGames` when `code.xml` contains a `Pc…Brick` or one
+  of the RAM sensors. Such a project preselects the PC template, labels it
+  `· PC blocks`, and gets the storage + internet permissions pre-checked.
+* Before patching, the builder scans `classes*.dex` of the downloaded template for
+  `PcLaunchGameBrick`, `PcShowLauncherBrick`, `PcDownloadPackBrick` and
+  `PcRamCheckBrick`. If the project needs them and the template does not have
+  them, **the build stops** with an explanation instead of producing a broken APK.
+
+Two consequences to keep in mind:
+
+* The exported APK is a **separate app** with its own private storage. Packs
+  (drivers, DXVK, runtime, rootfs) are stored per app, so they have to be imported
+  again in the exported launcher - the project settings (`config.json`, touch
+  layouts) do travel inside `project.zip`.
+* Packs are never bundled into the APK. That keeps the export small and the repo
+  free of GPL/proprietary binaries, but it also means the launcher installs into a
+  fresh environment.
+
 ## 10. Кратко по-русски
 
 Добавлен слой совместимости с ПК-играми (как в Winlator/GameHub/Mobox), но
@@ -532,6 +569,11 @@ environment self test.
   список релизов прямо с GitHub (Turnip от K11MCH1/AdrenoToolsDrivers, DXVK,
   VKD3D, D8VK, Box64, rootfs). Нажал — скачалось, распаковалось и выбралось.
   Можно добавить свой репозиторий (`owner/repo`) или скачать по прямой ссылке.
+* **Экспорт APK**: кнопка «Build APK» не компилирует проект, а патчит готовый
+  APK-шаблон, поэтому шаблон должен быть собран из этой же ветки. Ветка сама
+  публикует такой шаблон (`NewCatroid_APKTemplate_PC.apk`, релиз
+  `NewCatroid-Template`), а если в проекте есть блоки ПК-игр, а в шаблоне их
+  нет — сборка останавливается с объяснением, вместо «чёрного экрана».
 * **Пакеты** (zip) импортируются пользователем: `rootfs` (Linux-окружение с
   `Xvfb` и `x11vnc`), `runtime` (`bin/box64` + `bin/wine` для aarch64),
   графический драйвер (Turnip/AdrenoTools, Zink, SwiftShader) и слой D3D

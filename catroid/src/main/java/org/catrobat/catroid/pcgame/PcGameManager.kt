@@ -356,6 +356,24 @@ object PcGameManager {
             appendLog("[newcatroid] container: ${containerRoot?.absolutePath}")
         }
 
+        // Box64 translates x86 instructions, it cannot understand a PE executable:
+        // without Wine the launch would start the X server and then show an empty
+        // black screen. Say so instead.
+        val configuredWine = cfg.wineCommand.trim()
+        if (configuredWine.isEmpty() || configuredWine == "wine") {
+            val wine = findWineBinary(containerRoot, runtimeDir)
+            if (wine == null) {
+                lastError = "Nothing can run '$executable' yet: the runtime pack " +
+                    "'${runtimePack?.id ?: "none"}' has no Wine binary (Box64 only translates " +
+                    "the CPU instructions of the program, Wine provides the Windows API). " +
+                    "Import a runtime archive that contains bin/wine - see " +
+                    "docs/PC_GAMES_PACKS.md - or set a custom Wine command."
+                appendLog("[newcatroid] $lastError")
+                return null
+            }
+            appendLog("[newcatroid] wine: $wine")
+        }
+
         val driverPack = if (PcEnvironment.hasGraphicsDriver(cfg)) {
             PcPackManager.resolve(context, PcPackType.GRAPHICS_DRIVER, cfg.graphicsDriver)
         } else {
@@ -823,6 +841,15 @@ object PcGameManager {
                     "[warn] no box64/wine binary in the runtime pack (expected bin/box64 and bin/wine)\n"
                 }
             )
+            val wineBinary = findWineBinary(container, runtime.directory)
+            report.append(
+                if (wineBinary != null) {
+                    "[ok] wine: $wineBinary\n"
+                } else {
+                    "[missing] no Wine binary - a .exe cannot start, Box64 only translates " +
+                        "x86 instructions. Import a runtime pack with bin/wine.\n"
+                }
+            )
         }
 
         val xServer = findTool(container, runtime?.directory, "Xvfb")
@@ -1002,6 +1029,41 @@ object PcGameManager {
         val hasShell = File(dir, "bin/sh").isFile || File(dir, "usr/bin/sh").isFile
         val hasUsr = File(dir, "usr").isDirectory || File(dir, "etc").isDirectory
         return hasShell && hasUsr
+    }
+
+    /**
+     * Finds the Wine binary of a runtime pack or of a container rootfs.
+     *
+     * A grep for `wine` is enough: portable Wine builds ship `bin/wine`, a distro
+     * rootfs has `usr/bin/wine`, and the runtime archives documented in
+     * `docs/PC_GAMES_PACKS.md` use one of these layouts. Returns null when there is
+     * no Wine at all, in which case a `.exe` cannot be started.
+     */
+    private fun findWineBinary(containerRoot: File?, runtimeDir: File?): String? {
+        val relativeCandidates = listOf(
+            "bin/wine", "bin/wine64", "usr/bin/wine", "usr/bin/wine64",
+            "usr/local/bin/wine", "usr/local/bin/wine64",
+            "wine/bin/wine", "wine/bin/wine64", "wine64/bin/wine64"
+        )
+        for (root in listOfNotNull(containerRoot, runtimeDir)) {
+            for (relative in relativeCandidates) {
+                val candidate = File(root, relative)
+                if (candidate.isFile) return candidate.absolutePath
+            }
+        }
+        for (root in listOfNotNull(containerRoot, runtimeDir)) {
+            val children = root.listFiles() ?: continue
+            for (child in children) {
+                if (!child.name.contains("wine", ignoreCase = true)) continue
+                if (child.isFile) return child.absolutePath
+                if (!child.isDirectory) continue
+                for (relative in listOf("bin/wine", "bin/wine64", "wine", "wine64")) {
+                    val candidate = File(child, relative)
+                    if (candidate.isFile) return candidate.absolutePath
+                }
+            }
+        }
+        return null
     }
 
     private fun hasRuntimeBinary(runtimeDir: File): Boolean {
