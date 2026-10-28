@@ -113,7 +113,16 @@ jobs:
           export. The in-app dialog downloads it automatically and verifies the brick
           classes before it starts a build."
           fi
-          gh release upload "$RELEASE_TAG" "${{ steps.locate.outputs.apk }}#${ASSET_NAME}" --clobber
+          # `gh release upload` keeps the file name, so copy it first: the dialog
+          # recognises the template by this name.
+          cp "${{ steps.locate.outputs.apk }}" "/tmp/${ASSET_NAME}"
+          gh release upload "$RELEASE_TAG" "/tmp/${ASSET_NAME}" --clobber
+          # Remove leftovers of earlier runs that used the build file name.
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while read -r name; do
+            if [ -n "$name" ] && [ "$name" != "$ASSET_NAME" ]; then
+              gh release delete-asset "$RELEASE_TAG" "$name" --yes || true
+            fi
+          done
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"'
 
       - name: Keep the log for troubleshooting

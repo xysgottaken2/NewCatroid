@@ -192,6 +192,10 @@ object TemplateManager {
     private fun isPcTemplate(name: String, tag: String): Boolean {
         val lowerName = name.lowercase()
         val lowerTag = tag.lowercase()
+        // The release this repository publishes is built by
+        // .github/workflows/apk-template.yml, which refuses to upload an APK that
+        // does not contain the PC bricks.
+        if (tag == PC_TEMPLATE_RELEASE_TAG) return true
         if (lowerName.contains("_nocatroid_pc") || lowerName.contains("_pc.") ||
             lowerName.contains("_pc_") || lowerName.contains("-pc") || lowerName.contains("pcblocks")
         ) {
