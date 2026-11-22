@@ -184,6 +184,11 @@ jobs:
     name: Debug APK (danvex)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Needed to publish the APK as a release asset (see the last step): workflow
+    # artifacts and their download links are tied to a run and expire, a release
+    # asset keeps a permanent URL.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -248,6 +253,51 @@ jobs:
           name: NewCatroid-debug-apk-run${{ github.run_number }}-${{ github.sha }}
           path: 'catroid/build/outputs/apk/danvex/debug/*.apk'
           retention-days: 30
+
+      - name: Publish the APK to the NewCatroid-debug-apk release
+        # Gives a stable download link that does not expire with the run:
+        # https://github.com/<repo>/releases/tag/NewCatroid-debug-apk
+        # The asset is always NewCatroid_debug_latest.apk, so the "latest" URL
+        # (…/releases/latest/download/NewCatroid_debug_latest.apk) never changes.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: NewCatroid-debug-apk
+        run: |
+          set -euo pipefail
+          APK_PATH="$(find catroid/build/outputs/apk/danvex/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No danvexDebug APK to publish" >&2
+            exit 1
+          fi
+          cp "$APK_PATH" /tmp/NewCatroid_debug_latest.apk
+          SIZE="$(du -h /tmp/NewCatroid_debug_latest.apk | cut -f1)"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          BRANCH="${GITHUB_REF_NAME}"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "NewCatroid debug APK (latest CI build)" \
+              --notes "Rolling debug APK of the newest green CI build of \`$BRANCH\`.
+
+          This release always carries exactly one asset, \`NewCatroid_debug_latest.apk\`, replaced on
+          every successful build, plus a \`.sha256\` file. Workflow artifacts expire after 30 days;
+          this link does not.
+
+          * commit: \`$GITHUB_SHA\`
+          * built by: run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          fi
+          ( cd /tmp && sha256sum NewCatroid_debug_latest.apk > NewCatroid_debug_latest.apk.sha256 )
+          gh release upload "$RELEASE_TAG" /tmp/NewCatroid_debug_latest.apk /tmp/NewCatroid_debug_latest.apk.sha256 --clobber
+          gh release edit "$RELEASE_TAG" --notes "Rolling debug APK of the newest green CI build of \`$BRANCH\`.
+
+          Download: \`NewCatroid_debug_latest.apk\` ($SIZE), replaced on every successful build.
+          A \`.sha256\` file sits next to it. Workflow artifacts expire after 30 days; this link does not.
+
+          * commit: \`$GITHUB_SHA\` ($SHORT_SHA)
+          * built by: run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+          * direct link: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/NewCatroid_debug_latest.apk"
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size) bytes"'
 
       - name: Report failure details as a commit comment (optional)
         if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
