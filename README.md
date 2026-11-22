@@ -14,6 +14,13 @@
   <a href="#license">License</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/xysgottaken2/NewCatroid/releases/latest/download/NewCatroid_debug_latest.apk"><b>Скачать последнюю debug-сборку (APK)</b></a><br/>
+  <sub>Постоянная ссылка: обновляется при каждой зелёной сборке CI, не истекает как артефакт прогона.
+  Сборка с блоком ПК-игр — ветка <code>arena/53445679-newcatroid</code>. Если в проекте есть блоки ПК-игр,
+  шаблон для «Build APK» берётся из релиза <a href="https://github.com/xysgottaken2/NewCatroid/releases/tag/NewCatroid-Template">NewCatroid-Template</a>.</sub>
+</p>
+
 **Основные улучшения:**
 *   **Расширенное 3D:** Поддержка 3D сцен, физики, постобработки, PBR и встроенный 3D редактор с ECS и иерархией.
 *   **Расширенное 2D:** Расширение Fast 2D, внедряющее работу с 2D сценой с ECS и позволяющее создавать сотни и тысячи обьектов.
