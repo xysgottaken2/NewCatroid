@@ -468,6 +468,16 @@
     <string name="error_template_no_pc_title">Шаблон старше проекта</string>
     <string name="error_template_no_pc">Шаблон «%1$s» собран до появления блоков ПК-игр и датчиков памяти. Собранный APK открыл бы проект без них, поэтому сборка остановлена. Выберите шаблон с пометкой «PC blocks».</string>
     <string name="error_build_optimization">Ошибка сборки и оптимизации APK!</string>
+    <string name="standalone_splash_loading">Загрузка проекта...</string>
+    <string name="standalone_splash_unpacking">Распаковка проекта...</string>
+    <string name="standalone_splash_preparing">Подготовка...</string>
+    <string name="verifying_export">Проверка собранного APK...</string>
+    <string name="error_export_missing_classes">В собранном APK нет классов: %1$s, поэтому проект в нём не загрузился бы. Файл не сохранён. Обновите приложение и соберите снова.</string>
+    <string name="error_export_no_project">В собранном APK нет читаемого assets/project.zip с code.xml — он запустился бы и сразу закрылся. Файл не сохранён.</string>
+    <string name="error_export_unreadable">Собранный APK не читается (%1$s). Файл не сохранён.</string>
+    <string name="verifying_template">Проверка, что шаблон может запустить этот проект...</string>
+    <string name="error_template_incomplete_title">Шаблон не может запустить этот проект</string>
+    <string name="error_template_incomplete">В шаблоне «%1$s» нет классов: %2$s. Собранный APK — это тот же шаблон с вашим проектом внутри, поэтому проект не загрузился бы и приложение закрылось бы сразу после заставки. Соберите свежий шаблон из этой версии (диалог «Build APK» показывает его первым) и повторите.</string>
     <string name="error_signing_apk">Не удалось подписать собранный APK!</string>
     <string name="success_build">Сборка успешно завершена!</string>
     <string name="share_apk_title">Сохранить собранный APK: %1$s</string>

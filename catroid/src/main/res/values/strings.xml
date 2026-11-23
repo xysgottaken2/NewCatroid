@@ -468,6 +468,16 @@
     <string name="error_template_no_pc_title">Template too old for this project</string>
     <string name="error_template_no_pc">The template &quot;%1$s&quot; was built before the PC game blocks and the RAM sensors existed. The exported APK would open this project without them, so the build was stopped. Choose a template marked &quot;PC blocks&quot;.</string>
     <string name="error_build_optimization">Build and optimization error!</string>
+    <string name="standalone_splash_loading">Loading the project...</string>
+    <string name="standalone_splash_unpacking">Unpacking the project...</string>
+    <string name="standalone_splash_preparing">Preparing...</string>
+    <string name="verifying_export">Checking the exported APK...</string>
+    <string name="error_export_missing_classes">The exported APK lacks %1$s, so the project could not load in it. Nothing was saved. Update the app and build again.</string>
+    <string name="error_export_no_project">The exported APK has no readable assets/project.zip with a code.xml, so it would start and close. Nothing was saved.</string>
+    <string name="error_export_unreadable">The exported APK cannot be read (%1$s). Nothing was saved.</string>
+    <string name="verifying_template">Checking that the template can run this project...</string>
+    <string name="error_template_incomplete_title">Template cannot run this project</string>
+    <string name="error_template_incomplete">The template &quot;%1$s&quot; does not contain %2$s. The exported APK is that template with your project inside, so the project would fail to load and the app would close right after its splash screen. Build a fresh template from this version (the &quot;Build APK&quot; dialog lists it first) and try again.</string>
     <string name="error_signing_apk">Failed to sign compiled APK!</string>
     <string name="success_build">Build completed successfully!</string>
     <string name="share_apk_title">Save compiled APK: %1$s</string>

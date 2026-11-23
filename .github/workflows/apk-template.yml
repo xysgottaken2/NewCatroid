@@ -62,6 +62,9 @@ jobs:
           find catroid/src -type f -name "*.java" -exec sed -i 's/com.oliewa92.mididroid/com.leff.midi/g' {} +
           chmod +x ./gradlew
 
+      - name: Test the template class verifier
+        run: python3 -m unittest discover -s tools -p 'test_verify_template_classes.py' -v
+
       - name: Assemble the template APK
         run: |
           set -o pipefail
@@ -78,16 +81,13 @@ jobs:
           fi
           echo "apk=$APK" >> "$GITHUB_OUTPUT"
           ls -la "$APK"
-          # The dialog checks for these class names before it builds; fail early
-          # here if the template somehow lost them.
-          for marker in PcLaunchGameBrick PcShowLauncherBrick PcDownloadPackBrick PcRamCheckBrick; do
-            if unzip -p "$APK" 'classes*.dex' | grep -qa "$marker"; then
-              echo "found $marker"
-            else
-              echo "missing $marker in the template" >&2
-              exit 1
-            fi
-          done
+          # An exported APK is this template with a replaced assets/project.zip -
+          # nothing is compiled. A brick or script the template does not contain
+          # makes XStream fail while it loads code.xml, and the exported app then
+          # closes right after its splash screen. Verify the whole set (bricks,
+          # scripts and the physics bricks) against the dex string pools instead
+          # of a handful of markers.
+          python3 tools/verify_template_classes.py --apk "$APK"
 
       - name: Upload the APK as a workflow artifact
         uses: actions/upload-artifact@v4

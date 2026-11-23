@@ -26,6 +26,13 @@ object ApkToolboxManager {
 
     private const val TAG = "ApkToolbox"
 
+    /**
+     * Asset that tells the exported app which export it is looking at; written by
+     * [writeExportToken] and read by `MainMenuActivity` before it decides whether
+     * the project it unpacked earlier is still current.
+     */
+    const val EXPORT_TOKEN_ASSET = "assets/standalone_export_token.txt"
+
     init {
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
             Security.addProvider(BouncyCastleProvider())
@@ -202,6 +209,15 @@ object ApkToolboxManager {
 
             module.zipEntryMap.remove("assets/project.zip")
             module.add(FileInputSource(options.projectZipFile, "assets/project.zip"))
+
+            // An exported app keeps the project it unpacked in its private
+            // storage and only unpacks `assets/project.zip` again when it knows
+            // the APK changed. A fresh token per export makes that decision
+            // exact: the first start always unpacks the project this build
+            // carries, even if the APK file time happens to look unchanged (an
+            // in-place update, a restore from a backup, a rebuilt APK with the
+            // same timestamp).
+            writeExportToken(module)
 
             options.excludedArches.forEach { arch ->
                 val toRemove = module.zipEntryMap.listInputSources().filter { it.name.startsWith("lib/$arch/") }
@@ -576,6 +592,26 @@ object ApkToolboxManager {
             return false
         } finally {
             try { module?.close() } catch (e: Exception) {}
+        }
+    }
+
+    /**
+     * Writes a token that is unique per export. `MainMenuActivity` of the
+     * exported app compares it with the one it unpacked last time, so a fresh
+     * build always starts from the project inside this APK.
+     */
+    private fun writeExportToken(module: ApkModule) {
+        val token = System.currentTimeMillis().toString(16) + "-" + java.util.UUID.randomUUID().toString()
+        val tempFile = File.createTempFile("newcatroid_export_token", ".txt")
+        try {
+            tempFile.writeText(token)
+            module.zipEntryMap.remove(EXPORT_TOKEN_ASSET)
+            module.add(FileInputSource(tempFile, EXPORT_TOKEN_ASSET))
+            Log.i(TAG, "Wrote the export token $token")
+        } catch (e: Exception) {
+            Log.e(TAG, "Cannot write the export token", e)
+        } finally {
+            tempFile.delete()
         }
     }
 

@@ -973,7 +973,7 @@ public final class XstreamSerializer {
 			return project;
 		} catch (Exception e) {
 			throw new LoadingProjectException("Cannot load project from " + projectDir.getAbsolutePath()
-					+ "\nException: " + e.getLocalizedMessage());
+					+ "\nException: " + e.getClass().getName() + ": " + e.getLocalizedMessage(), e);
 		} finally {
 			loadSaveLock.unlock();
 		}

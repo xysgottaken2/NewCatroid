@@ -11,7 +11,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipFile
 
 /**
  * Fetches the prebuilt APK *templates* the "Build APK" dialog patches.
@@ -212,69 +211,29 @@ object TemplateManager {
     /**
      * True when the downloaded template contains the PC game bricks.
      *
-     * The classes are looked up by name in the string pool of `classes*.dex`,
-     * which is how the class references of a dex file are stored - no dex parser
-     * needed, and it is what XStream would fail to find when a project uses one of
-     * the bricks.
+     * This is the quick "is this template from a tree with the PC layer" probe
+     * used when the template list is shown. The authoritative check is
+     * [missingClasses], which looks for every class the project itself uses.
      */
     fun templateSupportsPc(apk: File): Boolean {
-        if (!apk.isFile) return false
-        return try {
-            ZipFile(apk).use { zip ->
-                val entries = zip.entries()
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    if (!entry.name.matches(Regex("classes[0-9]*\\.dex"))) continue
-                    if (zip.getInputStream(entry).use { stream -> containsAnyMarker(stream) }) {
-                        return true
-                    }
-                }
-                false
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Cannot inspect ${apk.name}: ${e.message}", e)
-            false
+        val result = BrickCoverage.check(apk, PC_MARKERS)
+        if (!result.isComplete) {
+            Log.e(TAG, "Template ${apk.name} lacks ${result.missingSummary()}")
         }
+        return result.isComplete
     }
 
     /**
-     * Streams a dex file and looks for one of the [PC_MARKERS]. The windows
-     * overlap by one byte less than the longest marker, so a name that is split
-     * between two chunks is still found.
+     * Every class in [classNames] that the template APK does *not* contain.
+     *
+     * The exported APK is the template with a different `assets/project.zip`; a
+     * brick or script that is not in the template's dex files cannot be resolved
+     * by XStream, so the project would not load and the exported app would show
+     * its splash screen and then close. An empty list means the template can run
+     * the project.
      */
-    private fun containsAnyMarker(input: java.io.InputStream): Boolean {
-        val longest = PC_MARKERS.maxOf { it.length }
-        val overlap = longest - 1
-        var carry = ByteArray(0)
-        val buffer = ByteArray(256 * 1024)
-        val needles = PC_MARKERS.map { it.toByteArray(Charsets.US_ASCII) }
-        while (true) {
-            val read = input.read(buffer)
-            if (read <= 0) return false
-            val window = ByteArray(carry.size + read)
-            System.arraycopy(carry, 0, window, 0, carry.size)
-            System.arraycopy(buffer, 0, window, carry.size, read)
-            for (needle in needles) {
-                if (indexOf(window, needle) >= 0) return true
-            }
-            carry = if (window.size > overlap) {
-                window.copyOfRange(window.size - overlap, window.size)
-            } else {
-                window
-            }
-        }
-    }
-
-    private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
-        if (needle.isEmpty() || haystack.size < needle.size) return -1
-        val last = haystack.size - needle.size
-        outer@ for (i in 0..last) {
-            for (j in needle.indices) {
-                if (haystack[i + j] != needle[j]) continue@outer
-            }
-            return i
-        }
-        return -1
+    fun missingClasses(apk: File, classNames: Collection<String>): List<String> {
+        return BrickCoverage.check(apk, classNames).missing
     }
 
     suspend fun downloadTemplate(

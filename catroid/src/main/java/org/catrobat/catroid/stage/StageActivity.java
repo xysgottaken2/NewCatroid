@@ -31,6 +31,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -167,6 +168,37 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 		PermissionAdaptingActivity {
 
 	public static final String TAG = StageActivity.class.getSimpleName();
+
+	/**
+	 * Shows why a project cannot be opened. In an exported APK this is the only
+	 * feedback before the app closes, so the reason (and the class of the cause)
+	 * goes to both the log and a toast.
+	 */
+	private void reportProjectLoadFailure(Throwable error) {
+		StringBuilder text = new StringBuilder();
+		Throwable current = error;
+		int depth = 0;
+		while (current != null && depth < 4) {
+			if (text.length() > 0) {
+				text.append("\n<- ");
+			}
+			text.append(current.getClass().getSimpleName());
+			if (current.getMessage() != null && !current.getMessage().isEmpty()) {
+				text.append(": ").append(current.getMessage());
+			}
+			current = current.getCause();
+			depth++;
+		}
+		Log.e(TAG, "stage.project-load failed: " + text);
+		try {
+			Toast.makeText(this,
+				"O projeto não pôde ser carregado / project load failed:\n" + text,
+				Toast.LENGTH_LONG).show();
+		} catch (Throwable ignored) {
+			// Nothing else to do: the message is in the log already.
+		}
+	}
+
 	public StageListener stageListener;
 
 	public static final int REQUEST_START_STAGE = 101;
@@ -312,6 +344,17 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 				try {
 					ProjectManager.getInstance().loadProject(projectDir);
 				} catch (ProjectException e) {
+					// An empty catch turns a project that cannot be parsed into a
+					// black window without any explanation, and in an exported APK
+					// the stage is the whole app. Report it, then stop.
+					reportProjectLoadFailure(e);
+					finish();
+					return;
+				} catch (RuntimeException e) {
+					Log.e(TAG, "Failed to load project from " + projectDir.getAbsolutePath(), e);
+					reportProjectLoadFailure(e);
+					finish();
+					return;
 				}
 			}
 		}
@@ -1622,50 +1665,57 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 	private void checkAndRequestPermissions() {
 		List<String> permissionsNeeded = new ArrayList<>();
 
-
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-			permissionsNeeded.add(Manifest.permission.CAMERA);
-		}
-
-
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-			permissionsNeeded.add(Manifest.permission.RECORD_AUDIO);
-		}
-
-
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-			permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
-		}
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-			}
-		}
-
+		// Ask only for what the exported APK actually declares. An export strips
+		// every permission the build dialog did not enable, and requesting a
+		// permission that is not in the manifest throws a SecurityException that
+		// kills the stage (and with it the whole app) on the first frame.
+		requestIfDeclared(permissionsNeeded, Manifest.permission.CAMERA);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.RECORD_AUDIO);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.ACCESS_FINE_LOCATION);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.NEARBY_WIFI_DEVICES);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.POST_NOTIFICATIONS);
 
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
-			}
-		}
-
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
-			}
-
+			requestIfDeclared(permissionsNeeded, Manifest.permission.READ_MEDIA_IMAGES);
 		} else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
-			}
+			requestIfDeclared(permissionsNeeded, Manifest.permission.READ_EXTERNAL_STORAGE);
 		}
-
 
 		if (!permissionsNeeded.isEmpty()) {
-			ActivityCompat.requestPermissions(this, permissionsNeeded.toArray(new String[0]), 100);
+			try {
+				ActivityCompat.requestPermissions(this, permissionsNeeded.toArray(new String[0]), 100);
+			} catch (RuntimeException e) {
+				// A permission the system does not know (a new one on an older
+				// device, a manifest the export edited) must not stop the project.
+				Log.w(TAG, "stage.permissions.request failed: " + permissionsNeeded + " " + e);
+			}
 		}
+	}
+
+	private void requestIfDeclared(List<String> permissionsNeeded, String permission) {
+		if (!isPermissionDeclared(permission)) {
+			return;
+		}
+		if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+			permissionsNeeded.add(permission);
+		}
+	}
+
+	private boolean isPermissionDeclared(String permission) {
+		try {
+			PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_PERMISSIONS);
+			if (info.requestedPermissions == null) {
+				return false;
+			}
+			for (String declared : info.requestedPermissions) {
+				if (permission.equals(declared)) {
+					return true;
+				}
+			}
+		} catch (Exception e) {
+			Log.w(TAG, "stage.permissions.query failed: " + permission + " " + e);
+		}
+		return false;
 	}
 
 	@Override

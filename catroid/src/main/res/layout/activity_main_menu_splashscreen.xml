@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ~ Catroid: An on-device visual programming system for Android devices
-  ~ Copyright (C) 2010-2022 The Catrobat Team
+  ~ Copyright (C) 2010-2026 The Catrobat Team
   ~ (<http://developer.catrobat.org/credits>)
   ~
   ~ This program is free software: you can redistribute it and/or modify
@@ -9,8 +9,8 @@
   ~ published by the Free Software Foundation, either version 3 of the
   ~ License, or (at your option) any later version.
   ~
-  ~ An additional term exception under section 7 of the GNU Affero
-  ~ General Public License, version 3, is available at
+  ~ An additional term exception under section 7 of the GNU Affero General
+  ~ Public License, version 3, is available at
   ~ http://developer.catrobat.org/license_additional_term
   ~
   ~ This program is distributed in the hope that it will be useful,
@@ -22,15 +22,55 @@
   ~ along with this program.  If not, see <http://www.gnu.org/licenses/>.
   -->
 
+<!--
+  Splash screen of an exported APK (`FEATURE_APK_GENERATOR_ENABLED`).
+  It used to be an empty LinearLayout on a black window background, so every
+  second of startup - and every failure - looked like a frozen black screen.
+  Keep this layout free of anything that can throw: it is the first view the
+  exported app shows.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/standalone_splash_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/app_background"
+    android:gravity="center"
     android:orientation="vertical">
 
-    <!--<ImageView
-        android:src="@drawable/icon"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="fitCenter" />-->
+    <ImageView
+        android:id="@+id/standalone_splash_logo"
+        android:layout_width="128dp"
+        android:layout_height="128dp"
+        android:contentDescription="@string/app_name"
+        android:src="@mipmap/ic_launcher"
+        android:scaleType="fitCenter" />
+
+    <TextView
+        android:id="@+id/standalone_splash_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/app_name"
+        android:textColor="@color/solid_white"
+        android:textSize="22sp"
+        android:textStyle="bold" />
+
+    <ProgressBar
+        android:id="@+id/standalone_splash_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="220dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:indeterminate="true"
+        android:indeterminateTint="@color/accent" />
+
+    <TextView
+        android:id="@+id/standalone_splash_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/standalone_splash_loading"
+        android:textColor="@color/accent"
+        android:textSize="14sp" />
 
 </LinearLayout>

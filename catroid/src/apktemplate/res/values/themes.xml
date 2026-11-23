@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.ApkTemplate.Splash" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <!-- Same colour as the splash layout: a black flash before the first
+             frame looked like a crash. -->
+        <item name="android:windowBackground">@color/app_background</item>
     </style>
 </resources>

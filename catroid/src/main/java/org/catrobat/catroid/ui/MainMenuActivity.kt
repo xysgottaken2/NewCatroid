@@ -23,6 +23,7 @@
 package org.catrobat.catroid.ui
 
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.DialogInterface
 import android.content.Intent
@@ -34,10 +35,12 @@ import android.preference.PreferenceManager
 import android.provider.Settings
 import android.text.Html
 import android.text.method.LinkMovementMethod
+import android.text.method.ScrollingMovementMethod
 import android.util.Log
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.text.HtmlCompat
@@ -60,6 +63,7 @@ import org.catrobat.catroid.databinding.ActivityLoadingBinding
 import org.catrobat.catroid.databinding.ActivityMainMenuBinding
 import org.catrobat.catroid.databinding.ActivityMainMenuSplashscreenBinding
 import org.catrobat.catroid.databinding.DeclinedTermsOfUseAndServiceAlertViewBinding
+import org.catrobat.catroid.databinding.DialogTermsOfUseBinding
 import org.catrobat.catroid.databinding.PrivacyPolicyViewBinding
 import org.catrobat.catroid.databinding.ProgressBarBinding
 import org.catrobat.catroid.io.ZipArchiver
@@ -108,6 +112,16 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
     private var currentStartupStage = "MainMenuActivity.onCreate"
     private var startupFailureReported = false
     private var startupCompleted = false
+
+    /**
+     * Set when the project of an exported app has been handed to the loader.
+     *
+     * An exported app reaches `prepareStandaloneProject()` from two places: the
+     * terms-of-use acceptance (which runs before the main menu is shown) and
+     * `loadFinalContent()`. Without this flag an APK that accepted the terms once
+     * would unpack and load its project twice per start.
+     */
+    private var standaloneStartHandled = false
     private var startupMenuFirstLayout = false
     private var startupLoadingOverlayRemoved = false
     private var startupWatchdogJob: kotlinx.coroutines.Job? = null
@@ -161,6 +175,7 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
         currentStartupStage = stage
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(STARTUP_TAG, "stage.begin=$stage")
+        updateSplashStatus(stage)
         return try {
             action().also {
                 Log.i(STARTUP_TAG, "stage.complete=$stage durationMs=${SystemClock.elapsedRealtime() - startedAt}")
@@ -175,6 +190,7 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
         currentStartupStage = stage
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(STARTUP_TAG, "stage.begin=$stage")
+        updateSplashStatus(stage)
         return try {
             action().also {
                 Log.i(STARTUP_TAG, "stage.complete=$stage durationMs=${SystemClock.elapsedRealtime() - startedAt}")
@@ -198,24 +214,197 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
         startupFailureReported = true
         startupWatchdogJob?.cancel()
 
-        val detail = "${error.javaClass.simpleName}: ${error.message ?: "(sem mensagem)"}".take(600)
-        val message = "A inicialização parou na etapa '$currentStartupStage'.\n\n$detail\n\nOs detalhes completos estão no Logcat (tag $STARTUP_TAG)."
+        val detail = describeStartupFailure(error)
+        val message = "A inicialização parou na etapa '$currentStartupStage'.\n\n$detail\n\n" +
+            "Copie o texto com \"Copiar\" e envie ao desenvolvedor " +
+            "(no Logcat a tag é $STARTUP_TAG)."
         Log.e(STARTUP_TAG, "startup.failed stage=$currentStartupStage detail=$detail", error)
         if (isFinishing || isDestroyed) return
 
+        // The failure has to be visible: the splash screen is an empty black
+        // layout, so logging only would look like a crash without a reason.
+        showStartupProblem(
+            "Falha ao iniciar o NewCatroid",
+            message
+        )
+    }
+
+    /**
+     * Turns the exception chain into one readable line. The top level message of
+     * the classes that matter here (`LoadingProjectException` for a project that
+     * cannot be parsed and `UnsatisfiedLinkError` for a missing native library)
+     * says nothing useful on its own.
+     */
+    private fun describeStartupFailure(error: Throwable): String {
+        val chain = ArrayList<Throwable>()
+        var current: Throwable? = error
+        while (current != null && chain.size < 5 && !chain.contains(current)) {
+            chain.add(current)
+            current = current.cause
+        }
+        val text = chain.joinToString(" <- ") { throwable ->
+            val message = throwable.message?.trim()?.replace('\n', ' ')?.take(300)
+            if (message.isNullOrEmpty()) {
+                throwable.javaClass.simpleName
+            } else {
+                "${throwable.javaClass.simpleName}: $message"
+            }
+        }
+        val hint = startupFailureHint(error)
+        return if (hint == null) text else "$text\n\n$hint"
+    }
+
+    /** Short, actionable hint for the failures an exported app usually hits. */
+    private fun startupFailureHint(error: Throwable): String? {
+        var current: Throwable? = error
+        while (current != null) {
+            val message = current.message ?: ""
+            if (current is IOException && message.contains("project.zip")) {
+                return "O APK exportado não contém assets/project.zip " +
+                    "(ou o arquivo está corrompido). Exporte o APK novamente."
+            }
+            if (current is UnsatisfiedLinkError) {
+                return "Uma biblioteca nativa do APK não foi encontrada " +
+                    "(${message.ifEmpty { "UnsatisfiedLinkError" }}). " +
+                    "Isso acontece quando a arquitetura do processador " +
+                    "(${Build.SUPPORTED_ABIS.firstOrNull() ?: "desconhecida"}) não foi incluída na exportação."
+            }
+            if (message.contains("success=false")) {
+                return "O projeto empacotado no APK usa blocos que não existem " +
+                    "nesta versão do NewCatroid. Use o diálogo \"Build APK\" desta " +
+                    "versão para gerar o APK e um template marcado com \"PC blocks\"."
+            }
+            current = current.cause
+        }
+        return null
+    }
+
+    /**
+     * Shows [message] in a dialog, with the usual buttons to hand the text to the
+     * developer, and as a toast if even that fails. A dialog can only be shown
+     * while the activity is in a real window, so a notification is the last
+     * fallback - that is the only way to surface a failure of a background stage.
+     */
+    private fun showStartupProblem(title: String, message: String) {
+        if (isFinishing || isDestroyed) return
         try {
             AlertDialog.Builder(this)
-                .setTitle("Falha ao iniciar o NewCatroid")
+                .setTitle(title)
                 .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)
+                .setNeutralButton("Detalhes / Details") { _, _ -> showStartupDetailsDialog(title, message) }
+                .setNegativeButton("Copiar / Copy") { _, _ -> copyStartupProblemToClipboard(message) }
                 .show()
+            return
         } catch (dialogError: Throwable) {
-            Log.e(STARTUP_TAG, "startup.failure-dialog.failed stage=$currentStartupStage", dialogError)
-            try {
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-            } catch (toastError: Throwable) {
-                Log.e(STARTUP_TAG, "startup.failure-toast.failed", toastError)
+            Log.e(STARTUP_TAG, "startup.problem-dialog.failed", dialogError)
+        }
+        if (showToastOrFalse(message)) return
+        try {
+            val notification = android.app.Notification.Builder(this, STARTUP_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(android.app.Notification.BigTextStyle().bigText(message))
+                .setAutoCancel(true)
+                .build()
+            val manager = getSystemService(android.app.NotificationManager::class.java)
+            manager?.createNotificationChannel(
+                android.app.NotificationChannel(
+                    STARTUP_CHANNEL_ID,
+                    "Startup problems",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                )
+            )
+            manager?.notify(STARTUP_NOTIFICATION_ID, notification)
+        } catch (notificationError: Throwable) {
+            Log.e(STARTUP_TAG, "startup.problem-notification.failed", notificationError)
+        }
+    }
+
+    /**
+     * Full text of a startup failure in a scrollable dialog. The normal dialog
+     * truncates long messages, and the message is what the user has to send.
+     */
+    private fun showStartupDetailsDialog(title: String, message: String) {
+        try {
+            val textView = TextView(this).apply {
+                text = message
+                setPadding(48, 32, 48, 32)
+                textSize = 13f
+                setTextIsSelectable(true)
+                movementMethod = ScrollingMovementMethod()
             }
+            val dialog = Dialog(this)
+            dialog.setTitle("$title - detalhes")
+            dialog.setContentView(textView)
+            dialog.show()
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "startup.details-dialog.failed", error)
+            showStartupProblemToast(message)
+        }
+    }
+
+    private fun copyStartupProblemToClipboard(message: String) {
+        try {
+            val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(
+                android.content.ClipData.newPlainText("NewCatroid startup failure", message)
+            )
+            Toast.makeText(this, "Copiado / Copied", Toast.LENGTH_SHORT).show()
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "startup.copy-to-clipboard.failed", error)
+        }
+    }
+
+    private fun showStartupProblemToast(message: String) {
+        showToastOrFalse(message)
+    }
+
+    private fun showToastOrFalse(message: String): Boolean {
+        return try {
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            true
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "startup.problem-toast.failed", error)
+            false
+        }
+    }
+
+    /**
+     * Mirrors the current [runStartupStage] name into the splash screen.
+     *
+     * An exported app can spend a long time unpacking a multi hundred megabyte
+     * `project.zip`; showing the stage makes a slow start readable instead of a
+     * black screen, and it makes a screenshot of a hang useful in a bug report.
+     */
+    private fun updateSplashStatus(stage: String) {
+        if (!BuildConfig.FEATURE_APK_GENERATOR_ENABLED) return
+        val label = splashStageLabel(stage)
+        // The heavy initialization stages run on Dispatchers.IO, and a view may
+        // only be touched from the main thread.
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread { setSplashStatus(label) }
+        } else {
+            setSplashStatus(label)
+        }
+    }
+
+    private fun setSplashStatus(label: String) {
+        try {
+            findViewById<TextView>(R.id.standalone_splash_status)?.text = label
+        } catch (error: Throwable) {
+            Log.w(STARTUP_TAG, "startup.splash-status.failed", error)
+        }
+    }
+
+    /** Turns `standalone.unpack-project` into something a user can read. */
+    private fun splashStageLabel(stage: String): String {
+        return when {
+            stage.startsWith("standalone.unpack") || stage.startsWith("standalone.asset") ->
+                getString(R.string.standalone_splash_unpacking)
+            stage.startsWith("standalone.") -> getString(R.string.standalone_splash_loading)
+            else -> getString(R.string.standalone_splash_preparing)
         }
     }
 
@@ -404,27 +593,45 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
                         val remainingTime = 1400 - elapsedTime
                         if (remainingTime > 0) kotlinx.coroutines.delay(remainingTime)
 
-                        val performExitTransition = {
-                            runStartupStage("loading.start-exit-transition") {
-                                loadingBinding.root.pivotX = loadingBinding.root.width / 2f
-                                loadingBinding.root.pivotY = loadingBinding.root.height / 2f
-                                loadingBinding.root.animate()
-                                    .scaleX(3.5f)
-                                    .scaleY(3.5f)
-                                    .alpha(0f)
-                                    .setDuration(600)
-                                    .setInterpolator(android.view.animation.AccelerateInterpolator())
-                                    .withEndAction {
-                                        try {
-                                            runStartupStage("loading.remove-overlay") {
-                                                windowContent.removeView(loadingBinding.root)
+                        // The terms dialog of an exported app replaces the
+                        // content view, so the overlay has to be looked up again
+                        // here instead of using the reference from onCreate.
+                        val currentWindowContent = findViewById<android.view.ViewGroup>(android.R.id.content)
+                        val overlayAttached = try {
+                            currentWindowContent != null && loadingBinding.root.parent === currentWindowContent
+                        } catch (error: Throwable) {
+                            false
+                        }
+                        val performExitTransition: () -> Unit = if (!overlayAttached) {
+                            {
+                                // Nothing to animate: the overlay is not part of
+                                // the current content view any more.
+                                markLoadingOverlayRemoved()
+                            }
+                        } else {
+                            {
+                                runStartupStage("loading.start-exit-transition") {
+                                    loadingBinding.root.pivotX = loadingBinding.root.width / 2f
+                                    loadingBinding.root.pivotY = loadingBinding.root.height / 2f
+                                    loadingBinding.root.animate()
+                                        .scaleX(3.5f)
+                                        .scaleY(3.5f)
+                                        .alpha(0f)
+                                        .setDuration(600)
+                                        .setInterpolator(android.view.animation.AccelerateInterpolator())
+                                        .withEndAction {
+                                            try {
+                                                runStartupStage("loading.remove-overlay") {
+                                                    currentWindowContent.removeView(loadingBinding.root)
+                                                }
+                                                markLoadingOverlayRemoved()
+                                            } catch (error: Throwable) {
+                                                reportStartupFailure(error)
                                             }
-                                            markLoadingOverlayRemoved()
-                                        } catch (error: Throwable) {
-                                            reportStartupFailure(error)
                                         }
-                                    }
-                                    .start()
+                                        .start()
+                                }
+                                Unit
                             }
                         }
 
@@ -476,7 +683,18 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
     }
 
     private fun heavyInitialization() {
-        runStartupStage("native.initialize-libraries") { NativeLibraryManager.initialize() }
+        // A missing native library must not stop an exported app: the export
+        // dialog can leave Python, QEMU and the ML engines out on purpose (and a
+        // 32 bit only build has no Python at all), and the project may not use
+        // them. `NativeLibraryManager` already records what it could not load.
+        runStartupStage("native.initialize-libraries") {
+            try {
+                NativeLibraryManager.initialize()
+            } catch (error: Throwable) {
+                if (error is VirtualMachineError || error is ThreadDeath) throw error
+                Log.e(STARTUP_TAG, "native.initialize-libraries.failed", error)
+            }
+        }
         Log.i(
             STARTUP_TAG,
             "native.features python=${NativeLibraryManager.isLoaded(NativeLibraryManager.Feature.PYTHON)} " +
@@ -498,7 +716,10 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
 
     private fun loadFinalContent() {
         if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
-            runStartupStage("standalone.prepare-project") { prepareStandaloneProject() }
+            if (!standaloneStartHandled) {
+                standaloneStartHandled = true
+                runStartupStage("standalone.prepare-project") { prepareStandaloneProject() }
+            }
         } else {
             runStartupStage("menu.configure-toolbar") {
                 setSupportActionBar(findViewById(R.id.toolbar))
@@ -523,19 +744,68 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
         }
         if (oldPrivacyPolicy != Constants.CATROBAT_TERMS_OF_USE_ACCEPTED) {
             runStartupStage("menu.show-terms-of-use") { showTermsOfUseDialog() }
+        } else if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
+            // Reaching the main menu happens once per start; `loadFinalContent()`
+            // must not unpack and load the project this path has already loaded.
+            runStartupStage("standalone.continue-start") { standaloneStartHandled = true }
         }
 
-        runStartupStage("menu.initialize-survey") {
-            surveyCampaign = Survey(this)
-            surveyCampaign?.showSurvey(this)
+        // An exported app has no server-side survey, and the survey can touch the
+        // network before anything is on screen - keep it out of that path.
+        if (!BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
+            runStartupStage("menu.initialize-survey") {
+                surveyCampaign = Survey(this)
+                surveyCampaign?.showSurvey(this)
+            }
         }
         runStartupStage("menu.dispatch-activity-on-show") {
             PluginEventBus.getInstance().dispatch("Activity.onShow", "MainMenuActivity")
         }
     }
 
+    /**
+     * Asks for the terms of use before anything else runs.
+     *
+     * The answer is stored, and the stored value is what gates the project of an
+     * exported app: `loadContent()` only opens the bundled project once it is
+     * [Constants.CATROBAT_TERMS_OF_USE_ACCEPTED]. An empty implementation here
+     * therefore left every exported APK on a black splash screen - the dialog was
+     * never shown, so the value was never written.
+     */
     private fun showTermsOfUseDialog() {
+        try {
+            val binding = DialogTermsOfUseBinding.inflate(layoutInflater)
+            binding.dialogTermsOfUseTextViewInfo.setText(R.string.dialog_terms_of_use_info)
 
+            val urlTextView = binding.dialogTermsOfUseTextViewUrl
+            urlTextView.movementMethod = LinkMovementMethod.getInstance()
+            val urlText = getString(
+                R.string.terms_of_use_link_template,
+                Constants.CATROBAT_TERMS_OF_USE_URL,
+                getString(R.string.dialog_terms_of_use_link_text)
+            )
+            urlTextView.text = if (Build.VERSION.SDK_INT >= SDK_VERSION) {
+                Html.fromHtml(urlText, HtmlCompat.FROM_HTML_MODE_LEGACY)
+            } else {
+                Html.fromHtml(urlText)
+            }
+
+            AlertDialog.Builder(this)
+                .setView(binding.root)
+                .setTitle(R.string.dialog_terms_of_use_title)
+                .setCancelable(false)
+                .setPositiveButton(R.string.ok) { _, _ -> handleAgreedToPrivacyPolicyButton() }
+                .setNegativeButton(R.string.decline) { _, _ ->
+                    handleDeclinedPrivacyPolicyButton()
+                }
+                .show()
+        } catch (error: Throwable) {
+            // An exported app has no other way to reach its project, so a dialog
+            // that cannot be inflated must not leave it stuck: log the problem,
+            // record the acceptance and continue to the project.
+            Log.e(STARTUP_TAG, "standalone.terms-of-use.failed", error)
+            handleAgreedToPrivacyPolicyButton()
+        }
     }
 
     fun handleAgreedToPrivacyPolicyButton() {
@@ -590,7 +860,8 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
             val mainMenuSplashscreenBinding =
                 ActivityMainMenuSplashscreenBinding.inflate(layoutInflater)
             setContentView(mainMenuSplashscreenBinding.root)
-            if (oldPrivacyPolicy == Constants.CATROBAT_TERMS_OF_USE_ACCEPTED) {
+            if (oldPrivacyPolicy == Constants.CATROBAT_TERMS_OF_USE_ACCEPTED && !standaloneStartHandled) {
+                standaloneStartHandled = true
                 prepareStandaloneProject()
             }
             return
@@ -875,6 +1146,36 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
 
     private fun prepareStandaloneProject() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val projectDir = File(
+            FlavoredConstants.DEFAULT_ROOT_DIRECTORY,
+            FileMetaDataExtractor.encodeSpecialCharsForFileSystem(BuildConfig.PROJECT_NAME)
+        )
+        // Both of these are reset once the export (or the very first start) is
+        // done: `last_unpacked_apk_time` is the fingerprint of the APK the project
+        // directory was unpacked from, `standalone_project_version` the template
+        // generation that project was written by. The export token is written by
+        // `ApkToolboxManager` on every build and identifies the exact export, so
+        // the project inside a new APK is always unpacked even when the file time
+        // looks unchanged.
+        val forceRefresh = prefs.getBoolean(FORCE_PROJECT_REFRESH_KEY, false)
+        val lastUnpackedTemplate = prefs.getLong(LAST_UNPACKED_TEMPLATE_KEY, -1L)
+        val templateChanged = lastUnpackedTemplate != standaloneTemplateVersion
+        val exportToken = readExportToken()
+        val lastUnpackedToken = prefs.getString(LAST_UNPACKED_TOKEN_KEY, null)
+        val exportChanged = exportToken != null && exportToken != lastUnpackedToken
+
+        if (forceRefresh) {
+            Log.i(STARTUP_TAG, "standalone.project.refresh-forced")
+        }
+        if (templateChanged) {
+            Log.i(
+                STARTUP_TAG,
+                "standalone.project.template-changed was=$lastUnpackedTemplate now=$standaloneTemplateVersion"
+            )
+        }
+        if (exportChanged) {
+            Log.i(STARTUP_TAG, "standalone.project.export-changed token=$exportToken was=$lastUnpackedToken")
+        }
 
         val apkLastModified = try {
             File(packageCodePath).lastModified()
@@ -882,29 +1183,36 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
             0L
         }
 
-        val lastUnpackedApkTime = prefs.getLong("last_unpacked_apk_time", -1L)
-
-        val projectDir = File(
-            FlavoredConstants.DEFAULT_ROOT_DIRECTORY,
-            FileMetaDataExtractor.encodeSpecialCharsForFileSystem(BuildConfig.PROJECT_NAME)
-        )
-
-        if (apkLastModified <= lastUnpackedApkTime && projectDir.exists()) {
-            Log.d("STANDALONE", "Project is up to date (APK unchanged). Loading from storage.")
-            ProjectLoader(projectDir, this).setListener(this).loadProjectAsync()
-            return
+        if (!forceRefresh && !templateChanged && !exportChanged) {
+            val lastUnpackedApkTime = prefs.getLong("last_unpacked_apk_time", -1L)
+            if (apkLastModified <= lastUnpackedApkTime && projectDir.exists()) {
+                Log.d("STANDALONE", "Project is up to date (APK unchanged). Loading from storage.")
+                ProjectLoader(projectDir, this).setListener(this).loadProjectAsync()
+                return
+            }
         }
 
-        Log.d("STANDALONE", "APK update detected or first launch (APK time: $apkLastModified, Last: $lastUnpackedApkTime). Running selective update...")
+        Log.d(
+            "STANDALONE",
+            "Unpacking the bundled project " +
+                "(forceRefresh=$forceRefresh templateChanged=$templateChanged exportChanged=$exportChanged)"
+        )
 
+        var unpackDir: File? = null
         try {
             val tempDir = File(cacheDir, "standalone_temp_${System.currentTimeMillis()}")
+            unpackDir = tempDir
             val assetName = BuildConfig.START_PROJECT + ".zip"
             Log.i(STARTUP_TAG, "standalone.asset.open=$assetName")
             assets.open(assetName).use { inputStream ->
                 ZipArchiver().unzip(inputStream, tempDir)
             }
             Log.d("STANDALONE", "Unpacked new template assets to temporary directory: ${tempDir.path}")
+            if (!File(tempDir, CODE_XML_FILE_NAME).exists()) {
+                // A half written asset would look like a project that cannot be
+                // parsed; say what is actually wrong instead.
+                throw IOException("$assetName does not contain $CODE_XML_FILE_NAME")
+            }
 
             if (projectDir.exists()) {
                 Log.d("STANDALONE", "Old project found. Updating assets and preserving user data...")
@@ -934,14 +1242,37 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
                 }
             }
 
-            ProjectLoader(projectDir, this).setListener(this).loadProjectAsync()
-
-            prefs.edit().putLong("last_unpacked_apk_time", apkLastModified).apply()
+            // The flags are cleared before the load starts: the load callback
+            // cannot fail for a stale-directory reason any more, and a crash
+            // during the load would otherwise repeat the migration for ever.
+            prefs.edit()
+                .putLong("last_unpacked_apk_time", apkLastModified)
+                .putLong(LAST_UNPACKED_TEMPLATE_KEY, standaloneTemplateVersion)
+                .putString(LAST_UNPACKED_TOKEN_KEY, exportToken)
+                .putBoolean(FORCE_PROJECT_REFRESH_KEY, false)
+                .apply()
             Log.d("STANDALONE", "Update complete. Saved APK timestamp: $apkLastModified")
+
+            ProjectLoader(projectDir, this).setListener(this).loadProjectAsync()
 
         } catch (e: IOException) {
             Log.e(STARTUP_TAG, "stage.failed=standalone.unpack-project asset=${BuildConfig.START_PROJECT}.zip", e)
+            // Leave the temporary directory behind: the project directory is
+            // only replaced after a complete unpack, so the previous project is
+            // still loadable below.
+            // Do not retry the same broken unpack on every start; a new APK, a
+            // new export token or a different template generation clears the
+            // markers again.
+            prefs.edit()
+                .putBoolean(FORCE_PROJECT_REFRESH_KEY, false)
+                .putLong(LAST_UNPACKED_TEMPLATE_KEY, standaloneTemplateVersion)
+                .putString(LAST_UNPACKED_TOKEN_KEY, exportToken)
+                .apply()
+            // A partially unpacked copy would only waste space: the project
+            // directory is replaced as a whole, after a complete unpack.
+            unpackDir?.deleteRecursively()
             if (projectDir.exists()) {
+                Log.w(STARTUP_TAG, "standalone.unpack.fallback-to-existing-project dir=$projectDir")
                 runStartupStage("standalone.fallback-load-existing-project") {
                     ProjectLoader(projectDir, this).setListener(this).loadProjectAsync()
                 }
@@ -987,7 +1318,55 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
                 reportStartupFailure(error)
             }
         } else {
-            reportStartupFailure(IllegalStateException("ProjectLoader reported success=false for the bundled standalone project"))
+            // The project's `code.xml` could not be turned into a Project. The
+            // usual cause in an exported APK is a brick the template does not
+            // have; the loader logs the XStream message under its own tag.
+            val hint = standaloneProjectLoadHint()
+            reportStartupFailure(
+                IllegalStateException(
+                    "ProjectLoader reported success=false for the bundled standalone project" +
+                        (if (hint == null) "" else " ($hint)")
+                )
+            )
+        }
+    }
+
+    /**
+     * Token that `ApkToolboxManager` writes into every APK it exports, or `null`
+     * for an APK that was not produced by the export dialog.
+     */
+    private fun readExportToken(): String? {
+        return try {
+            assets.open(EXPORT_TOKEN_ASSET).use { stream ->
+                stream.readBytes().toString(Charsets.UTF_8).trim().ifEmpty { null }
+            }
+        } catch (e: IOException) {
+            Log.d(STARTUP_TAG, "standalone.export-token.missing (${e.javaClass.simpleName})")
+            null
+        }
+    }
+
+    /**
+     * Something useful to show when the bundled project cannot be loaded.
+     *
+     * The loader swallows the parser message, but the brick names in `code.xml`
+     * are readable, and a missing `code.xml` (or a project directory that lost
+     * its media) is a different, equally common problem.
+     */
+    private fun standaloneProjectLoadHint(): String? {
+        return try {
+            val projectDir = File(
+                FlavoredConstants.DEFAULT_ROOT_DIRECTORY,
+                FileMetaDataExtractor.encodeSpecialCharsForFileSystem(BuildConfig.PROJECT_NAME)
+            )
+            val codeXml = File(projectDir, CODE_XML_FILE_NAME)
+            when {
+                !projectDir.isDirectory -> "project directory $projectDir is missing"
+                !codeXml.exists() -> "$CODE_XML_FILE_NAME is missing in $projectDir"
+                else -> "the template of this APK cannot parse $CODE_XML_FILE_NAME"
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -1012,6 +1391,26 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
     companion object {
         val TAG = MainMenuActivity::class.java.simpleName
         private const val STARTUP_TAG = "NewCatroidStartup"
+        private const val CODE_XML_FILE_NAME = "code.xml"
+
+        /**
+         * Bumped whenever the layout of the project a template carries changes.
+         * An APK unpacked from an older template unpacks `assets/project.zip`
+         * again on the next start instead of reusing the stale directory.
+         */
+        private const val STANDALONE_TEMPLATE_VERSION = 2L
+
+        /** Set by the export, so the first start of a fresh APK rescans everything. */
+        const val FORCE_PROJECT_REFRESH_KEY = "standalone_force_project_refresh"
+        private const val LAST_UNPACKED_TEMPLATE_KEY = "standalone_project_template"
+        private const val LAST_UNPACKED_TOKEN_KEY = "standalone_project_export_token"
+
+        /** Written into every exported APK by [org.catrobat.catroid.apkbuild.ApkToolboxManager]. */
+        private const val EXPORT_TOKEN_ASSET = "standalone_export_token.txt"
+        private const val STARTUP_CHANNEL_ID = "newcatroid_startup"
+        private const val STARTUP_NOTIFICATION_ID = 4242
+
+        private const val standaloneTemplateVersion = STANDALONE_TEMPLATE_VERSION
 
         @JvmField
         @SuppressLint("StaticFieldLeak")

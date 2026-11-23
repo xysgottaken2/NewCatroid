@@ -540,13 +540,36 @@ What the layer does about it:
 * `ProjectScanner` reports `hasPcGames` when `code.xml` contains a `Pc…Brick` or one
   of the RAM sensors. Such a project preselects the PC template, labels it
   `· PC blocks`, and gets the storage + internet permissions pre-checked.
-* Before patching, the builder scans `classes*.dex` of the downloaded template for
-  `PcLaunchGameBrick`, `PcShowLauncherBrick`, `PcDownloadPackBrick` and
-  `PcRamCheckBrick`. If the project needs them and the template does not have
-  them, **the build stops** with an explanation instead of producing a broken APK.
+* Before patching, the builder checks the **whole** set of classes the project
+  uses - every `<brick type="…">` and `<script type="…">` of `code.xml` - against
+  the dex files of the downloaded template (`BrickCoverage`). If any of them is
+  missing, **the build stops** with an explanation instead of producing an APK
+  that cannot load its own project.
+* After signing, the finished file is checked again (`verifyExportedApk`): the
+  project classes have to be in it and `assets/project.zip` has to contain a
+  `code.xml`. A broken result is never offered for sharing.
+* The workflow that publishes the template verifies it the same way
+  (`tools/verify_template_classes.py`), so a template release can no longer lose
+  a brick silently.
 
-Two consequences to keep in mind:
+### "The exported APK is black and then closes"
 
+That symptom is the APK failing after its splash screen. The causes, in the order
+the checks catch them:
+
+| Symptom in the exported app | Cause | Fixed by |
+| --- | --- | --- |
+| Splash for a moment, then the app closes; Logcat tag `NewCatroidStartup` says `stage.result=standalone.project-load success=false` | The project uses a brick the template was not built with, so XStream cannot parse `code.xml` | The build now refuses the template; use the template marked `PC blocks` |
+| Same, but the message mentions `assets/project.zip` | The exported APK has no readable `project.zip` / no `code.xml` | The export verifies the finished APK |
+| Splash stays forever, no error | The startup stage hangs (a huge `project.zip`, a native library that takes long) | The splash screen now shows the running stage, and a 45 s watchdog dialog appears |
+| App closes on a device where the normal NewCatroid works | The exported APK has no native library for that CPU (32 bit device, `x86`) | Choose both ABIs, or the ABI of the device, in the build dialog |
+| First start shows the **template's** project instead of yours | The exported app reused the project directory of the previous install | Every export writes a token (`assets/standalone_export_token.txt`) that forces a fresh unpack |
+
+A few consequences to keep in mind:
+
+* An exported APK logs its startup under the `NewCatroidStartup` tag; the same
+  text is offered by the failure dialog (buttons *Detalhes* and *Copiar*), so a
+  report does not need `adb`.
 * The exported APK is a **separate app** with its own private storage. Packs
   (drivers, DXVK, runtime, rootfs) are stored per app, so they have to be imported
   again in the exported launcher - the project settings (`config.json`, touch
@@ -572,8 +595,15 @@ Two consequences to keep in mind:
 * **Экспорт APK**: кнопка «Build APK» не компилирует проект, а патчит готовый
   APK-шаблон, поэтому шаблон должен быть собран из этой же ветки. Ветка сама
   публикует такой шаблон (`NewCatroid_APKTemplate_PC.apk`, релиз
-  `NewCatroid-Template`), а если в проекте есть блоки ПК-игр, а в шаблоне их
-  нет — сборка останавливается с объяснением, вместо «чёрного экрана».
+  `NewCatroid-Template`). Перед сборкой проверяется, что **все** блоки и
+  скрипты проекта есть в dex-файлах шаблона, а после подписи — что в готовом
+  APK есть `assets/project.zip` с `code.xml`. Если чего-то нет, сборка
+  останавливается с объяснением и файл не сохраняется, вместо «чёрного экрана».
+* **Если экспортированный APK всё же закрывается**: в нём теперь есть заставка
+  с текущим этапом запуска, а ошибка показывается диалогом с кнопками
+  «Detalhes» (полный текст) и «Copiar» (в буфер обмена) — Logcat не нужен.
+  Каждый экспорт пишет свой токен, поэтому новая сборка всегда распаковывает
+  свой проект, а не проект предыдущей установки.
 * **Пакеты** (zip) импортируются пользователем: `rootfs` (Linux-окружение с
   `Xvfb` и `x11vnc`), `runtime` (`bin/box64` + `bin/wine` для aarch64),
   графический драйвер (Turnip/AdrenoTools, Zink, SwiftShader) и слой D3D

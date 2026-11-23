@@ -103,7 +103,8 @@ class ProjectLibsFragment : Fragment() {
             return
         }
 
-        val authority = "${BuildConfig.APPLICATION_ID}.provider"
+        // Only `fileProvider` exists in the manifest; `.provider` was never registered.
+        val authority = "${BuildConfig.APPLICATION_ID}.fileProvider"
         val uri = FileProvider.getUriForFile(requireContext(), authority, file)
 
         val intent = Intent(Intent.ACTION_VIEW)

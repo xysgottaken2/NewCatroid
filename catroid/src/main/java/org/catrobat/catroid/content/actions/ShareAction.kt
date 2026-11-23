@@ -44,7 +44,11 @@ class ShareAction : TemporalAction() {
     }
 
     private fun shareFile(activity: android.app.Activity, file: File) {
-        val authority = "${activity.packageName}.fileprovider"
+        // The manifest declares exactly `${applicationId}.fileProvider`; any
+        // other authority fails with IllegalArgumentException. The package id
+        // differs in an exported APK, so it has to come from the activity.
+        // The file also has to be granted to the receiving app.
+        val authority = "${activity.packageName}.fileProvider"
         val uri = FileProvider.getUriForFile(activity, authority, file)
 
         val extension = MimeTypeMap.getFileExtensionFromUrl(file.path)

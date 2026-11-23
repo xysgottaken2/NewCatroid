@@ -29,6 +29,39 @@ object ProjectScanner {
         val hasPcGames: Boolean = false
     )
 
+    /**
+     * Simple class names of every brick and script the project uses, taken from
+     * `code.xml` (`<brick type="...">`, `<script type="...">`).
+     *
+     * A template APK can only run the classes it was built with, so these are the
+     * names that have to exist inside the template before an export can work -
+     * see [BrickCoverage]. Reading the XML textually keeps this usable from unit
+     * tests and from the build dialog without a full XStream round trip.
+     */
+    fun referencedClasses(projectDir: File): List<String> {
+        val codeXml = File(projectDir, "code.xml")
+        if (!codeXml.exists()) return emptyList()
+        val names = LinkedHashSet<String>()
+        try {
+            codeXml.bufferedReader().use { reader ->
+                reader.forEachLine { line ->
+                    for (match in BRICK_TYPE.findAll(line)) {
+                        names.add(match.groupValues[1])
+                    }
+                    for (match in SCRIPT_TYPE.findAll(line)) {
+                        names.add(match.groupValues[1])
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return names.toList()
+    }
+
+    private val BRICK_TYPE = Regex("""<brick\s+type="([A-Za-z0-9_]+)"""")
+    private val SCRIPT_TYPE = Regex("""<script\s+type="([A-Za-z0-9_]+)"""")
+
     fun scanProject(projectDir: File): ScanResult {
         val codeXml = File(projectDir, "code.xml")
         if (!codeXml.exists()) {
