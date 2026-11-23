@@ -559,7 +559,7 @@ the checks catch them:
 
 | Symptom in the exported app | Cause | Fixed by |
 | --- | --- | --- |
-| Splash for a moment, then the app closes; Logcat tag `NewCatroidStartup` says `stage.result=standalone.project-load success=false` | The project uses a brick the template was not built with, so XStream cannot parse `code.xml` | The build now refuses the template; use the template marked `PC blocks` |
+| Splash for a moment, then the app closes; Logcat tag `NewCatroidStartup` says `stage.result=standalone.project-load success=false` (the dialog repeats the reason) | The project uses a brick the template was not built with, so XStream cannot parse `code.xml` | The build now refuses the template; use the template marked `PC blocks` |
 | Same, but the message mentions `assets/project.zip` | The exported APK has no readable `project.zip` / no `code.xml` | The export verifies the finished APK |
 | Splash stays forever, no error | The startup stage hangs (a huge `project.zip`, a native library that takes long) | The splash screen now shows the running stage, and a 45 s watchdog dialog appears |
 | App closes on a device where the normal NewCatroid works | The exported APK has no native library for that CPU (32 bit device, `x86`) | Choose both ABIs, or the ABI of the device, in the build dialog |
@@ -569,7 +569,10 @@ A few consequences to keep in mind:
 
 * An exported APK logs its startup under the `NewCatroidStartup` tag; the same
   text is offered by the failure dialog (buttons *Detalhes* and *Copiar*), so a
-  report does not need `adb`.
+  report does not need `adb`. The order is: splash screen -> terms of use (only
+  on the first start) -> unpack `assets/project.zip` if the export token or the
+  template generation changed -> load the project -> stage. Nothing else runs in
+  that way, and any failure in it is reported instead of closing silently.
 * The exported APK is a **separate app** with its own private storage. Packs
   (drivers, DXVK, runtime, rootfs) are stored per app, so they have to be imported
   again in the exported launcher - the project settings (`config.json`, touch

@@ -116,10 +116,10 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
     /**
      * Set when the project of an exported app has been handed to the loader.
      *
-     * An exported app reaches `prepareStandaloneProject()` from two places: the
-     * terms-of-use acceptance (which runs before the main menu is shown) and
-     * `loadFinalContent()`. Without this flag an APK that accepted the terms once
-     * would unpack and load its project twice per start.
+     * An exported app can reach the project from two places: the terms-of-use
+     * dialog (first start) and `loadFinalContent()` (every later start). Both go
+     * through `startStandaloneProjectIfAllowed()`, and without this flag a start
+     * would unpack and load the project a second time.
      */
     private var standaloneStartHandled = false
     private var startupMenuFirstLayout = false
@@ -715,12 +715,9 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
     }
 
     private fun loadFinalContent() {
-        if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
-            if (!standaloneStartHandled) {
-                standaloneStartHandled = true
-                runStartupStage("standalone.prepare-project") { prepareStandaloneProject() }
-            }
-        } else {
+        // An exported app reaches the project through
+        // `startStandaloneProjectIfAllowed()` below, after the terms of use.
+        if (!BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
             runStartupStage("menu.configure-toolbar") {
                 setSupportActionBar(findViewById(R.id.toolbar))
                 supportActionBar?.setIcon(R.drawable.pc_toolbar_icon)
@@ -742,12 +739,18 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
             oldPrivacyPolicy = PreferenceManager.getDefaultSharedPreferences(this)
                 .getInt(SharedPreferenceKeys.AGREED_TO_PRIVACY_POLICY_VERSION, 0)
         }
-        if (oldPrivacyPolicy != Constants.CATROBAT_TERMS_OF_USE_ACCEPTED) {
+        if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
+            // An exported app has one screen and one project: no terms answer
+            // means no project yet, and the dialog above starts it.
+            if (oldPrivacyPolicy != Constants.CATROBAT_TERMS_OF_USE_ACCEPTED) {
+                runStartupStage("standalone.pending-terms-of-use")
+            } else {
+                runStartupStage("standalone.continue-start") { startStandaloneProjectIfAllowed() }
+            }
+        } else if (oldPrivacyPolicy != Constants.CATROBAT_TERMS_OF_USE_ACCEPTED) {
             runStartupStage("menu.show-terms-of-use") { showTermsOfUseDialog() }
-        } else if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
-            // Reaching the main menu happens once per start; `loadFinalContent()`
-            // must not unpack and load the project this path has already loaded.
-            runStartupStage("standalone.continue-start") { standaloneStartHandled = true }
+        } else {
+            // No terms dialog on this start, nothing else to do here.
         }
 
         // An exported app has no server-side survey, and the survey can touch the
@@ -817,7 +820,7 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
             )
             .apply()
         if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
-            prepareStandaloneProject()
+            runStartupStage("standalone.prepare-project") { startStandaloneProjectIfAllowed() }
         }
     }
 
@@ -857,13 +860,10 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
 
     private fun loadContent() {
         if (BuildConfig.FEATURE_APK_GENERATOR_ENABLED) {
-            val mainMenuSplashscreenBinding =
-                ActivityMainMenuSplashscreenBinding.inflate(layoutInflater)
-            setContentView(mainMenuSplashscreenBinding.root)
-            if (oldPrivacyPolicy == Constants.CATROBAT_TERMS_OF_USE_ACCEPTED && !standaloneStartHandled) {
-                standaloneStartHandled = true
-                prepareStandaloneProject()
-            }
+            // The splash screen is already the content view (see onCreate), and
+            // the project is started by `loadFinalContent()` once the terms of
+            // use are answered. Replacing the view here would also drop the
+            // overlay the loading animation needs.
             return
         }
         mainMenuBinding = ActivityMainMenuBinding.inflate(layoutInflater)
@@ -1142,6 +1142,26 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
             else -> return super.onOptionsItemSelected(item)
         }
         return true
+    }
+
+    /**
+     * Starts the bundled project exactly once, and only when the terms of use
+     * have been accepted: the answer is what gates the project of an exported
+     * app, and starting it twice would unpack and load it twice.
+     */
+    private fun startStandaloneProjectIfAllowed() {
+        if (!BuildConfig.FEATURE_APK_GENERATOR_ENABLED) return
+        if (standaloneStartHandled) return
+        val accepted = PreferenceManager.getDefaultSharedPreferences(this)
+            .getInt(SharedPreferenceKeys.AGREED_TO_PRIVACY_POLICY_VERSION, 0) ==
+            Constants.CATROBAT_TERMS_OF_USE_ACCEPTED
+        if (!accepted) {
+            Log.i(STARTUP_TAG, "standalone.project.waiting-for-terms")
+            return
+        }
+        standaloneStartHandled = true
+        oldPrivacyPolicy = Constants.CATROBAT_TERMS_OF_USE_ACCEPTED
+        runStartupStage("standalone.prepare-project") { prepareStandaloneProject() }
     }
 
     private fun prepareStandaloneProject() {
