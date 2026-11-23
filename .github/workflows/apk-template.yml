@@ -87,7 +87,13 @@ jobs:
           # closes right after its splash screen. Verify the whole set (bricks,
           # scripts and the physics bricks) against the dex string pools instead
           # of a handful of markers.
-          python3 tools/verify_template_classes.py --apk "$APK"
+          if ! python3 tools/verify_template_classes.py --apk "$APK"; then
+            # Surface the reason as an annotation: the step log is not always
+            # available, and the list of missing classes is what has to be fixed.
+            python3 tools/verify_template_classes.py --apk "$APK" 2>&1 \
+              | sed 's/^/::error title=Template verification::/'
+            exit 1
+          fi
 
       - name: Upload the APK as a workflow artifact
         uses: actions/upload-artifact@v4

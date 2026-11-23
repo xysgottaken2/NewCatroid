@@ -130,6 +130,26 @@ class MissingClassesTest(unittest.TestCase):
             )
             self.assertEqual(["WaitBrick"], vtc.missing_classes(apk, ["WaitBrick"]))
 
+    def test_a_nested_class_is_found_under_its_own_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # `CatchBrick` and `FinallyBrick` are declared inside
+            # `TryCatchFinallyBrick`, so their descriptor has a `$` in it:
+            # `L.../bricks/TryCatchFinallyBrick$CatchBrick;`. `code.xml` still
+            # names them by their simple name.
+            apk = build_apk(
+                Path(tmp) / "template.apk",
+                {
+                    "classes.dex": [
+                        "Lorg/catrobat/catroid/content/bricks/TryCatchFinallyBrick;",
+                        "Lorg/catrobat/catroid/content/bricks/TryCatchFinallyBrick$CatchBrick;",
+                    ]
+                },
+            )
+            self.assertEqual(
+                [],
+                vtc.missing_classes(apk, ["TryCatchFinallyBrick", "CatchBrick"]),
+            )
+
     def test_the_report_names_every_missing_class(self):
         with tempfile.TemporaryDirectory() as tmp:
             apk = build_apk(

@@ -102,21 +102,28 @@ def apk_strings(apk: Path) -> set[str]:
     return strings
 
 
+def simple_names(descriptors: set[str]) -> set[str]:
+    """Class names of the descriptors under the brick/script packages.
+
+    A nested class has a ``$`` in its descriptor
+    (``L.../bricks/TryCatchFinallyBrick$CatchBrick;``), a top level one does
+    not. Both are looked at by their own name, because that is what ``code.xml``
+    stores in ``type``.
+    """
+    names: set[str] = set()
+    for descriptor in descriptors:
+        if not descriptor.startswith(DESCRIPTOR_PREFIXES) or not descriptor.endswith(";"):
+            continue
+        path = descriptor[1:-1]
+        for segment in re.split(r"[/$]", path):
+            if segment:
+                names.add(segment)
+    return names
+
+
 def missing_classes(apk: Path, names: list[str]) -> list[str]:
-    strings = apk_strings(apk)
-    present = {
-        descriptor
-        for descriptor in strings
-        if descriptor.startswith(DESCRIPTOR_PREFIXES)
-    }
-    missing = []
-    for name in names:
-        if not any(
-            descriptor.endswith("/" + name + ";") or descriptor == "L" + name + ";"
-            for descriptor in present
-        ):
-            missing.append(name)
-    return missing
+    present = simple_names(apk_strings(apk))
+    return [name for name in names if name not in present]
 
 
 def main(argv: list[str] | None = None) -> int:
