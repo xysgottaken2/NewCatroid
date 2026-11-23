@@ -743,7 +743,7 @@ class MainMenuActivity : BaseCastActivity(), ProjectLoadListener {
             // An exported app has one screen and one project: no terms answer
             // means no project yet, and the dialog above starts it.
             if (oldPrivacyPolicy != Constants.CATROBAT_TERMS_OF_USE_ACCEPTED) {
-                runStartupStage("standalone.pending-terms-of-use")
+                Log.i(STARTUP_TAG, "standalone.project.pending-terms-of-use")
             } else {
                 runStartupStage("standalone.continue-start") { startStandaloneProjectIfAllowed() }
             }
