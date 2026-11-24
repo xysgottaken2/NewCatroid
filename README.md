@@ -18,7 +18,12 @@
   <a href="https://github.com/xysgottaken2/NewCatroid/releases/latest/download/NewCatroid_debug_latest.apk"><b>Скачать последнюю debug-сборку (APK)</b></a><br/>
   <sub>Постоянная ссылка: обновляется при каждой зелёной сборке CI, не истекает как артефакт прогона.
   Сборка с блоком ПК-игр — ветка <code>arena/53445679-newcatroid</code>. Если в проекте есть блоки ПК-игр,
-  шаблон для «Build APK» берётся из релиза <a href="https://github.com/xysgottaken2/NewCatroid/releases/tag/NewCatroid-Template">NewCatroid-Template</a>.</sub>
+  шаблон для «Build APK» берётся из релиза <a href="https://github.com/xysgottaken2/NewCatroid/releases/tag/NewCatroid-Template">NewCatroid-Template</a>.</sub><br/>
+  <sub>Артефакты вкладки Actions на телефоне неудобны: они требуют входа в GitHub и приходят zip-архивом.
+  Для установки с телефона берите готовый APK из
+  <a href="https://github.com/xysgottaken2/NewCatroid/releases">релизов</a> — это прямая ссылка на файл,
+  Android ставит его по нажатию. Каждый релиз помечен версией, и его <code>versionCode</code> выше
+  предыдущего, поэтому обновление ставится поверх предыдущей сборки.</sub>
 </p>
 
 **Основные улучшения:**
