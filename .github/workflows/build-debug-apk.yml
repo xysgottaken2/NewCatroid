@@ -347,28 +347,78 @@ jobs:
             exit 1
           fi
 
-          VERSION="${{ github.event.inputs.release_name }}"
+          VERSION=""
+          NAME_WAS_GIVEN=0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.release_name }}"
+          fi
           VERSION="${VERSION#v}"
-          NAME_WAS_GIVEN=1
+          VERSION_NAME="$(sed -n 's/^def defaultVersionName = "\{0,1\}\([0-9][^"]*\)"\{0,1\}$/\1/p' catroid/build.gradle)"
           if [ -z "$VERSION" ]; then
-            NAME_WAS_GIVEN=0
-            VERSION="$(sed -n 's/^def defaultVersionName = "\{0,1\}\([0-9][^"]*\)"\{0,1\}$/\1/p' catroid/build.gradle)"
-            VERSION="${VERSION}-build${GITHUB_RUN_NUMBER}"
+            VERSION="${VERSION_NAME}-build${GITHUB_RUN_NUMBER}"
+          else
+            NAME_WAS_GIVEN=1
           fi
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9A-Za-z._-]+$'; then
-            echo "Invalid release name: $VERSION" >&2
-            exit 1
-          fi
+          case "$VERSION" in
+            *[!0-9A-Za-z._-]*)
+              echo "Invalid release name: $VERSION" >&2
+              exit 1
+              ;;
+          esac
 
           VERSION_CODE="$(sed -n 's/^def defaultVersionCode = \([0-9][0-9]*\)$/\1/p' catroid/build.gradle)"
-          VERSION_NAME="$(sed -n 's/^def defaultVersionName = "\{0,1\}\([0-9][^"]*\)"\{0,1\}$/\1/p' catroid/build.gradle)"
           TAG="v$VERSION"
           SHORT_SHA="$(git rev-parse --short HEAD)"
           FILE_NAME="NewCatroid_${VERSION}_arm64.apk"
+          DOWNLOAD_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE_NAME"
           cp "$APK_PATH" "/tmp/$FILE_NAME"
           ( cd /tmp && sha256sum "$FILE_NAME" > "$FILE_NAME.sha256" )
           SIZE="$(du -h "/tmp/$FILE_NAME" | cut -f1)"
-          EXTRA_NOTES="${{ github.event.inputs.release_notes }}"
+
+          # The notes are written to a file: a backtick in a --notes argument is a
+          # command substitution for the shell, which silently broke the release.
+          EXTRA_NOTES=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            EXTRA_NOTES="${{ github.event.inputs.release_notes }}"
+          fi
+          {
+            if [ -n "$EXTRA_NOTES" ]; then
+              echo "$EXTRA_NOTES"
+              echo
+            fi
+            cat <<EOF
+          ## Как установить / How to install
+
+          1. Откройте ссылку на телефоне и нажмите на APK (вход в GitHub не нужен):
+             $DOWNLOAD_URL
+          2. Разрешите браузеру установку неизвестных приложений, если Android спросит.
+          3. Пакет org.DanVexTeam.NewCatroid.ci ставится рядом с обычной сборкой,
+             проекты не затрагиваются.
+
+          ## Что нового / What is new
+
+          * Исправлен запуск экспортированного APK: диалог условий использования был пустым,
+            поэтому встроенный проект не распаковывался и приложение закрывалось сразу
+            после заставки.
+          * Экспорт проверяется по шаблону: все блоки и скрипты проекта должны быть в
+            шаблоне, а готовый APK проверяется перед сохранением.
+          * Шаблоны APK этого репозитория снова полные (проверены все 713 классов).
+          * Заставка экспортированного APK показывает текущий этап запуска, а ошибка
+            выводится в диалоге с подробностями и копированием, а не молчаливым закрытием.
+          * Каждый экспорт пишет свой токен, поэтому новая сборка всегда распаковывает
+            свой проект, а не проект прошлой установки.
+
+          ## Технические данные / Technical details
+
+          * versionName: $VERSION_NAME
+          * versionCode: $VERSION_CODE
+          * размер / size: $SIZE
+          * sha256: в файле $FILE_NAME.sha256
+          * commit: $SHORT_SHA
+          * сборка / built by: run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+          * шаблон для «Build APK» / APK template: релиз NewCatroid-Template
+          EOF
+          } > /tmp/release-notes.md
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists - uploading the asset to it"
@@ -376,42 +426,21 @@ jobs:
             gh release create "$TAG" \
               --target "$GITHUB_SHA" \
               --title "NewCatroid $VERSION" \
-              --notes "NewCatroid $VERSION"
+              --notes-file /tmp/release-notes.md
           fi
           gh release upload "$TAG" "/tmp/$FILE_NAME" "/tmp/$FILE_NAME.sha256" --clobber
-          gh release edit "$TAG" --latest --title "NewCatroid $VERSION" --notes "${EXTRA_NOTES:+$EXTRA_NOTES
-
-          }## Как установить / How to install
-
-          1. Tap the APK (direct link, no GitHub login needed):
-             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE_NAME
-          2. Allow "install unknown apps" for the browser when Android asks.
-          3. The package is org.DanVexTeam.NewCatroid.ci - it installs next to the
-             Play-style build, so no existing project is touched.
-
-          ## Что внутри / What is in it
-
-          * fixes the exported-APK startup: the terms dialog of an exported app was empty, so
-            its bundled project was never unpacked and the app closed right after the splash;
-          * exports are now checked against the template (every brick and script must exist in
-            it) and the finished APK is verified before it is offered;
-          * APK templates of this repository are complete again (713 classes verified);
-          * the splash screen of an exported APK shows the running startup stage, and a failure
-            is shown in a dialog with details/copy instead of a silent close;
-          * every export writes an export token, so a new build always unpacks its own project.
-
-          ## Технические данные / Technical details
-
-          * versionName $VERSION_NAME, versionCode $VERSION_CODE
-          * size $SIZE, sha256 in $FILE_NAME.sha256
-          * commit $SHORT_SHA, built by run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
-          * the APK template for the in-app *Build APK* dialog is attached to the NewCatroid-Template release"
+          # No --latest on purpose: the workflow starts on every push, and marking
+          # this release latest on each run would move `releases/latest` back to
+          # it, away from the rolling NewCatroid-debug-apk release the README and
+          # the in-app "download the newest build" link point at. The versioned
+          # release is reached from the releases page instead.
+          gh release edit "$TAG" --title "NewCatroid $VERSION" --notes-file /tmp/release-notes.md
 
           gh release view "$TAG" --json tagName,url,assets --jq '"released \(.tagName): \(.url)", (.assets[] | "  \(.name) \(.size) bytes")'
           if [ "$NAME_WAS_GIVEN" = "1" ]; then
             {
               echo "### Release published"
-              echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE_NAME"
+              echo "$DOWNLOAD_URL"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
