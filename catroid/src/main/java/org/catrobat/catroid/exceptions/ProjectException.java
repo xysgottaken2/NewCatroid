@@ -38,6 +38,11 @@ public abstract class ProjectException extends Exception {
 		uiErrorMessage = message;
 	}
 
+	public ProjectException(String message, Throwable cause) {
+		super(message, cause);
+		uiErrorMessage = message;
+	}
+
 	public String getUiErrorMessage() {
 		return uiErrorMessage;
 	}

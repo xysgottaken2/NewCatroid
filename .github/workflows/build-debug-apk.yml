@@ -3,8 +3,23 @@ name: Build Debug APK
 on:
   workflow_dispatch:
     inputs:
+      release_name:
+        description: 'Version of the dated release, e.g. 2.3.0 (empty = only the rolling debug release)'
+        required: false
+        type: string
+        default: ''
+      release_notes:
+        description: 'Short description for that release (optional)'
+        required: false
+        type: string
+        default: ''
       report_failures:
         description: 'Post build/test failure details as a comment on the run commit (optional)'
+        required: false
+        type: boolean
+        default: false
+      run_full_suite:
+        description: 'Run the optional full unit test suite after APK upload (diagnostic only)'
         required: false
         type: boolean
         default: false
@@ -19,9 +34,11 @@ env:
 
 jobs:
   localweb-tests:
-    name: Unit tests (local web blocks)
+    name: Unit tests (local web and streamed downloads)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      PLAYGTA5_WORKER_SOURCE: /tmp/newcatroid-playgta5-wgpu-worker.js
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,6 +56,11 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Prepare project (CI applicationId, Firebase config, midi packages)
         run: |
           sed -i 's/applicationId "org.DanVexTeam.NewCatroid"/applicationId "org.DanVexTeam.NewCatroid.ci"/g' catroid/build.gradle
@@ -50,13 +72,21 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Fetch pinned public renderer for integration test (no game assets)
+        run: curl --fail --location --retry 3 --proto '=https' 'https://raw.githubusercontent.com/shadany7824/playgta5/2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js' --output "$PLAYGTA5_WORKER_SOURCE"
+
       - name: Run local web block tests
         run: |
           set -o pipefail
           ./gradlew :catroid:testDanvexDebugUnitTest \
             --tests "org.catrobat.catroid.test.localweb.*" \
+            --tests "org.catrobat.catroid.test.common.NewCatroidDownloadTest" \
+            --tests "org.catrobat.catroid.test.common.DownloadFileActionLifecycleTest" \
             --tests "org.catrobat.catroid.test.xmlformat.*" \
             --build-cache --parallel --stacktrace 2>&1 | tee "${RUNNER_TEMP}/test-output.log"
+
+      - name: Run browser diagnostics and touch-control JS tests
+        run: node --test catroid/src/test/js/*.test.cjs
 
       - name: Extract test failure details
         if: failure()
@@ -85,7 +115,7 @@ jobs:
       - name: Report failure details as a commit comment (optional)
         # Reports on workflow_dispatch runs with report_failures=true and on
         # every failed push run of the local-web feature branch.
-        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -135,11 +165,40 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  shader-validation:
+    name: Real WGSL compiler regression (Dawn null backend, no rendering)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Dawn validator
+        run: npm ci --prefix tools/playgta5-validation --no-audit --no-fund
+      - name: Reproduce original failure and validate corrected shader variants
+        run: |
+          set -o pipefail
+          curl --fail --location --retry 3 --proto '=https' 'https://raw.githubusercontent.com/shadany7824/playgta5/2fb671adca55cd0317aa551b33ffd922f1639660/wgpu_worker.js' --output "${RUNNER_TEMP}/wgpu_worker.js"
+          node tools/playgta5-validation/validate.mjs "${RUNNER_TEMP}/wgpu_worker.js" 2>&1 | tee "${RUNNER_TEMP}/shader-validation.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PlayGTA5-shader-validation-${{ github.sha }}
+          path: ${{ runner.temp }}/shader-validation.log
+          if-no-files-found: error
+          retention-days: 30
+
+  # Run in parallel with focused tests so their results stay visible without delaying the APK artifact.
   build-apk:
     name: Debug APK (danvex)
-    needs: localweb-tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Needed to publish the APK as a release asset (see the last step): workflow
+    # artifacts and their download links are tied to a run and expire, a release
+    # asset keeps a permanent URL.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -168,10 +227,53 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Test APK verifier
+        run: python3 -m unittest discover -s tools -p 'test_verify_debug_apk.py' -v
+
+      - name: Bump versionCode for this build
+        # Every published APK has to be installable *over* the previous one, and
+        # Android refuses an update whose versionCode is not higher. The committed
+        # value therefore only has to grow once in a while; each release build
+        # overwrites it with `committed + run_number`, so no release of this
+        # repository can ever collide with another. Nothing is committed back:
+        # the bump lives in this workspace only.
+        run: |
+          set -euo pipefail
+          CURRENT="$(sed -n 's/^def defaultVersionCode = \([0-9][0-9]*\)$/\1/p' catroid/build.gradle)"
+          if [ -z "$CURRENT" ]; then
+            echo "Could not read defaultVersionCode from catroid/build.gradle" >&2
+            exit 1
+          fi
+          NEW=$((CURRENT + GITHUB_RUN_NUMBER))
+          sed -i "s/^def defaultVersionCode = ${CURRENT}$/def defaultVersionCode = ${NEW}/" catroid/build.gradle
+          echo "versionCode ${CURRENT} -> ${NEW} (run ${GITHUB_RUN_NUMBER})"
+          grep -n '^def defaultVersionName' catroid/build.gradle
+
       - name: Build debug APK (danvex)
         run: |
           set -o pipefail
           ./gradlew assembleDanvexDebug --build-cache --parallel -x lint -x test --stacktrace 2>&1 | tee "${RUNNER_TEMP}/build-output.log"
+
+      - name: Verify APK launcher, compiled UI, assets, and ARM64 libraries
+        run: |
+          set -euo pipefail
+          APK_PATH="$(find catroid/build/outputs/apk/danvex/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No danvexDebug APK was produced" >&2
+            exit 1
+          fi
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Neither ANDROID_HOME nor ANDROID_SDK_ROOT is set" >&2
+            exit 1
+          fi
+          AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
+          if [ -z "$AAPT" ] || [ ! -x "$AAPT" ]; then
+            echo "Could not find executable aapt in $SDK_ROOT/build-tools" >&2
+            exit 1
+          fi
+          python3 tools/verify_debug_apk.py --apk "$APK_PATH" --aapt "$AAPT" | tee "${RUNNER_TEMP}/apk-verification.txt"
+          cat "${RUNNER_TEMP}/apk-verification.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -181,8 +283,171 @@ jobs:
           path: 'catroid/build/outputs/apk/danvex/debug/*.apk'
           retention-days: 30
 
+      - name: Publish a dated release with a phone-friendly download link
+        # Why: workflow artifacts need a GitHub login and are delivered as a
+        # `.zip`, which Android cannot install directly. A release asset is a
+        # plain `.apk` that can be tapped in the browser.
+        # Runs when the workflow was dispatched with a version, or when the
+        # commit message carries `[release]`.
+        if: >-
+          success() && (github.event.inputs.release_name != '' ||
+          contains(github.event.head_commit.message, '[release]'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK_PATH="$(find catroid/build/outputs/apk/danvex/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No danvexDebug APK to publish" >&2
+            exit 1
+          fi
+
+          VERSION=""
+          NAME_WAS_GIVEN=0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.release_name }}"
+          fi
+          VERSION="${VERSION#v}"
+          VERSION_NAME="$(sed -n 's/^def defaultVersionName = "\{0,1\}\([0-9][^"]*\)"\{0,1\}$/\1/p' catroid/build.gradle)"
+          if [ -z "$VERSION" ]; then
+            VERSION="${VERSION_NAME}-build${GITHUB_RUN_NUMBER}"
+          else
+            NAME_WAS_GIVEN=1
+          fi
+          case "$VERSION" in
+            *[!0-9A-Za-z._-]*)
+              echo "Invalid release name: $VERSION" >&2
+              exit 1
+              ;;
+          esac
+
+          VERSION_CODE="$(sed -n 's/^def defaultVersionCode = \([0-9][0-9]*\)$/\1/p' catroid/build.gradle)"
+          TAG="v$VERSION"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          FILE_NAME="NewCatroid_${VERSION}_arm64.apk"
+          DOWNLOAD_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE_NAME"
+          cp "$APK_PATH" "/tmp/$FILE_NAME"
+          ( cd /tmp && sha256sum "$FILE_NAME" > "$FILE_NAME.sha256" )
+          SIZE="$(du -h "/tmp/$FILE_NAME" | cut -f1)"
+
+          # The notes are written to a file: a backtick in a --notes argument is a
+          # command substitution for the shell, which silently broke the release.
+          EXTRA_NOTES=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            EXTRA_NOTES="${{ github.event.inputs.release_notes }}"
+          fi
+          {
+            if [ -n "$EXTRA_NOTES" ]; then
+              echo "$EXTRA_NOTES"
+              echo
+            fi
+            cat <<EOF
+          ## Как установить / How to install
+
+          1. Откройте ссылку на телефоне и нажмите на APK (вход в GitHub не нужен):
+             $DOWNLOAD_URL
+          2. Разрешите браузеру установку неизвестных приложений, если Android спросит.
+          3. Пакет org.DanVexTeam.NewCatroid.ci ставится рядом с обычной сборкой,
+             проекты не затрагиваются.
+
+          ## Что нового / What is new
+
+          * Исправлен запуск экспортированного APK: диалог условий использования был пустым,
+            поэтому встроенный проект не распаковывался и приложение закрывалось сразу
+            после заставки.
+          * Экспорт проверяется по шаблону: все блоки и скрипты проекта должны быть в
+            шаблоне, а готовый APK проверяется перед сохранением.
+          * Шаблоны APK этого репозитория снова полные (проверены все 713 классов).
+          * Заставка экспортированного APK показывает текущий этап запуска, а ошибка
+            выводится в диалоге с подробностями и копированием, а не молчаливым закрытием.
+          * Каждый экспорт пишет свой токен, поэтому новая сборка всегда распаковывает
+            свой проект, а не проект прошлой установки.
+
+          ## Технические данные / Technical details
+
+          * versionName: $VERSION_NAME
+          * versionCode: $VERSION_CODE
+          * размер / size: $SIZE
+          * sha256: в файле $FILE_NAME.sha256
+          * commit: $SHORT_SHA
+          * сборка / built by: run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+          * шаблон для «Build APK» / APK template: релиз NewCatroid-Template
+          EOF
+          } > /tmp/release-notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - uploading the asset to it"
+          else
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "NewCatroid $VERSION" \
+              --notes-file /tmp/release-notes.md
+          fi
+          gh release upload "$TAG" "/tmp/$FILE_NAME" "/tmp/$FILE_NAME.sha256" --clobber
+          # No --latest on purpose: the workflow starts on every push, and marking
+          # this release latest on each run would move `releases/latest` back to
+          # it, away from the rolling NewCatroid-debug-apk release the README and
+          # the in-app "download the newest build" link point at. The versioned
+          # release is reached from the releases page instead.
+          gh release edit "$TAG" --title "NewCatroid $VERSION" --notes-file /tmp/release-notes.md
+
+          gh release view "$TAG" --json tagName,url,assets --jq '"released \(.tagName): \(.url)", (.assets[] | "  \(.name) \(.size) bytes")'
+          if [ "$NAME_WAS_GIVEN" = "1" ]; then
+            {
+              echo "### Release published"
+              echo "$DOWNLOAD_URL"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish the APK to the NewCatroid-debug-apk release
+        # Gives a stable download link that does not expire with the run:
+        # https://github.com/<repo>/releases/tag/NewCatroid-debug-apk
+        # The asset is always NewCatroid_debug_latest.apk, so the "latest" URL
+        # (…/releases/latest/download/NewCatroid_debug_latest.apk) never changes.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: NewCatroid-debug-apk
+        run: |
+          set -euo pipefail
+          APK_PATH="$(find catroid/build/outputs/apk/danvex/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No danvexDebug APK to publish" >&2
+            exit 1
+          fi
+          cp "$APK_PATH" /tmp/NewCatroid_debug_latest.apk
+          SIZE="$(du -h /tmp/NewCatroid_debug_latest.apk | cut -f1)"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          BRANCH="${GITHUB_REF_NAME}"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "NewCatroid debug APK (latest CI build)" \
+              --notes "Rolling debug APK of the newest green CI build of \`$BRANCH\`.
+
+          This release always carries exactly one asset, \`NewCatroid_debug_latest.apk\`, replaced on
+          every successful build, plus a \`.sha256\` file. Workflow artifacts expire after 30 days;
+          this link does not.
+
+          * commit: \`$GITHUB_SHA\`
+          * built by: run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          fi
+          ( cd /tmp && sha256sum NewCatroid_debug_latest.apk > NewCatroid_debug_latest.apk.sha256 )
+          gh release upload "$RELEASE_TAG" /tmp/NewCatroid_debug_latest.apk /tmp/NewCatroid_debug_latest.apk.sha256 --clobber
+          # No --latest: the pointer belongs to the versioned release when one was
+          # just published (the step above runs first). This release never had it.
+          gh release edit "$RELEASE_TAG" --notes "Rolling debug APK of the newest green CI build of \`$BRANCH\`.
+
+          Download: \`NewCatroid_debug_latest.apk\` ($SIZE), replaced on every successful build.
+          A \`.sha256\` file sits next to it. Workflow artifacts expire after 30 days; this link does not.
+
+          * commit: \`$GITHUB_SHA\` ($SHORT_SHA)
+          * built by: run [$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+          * direct link: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/NewCatroid_debug_latest.apk"
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size) bytes"'
+
       - name: Report failure details as a commit comment (optional)
-        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/329868a7-newcatroid')
+        if: failure() && (github.event.inputs.report_failures == 'true' || github.ref == 'refs/heads/arena/5736be66-newcatroid')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -224,8 +489,11 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # Optional manual diagnostic. Wait until the APK and focused tests finish so this job cannot delay the artifact.
   full-unit-tests:
-    name: Full unit test suite (informational, does not block the APK)
+    name: Full unit test suite (manual diagnostic, does not block the APK)
+    needs: [build-apk, localweb-tests]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_suite == 'true' }}
     runs-on: ubuntu-latest
     # NOTE: no job-level timeout-minutes here. A job that exceeds its timeout
     # is cancelled, and a cancelled job cancels the whole run even with
@@ -292,7 +560,7 @@ jobs:
           echo "extracted $(wc -l < "$OUT") lines of failure details"
 
       - name: Report failure details as a commit comment (optional)
-        if: failure() && github.ref == 'refs/heads/arena/329868a7-newcatroid'
+        if: failure() && github.ref == 'refs/heads/arena/5736be66-newcatroid'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

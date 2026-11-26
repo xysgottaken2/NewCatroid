@@ -279,6 +279,23 @@ public final class BrickInfo {
         add(RunVm2Brick.class, "Запускает виртуальную машину с помощью QEMU на архитектуре x86_64, при помощи аргументов (позволяет запускать Windows, Linux и др) ВАЖНО: обязательно выключайте VM, когда она не нужна");
         add(CreateDiskBrick.class, "Создает виртуальный жесткий диск для VM");
         add(VmSetMonitorSizeBrick.class, "Задает размер монитора VM (VNC)");
+        add(PcSetGameFolderBrick.class, "Задает папку с игрой для Windows. Используйте абсолютный путь (например /sdcard/Games/GTAV), чтобы контейнер мог ее смонтировать.");
+        add(PcSetGraphicsDriverBrick.class, "Выбирает импортированный пакет графического драйвера (Turnip/AdrenoTools, Zink, SwiftShader...). 'system' оставляет драйвер устройства, 'none' отключает.");
+        add(PcSetD3dLayerBrick.class, "Выбирает слой трансляции Direct3D: DXVK (D3D9/10/11 в Vulkan), VKD3D-Proton (D3D12) или D8VK. DLL копируются в префикс Wine при следующем запуске.");
+        add(PcSetRuntimeBrick.class, "Выбирает импортированный рантайм aarch64 Wine + Box64 для запуска x86_64 игры. 'auto' использует первый импортированный рантайм.");
+        add(PcSetContainerBrick.class, "Переопределяет каталог rootfs контейнера. Оставьте пустым, чтобы использовать импортированный пакет rootfs.");
+        add(PcSetEnvBrick.class, "Добавляет переменную окружения в генерируемый скрипт запуска, например DXVK_HUD, BOX64_DYNAREC_BIGBLOCK, WINEESYNC или MESA_GL_VERSION_OVERRIDE.");
+        add(PcClearEnvBrick.class, "Удаляет все переменные окружения, добавленные блоками.");
+        add(PcSetResolutionBrick.class, "Задает размер фреймбуфера Xvfb и виртуального рабочего стола Wine.");
+        add(PcImportPackBrick.class, "Открывает выбор файла и импортирует архив как пакет (zip, tar, tar.gz, tar.xz, tzst). Тип: driver, d3d, runtime, rootfs; оставьте пустым для автоопределения.");
+        add(PcLaunchGameBrick.class, "Запускает игру в контейнере. Изображение выводится на сцену, управление доступно существующими блоками мыши и клавиш.");
+        add(PcLaunchGameTouchBrick.class, "Запускает игру и показывает настраиваемый оверлей касаний (джойстик, кнопки, обзор мышью) поверх нее.");
+        add(PcStopGameBrick.class, "Останавливает запущенную игру и скрывает экран игры.");
+        add(PcBindGameLogBrick.class, "Записывает вывод контейнера (ошибки Wine, Box64, DXVK) в выбранную переменную, чтобы лаунчер мог показать, что пошло не так.");
+        add(PcSelfTestBrick.class, "Проверяет rootfs, рантайм, драйвер, слой D3D, папку игры и префикс и записывает читаемый отчет в переменную.");
+        add(PcShowLauncherBrick.class, "Открывает встроенный лаунчер: выберите папку, exe, драйвер, слой D3D, рантайм и разрешение, затем нажмите Play.");
+        add(PcAddTouchControlBrick.class, "Добавляет или заменяет элемент управления. Клавиши: 'look' - обзор мышью, 'mouse:0' - кнопка мыши, 'w,a,s,d' - джойстик, 'space' или 'ctrl+shift' - клавиши. Позиция и размер в процентах экрана.");
+        add(PcTouchEditorBrick.class, "Включает или выключает редактор раскладки касаний (перетаскивание). Изменения сохраняются в проекте.");
         add(ToggleDisplayBrick.class, "Определяет: показывать ли изображение VM");
         add(MouseEventBrick.class, "Эмулирует событие мыши для VM (VNC). ВАЖНО: Маска - побитовая информация о кнопках: " +
                 "1: Левая кнопка мыши (Button 1 Pressed/Released).\n" +
@@ -477,7 +494,18 @@ public final class BrickInfo {
         add(StopParticleInstanceBrick.class, "Останавливает или мгновенно удаляет экземпляр частиц");
         add(UpdateScreenBrick.class, "Принудительно отрисовывает 1 кадр экрана во время моментального цикла");
         add(ApplyShaderBrick.class, "Применяет шейдерный эффект к экрану, спрайту или буферу (для спрайта - введите его имя. Для экрана - оставьте цель пустой. Для буффера введите buffer://имя_буфера)");
-    }
+            add(PcChooseGameFolderBrick.class, "Открывает встроенный проводник и запоминает выбранную папку с игрой (и первый найденный .exe).");
+        add(PcChooseDriverPackBrick.class, "Открывает проводник, импортирует выбранный zip как пакет графического драйвера и сразу выбирает его.");
+        add(PcChooseD3dPackBrick.class, "Импортирует выбранный zip как слой D3D (DXVK / VKD3D-Proton / D8VK) и выбирает его.");
+        add(PcChooseRuntimePackBrick.class, "Импортирует выбранный архив (zip/tar/tar.gz/tar.xz/tzst) как рантайм Wine + Box64 и выбирает его.");
+        add(PcChooseRootfsPackBrick.class, "Импортирует выбранный архив как rootfs контейнера и использует его при следующем запуске.");
+        add(PcEditEnvBrick.class, "Открывает редактор переменных окружения: добавить, изменить, удалить, готовые наборы (Box64, DXVK, Zink, MESA).");
+        add(PcRequestFileAccessBrick.class, "Открывает системный экран «Доступ ко всем файлам»: без него папку игры вне песочницы прочитать нельзя.");
+        add(PcDownloadPackBrick.class, "Открывает список компонентов из интернета (Turnip от K11MCH1, DXVK, VKD3D, D8VK, Box64, rootfs): нажали — скачалось и установилось.");
+        add(PcDownloadLinkBrick.class, "Скачивает компонент PC по прямой ссылке и устанавливает его. Тип можно оставить пустым — определится по содержимому архива.");
+        add(PcRamValueBrick.class, "Записывает в переменную значение памяти устройства (МБ): total — всего, available — свободно сейчас, used — занято, percent — процент, app — лимит памяти приложения, low — 1 если система сообщает о нехватке памяти.");
+        add(PcRamCheckBrick.class, "Пишет в переменную YES, если на устройстве достаточно оперативной памяти, иначе NO. Последнее поле выбирает, что сравнивать: total (только железо), free (свободно сейчас) или both (по умолчанию оба).");
+}
 
     private static void initEnglishDescriptions() {
         add(SetGeminiKeyBrick.class, "Sets a personal Gemini API key. You can get one from Google AI Studio.");
@@ -914,7 +942,35 @@ public final class BrickInfo {
         add(StopParticleInstanceBrick.class, "Stops or immediately deletes particle instance");
         add(UpdateScreenBrick.class, "Forces a single frame render during instant loops");
         add(ApplyShaderBrick.class, "Applies a shader effect to the screen, sprite, or buffer (for a sprite, enter its name; for the screen, leave the target empty; for a buffer, enter buffer://buffer_name)");
-    }
+            add(PcSetGameFolderBrick.class, "Sets the folder that contains the Windows game. Use an absolute path (e.g. /sdcard/Games/GTAV) so the container can mount it.");
+        add(PcSetGraphicsDriverBrick.class, "Selects an imported graphics driver pack (Turnip/AdrenoTools, Zink, SwiftShader...). 'system' keeps the device driver, 'none' disables the override.");
+        add(PcSetD3dLayerBrick.class, "Selects the Direct3D translation layer: DXVK (D3D9/10/11 to Vulkan), VKD3D-Proton (D3D12) or D8VK. The DLLs are copied into the Wine prefix on the next start.");
+        add(PcSetRuntimeBrick.class, "Selects an imported aarch64 Wine + Box64 runtime that executes the x86_64 game. 'auto' uses the first imported runtime.");
+        add(PcSetContainerBrick.class, "Overrides the container rootfs directory. Leave it empty to use the imported rootfs pack.");
+        add(PcSetEnvBrick.class, "Adds an environment variable to the generated start script, e.g. DXVK_HUD, BOX64_DYNAREC_BIGBLOCK, WINEESYNC or MESA_GL_VERSION_OVERRIDE.");
+        add(PcClearEnvBrick.class, "Removes every environment variable that was added by blocks.");
+        add(PcSetResolutionBrick.class, "Sets the size of the Xvfb framebuffer and of the Wine virtual desktop.");
+        add(PcImportPackBrick.class, "Opens the file picker and imports the selected archive as a pack (zip, tar, tar.gz, tar.xz, tzst). Type: driver, d3d, runtime or rootfs; leave it empty to detect it automatically.");
+        add(PcLaunchGameBrick.class, "Starts the game inside the container. The picture is shown on the stage and the existing mouse and key blocks control it.");
+        add(PcLaunchGameTouchBrick.class, "Starts the game and shows a customizable touch overlay (joystick, buttons, mouse look) on top of it.");
+        add(PcStopGameBrick.class, "Stops the running game and hides the game surface.");
+        add(PcBindGameLogBrick.class, "Stores the container output (Wine, Box64 and DXVK errors) in a variable so a launcher can show what went wrong.");
+        add(PcSelfTestBrick.class, "Checks rootfs, runtime, graphics driver, D3D layer, game folder and Wine prefix and stores a readable report in a variable.");
+        add(PcShowLauncherBrick.class, "Opens the built-in launcher: pick the folder, the exe, the driver, the D3D layer, the runtime and the resolution, then press Play.");
+        add(PcAddTouchControlBrick.class, "Adds or replaces one touch control. Keys: 'look' for mouse look, 'mouse:0' for a mouse button, 'w,a,s,d' for a joystick, 'space' or 'ctrl+shift' for keys. Position and size are a percentage of the screen.");
+        add(PcTouchEditorBrick.class, "Enables or disables the drag-to-move editor of the touch layout. The changes are saved in the project.");
+        add(PcChooseGameFolderBrick.class, "Opens the built-in file browser and remembers the chosen game folder (plus the first .exe found).");
+        add(PcChooseDriverPackBrick.class, "Opens the file browser, imports the chosen zip as a graphics driver pack and selects it right away.");
+        add(PcChooseD3dPackBrick.class, "Imports the chosen zip as a D3D layer (DXVK / VKD3D-Proton / D8VK) and selects it.");
+        add(PcChooseRuntimePackBrick.class, "Imports the chosen archive (zip/tar/tar.gz/tar.xz/tzst) as the Wine + Box64 runtime and selects it.");
+        add(PcChooseRootfsPackBrick.class, "Imports the chosen archive as the container rootfs and uses it on the next launch.");
+        add(PcEditEnvBrick.class, "Opens the environment variable editor: add, edit, delete and ready-made tuning sets (Box64, DXVK, Zink, MESA).");
+        add(PcRequestFileAccessBrick.class, "Opens the system \"All files access\" screen: without it a game folder outside the sandbox cannot be read.");
+        add(PcDownloadPackBrick.class, "Lists the PC components the configured GitHub repositories publish (K11MCH1 Turnip drivers, DXVK, VKD3D, D8VK, Box64, rootfs): tap one and it is downloaded and installed.");
+        add(PcDownloadLinkBrick.class, "Downloads a PC component from a direct link and installs it. Leave the type empty to detect it from the archive content.");
+        add(PcRamValueBrick.class, "Stores one RAM value of the device in the variable (MB): total, available (free right now), used, percent, app (the memory limit of NewCatroid itself) or low (1 when Android reports that the device is running out of memory).");
+        add(PcRamCheckBrick.class, "Writes YES into the variable when the device has at least the given amount of RAM, otherwise NO. The last field picks what is compared: total (the hardware only), free (free right now) or both (the default).");
+}
 
     private static void initPortugueseDescriptions() {
         add(SetGeminiKeyBrick.class, "Define a chave de API pessoal do Gemini. Você pode obtê-la no Google AI Studio.");
@@ -1335,7 +1391,35 @@ public final class BrickInfo {
         add(StopParticleInstanceBrick.class, "Para ou exclui imediatamente a instância de partículas");
         add(UpdateScreenBrick.class, "Força a renderização de 1 quadro durante loops instantâneos");
         add(ApplyShaderBrick.class, "Aplica um efeito de shader à tela, ao sprite ou ao buffer (para sprite, insira o nome dele; para a tela, deixe o alvo vazio; para buffer, insira buffer://nome_do_buffer)");
-    }
+            add(PcSetGameFolderBrick.class, "Define a pasta que contém o jogo de Windows. Use um caminho absoluto (ex.: /sdcard/Games/GTAV) para que o contêiner possa montá-la.");
+        add(PcSetGraphicsDriverBrick.class, "Seleciona um pacote de driver gráfico importado (Turnip/AdrenoTools, Zink, SwiftShader...). 'system' mantém o driver do aparelho, 'none' desativa.");
+        add(PcSetD3dLayerBrick.class, "Seleciona a camada de tradução Direct3D: DXVK (D3D9/10/11 para Vulkan), VKD3D-Proton (D3D12) ou D8VK. As DLLs são copiadas para o prefixo do Wine na próxima inicialização.");
+        add(PcSetRuntimeBrick.class, "Seleciona um runtime aarch64 Wine + Box64 importado que executa o jogo x86_64. 'auto' usa o primeiro runtime importado.");
+        add(PcSetContainerBrick.class, "Substitui o diretório rootfs do contêiner. Deixe vazio para usar o pacote rootfs importado.");
+        add(PcSetEnvBrick.class, "Adiciona uma variável de ambiente ao script de inicialização gerado, por exemplo DXVK_HUD, BOX64_DYNAREC_BIGBLOCK, WINEESYNC ou MESA_GL_VERSION_OVERRIDE.");
+        add(PcClearEnvBrick.class, "Remove todas as variáveis de ambiente adicionadas pelos blocos.");
+        add(PcSetResolutionBrick.class, "Define o tamanho do framebuffer do Xvfb e da área de trabalho virtual do Wine.");
+        add(PcImportPackBrick.class, "Abre o seletor de arquivos e importa o arquivo escolhido como pacote (zip, tar, tar.gz, tar.xz, tzst). Tipo: driver, d3d, runtime ou rootfs; deixe vazio para detectar automaticamente.");
+        add(PcLaunchGameBrick.class, "Inicia o jogo dentro do contêiner. A imagem aparece no palco e os blocos de mouse e teclado existentes controlam o jogo.");
+        add(PcLaunchGameTouchBrick.class, "Inicia o jogo e mostra uma camada de toque personalizável (joystick, botões, olhar com o mouse) sobre ele.");
+        add(PcStopGameBrick.class, "Para o jogo em execução e esconde a tela do jogo.");
+        add(PcBindGameLogBrick.class, "Guarda a saída do contêiner (erros de Wine, Box64 e DXVK) em uma variável para que o launcher mostre o que deu errado.");
+        add(PcSelfTestBrick.class, "Verifica rootfs, runtime, driver gráfico, camada D3D, pasta do jogo e prefixo do Wine e guarda um relatório legível em uma variável.");
+        add(PcShowLauncherBrick.class, "Abre o launcher embutido: escolha a pasta, o exe, o driver, a camada D3D, o runtime e a resolução e pressione Play.");
+        add(PcAddTouchControlBrick.class, "Adiciona ou substitui um controle de toque. Teclas: 'look' para olhar com o mouse, 'mouse:0' para um botão do mouse, 'w,a,s,d' para um joystick, 'space' ou 'ctrl+shift' para teclas. Posição e tamanho em porcentagem da tela.");
+        add(PcTouchEditorBrick.class, "Ativa ou desativa o editor de arrastar da disposição de toque. As alterações são salvas no projeto.");
+        add(PcChooseGameFolderBrick.class, "Abre o navegador de arquivos embutido e guarda a pasta do jogo escolhida (e o primeiro .exe encontrado).");
+        add(PcChooseDriverPackBrick.class, "Abre o navegador, importa o zip escolhido como pacote de driver gráfico e o seleciona.");
+        add(PcChooseD3dPackBrick.class, "Importa o zip escolhido como camada D3D (DXVK / VKD3D-Proton / D8VK) e a seleciona.");
+        add(PcChooseRuntimePackBrick.class, "Importa o arquivo escolhido (zip/tar/tar.gz/tar.xz/tzst) como runtime Wine + Box64 e o seleciona.");
+        add(PcChooseRootfsPackBrick.class, "Importa o arquivo escolhido como rootfs do contêiner e o usa na próxima inicialização.");
+        add(PcEditEnvBrick.class, "Abre o editor de variáveis de ambiente: adicionar, editar, excluir e conjuntos prontos (Box64, DXVK, Zink, MESA).");
+        add(PcRequestFileAccessBrick.class, "Abre a tela \"Acesso a todos os arquivos\": sem ela a pasta do jogo fora do sandbox não pode ser lida.");
+        add(PcDownloadPackBrick.class, "Lista os componentes de PC publicados nos repositórios GitHub configurados (drivers Turnip do K11MCH1, DXVK, VKD3D, D8VK, Box64, rootfs): toque em um e ele é baixado e instalado.");
+        add(PcDownloadLinkBrick.class, "Baixa um componente de PC por um link direto e instala. Deixe o tipo vazio para detectá-lo pelo conteúdo do arquivo.");
+        add(PcRamValueBrick.class, "Guarda na variável um valor de memória do aparelho (MB): total, available (livre agora), used, percent, app (o limite de memória do próprio NewCatroid) ou low (1 quando o Android avisa que o aparelho está sem memória).");
+        add(PcRamCheckBrick.class, "Escreve SIM na variável quando o aparelho tem pelo menos a memória pedida, senão NÃO. O último campo escolhe o que comparar: total (só o hardware), free (livre agora) ou both (padrão).");
+}
 
     private static void initChineseDescriptions() {
         add(SetGeminiKeyBrick.class, "设置个人 Gemini API 密钥。您可以从 Google AI Studio 获取。");
@@ -1762,7 +1846,35 @@ public final class BrickInfo {
         add(PenFlushBrick.class, "立即将所有绘制的线条和形状渲染到屏幕上");
         add(PenDrawRectBrick.class, "直接在画笔画布上绘制带填充或无填充的矩形");
         add(PenDrawCircleBrick.class, "绘制圆形、半圆、扇形或光锥，支持方向和弧度角设置");
-    }
+            add(PcSetGameFolderBrick.class, "设置包含 Windows 游戏的文件夹。请使用绝对路径（例如 /sdcard/Games/GTAV），以便容器可以挂载它。");
+        add(PcSetGraphicsDriverBrick.class, "选择已导入的图形驱动包（Turnip/AdrenoTools、Zink、SwiftShader 等）。'system' 保留设备驱动，'none' 关闭覆盖。");
+        add(PcSetD3dLayerBrick.class, "选择 Direct3D 转换层：DXVK（D3D9/10/11 转 Vulkan）、VKD3D-Proton（D3D12）或 D8VK。下次启动时 DLL 会被复制到 Wine 前缀中。");
+        add(PcSetRuntimeBrick.class, "选择已导入的 aarch64 Wine + Box64 运行环境来执行 x86_64 游戏。'auto' 使用第一个导入的运行环境。");
+        add(PcSetContainerBrick.class, "覆盖容器的 rootfs 目录。留空则使用已导入的 rootfs 包。");
+        add(PcSetEnvBrick.class, "向生成的启动脚本添加环境变量，例如 DXVK_HUD、BOX64_DYNAREC_BIGBLOCK、WINEESYNC 或 MESA_GL_VERSION_OVERRIDE。");
+        add(PcClearEnvBrick.class, "删除所有由积木添加的环境变量。");
+        add(PcSetResolutionBrick.class, "设置 Xvfb 帧缓冲和 Wine 虚拟桌面的尺寸。");
+        add(PcImportPackBrick.class, "打开文件选择器并把所选压缩包导入为包（zip、tar、tar.gz、tar.xz、tzst）。类型：driver、d3d、runtime 或 rootfs；留空则自动识别。");
+        add(PcLaunchGameBrick.class, "在容器中启动游戏。画面会显示在舞台上，现有的鼠标和按键积木可以控制游戏。");
+        add(PcLaunchGameTouchBrick.class, "启动游戏并在画面上方显示可自定义的触控层（摇杆、按钮、鼠标视角）。");
+        add(PcStopGameBrick.class, "停止正在运行的游戏并隐藏游戏画面。");
+        add(PcBindGameLogBrick.class, "把容器输出（Wine、Box64 和 DXVK 的错误）保存到变量中，方便启动器显示问题所在。");
+        add(PcSelfTestBrick.class, "检查 rootfs、运行环境、图形驱动、D3D 层、游戏文件夹和 Wine 前缀，并把可读报告保存到变量中。");
+        add(PcShowLauncherBrick.class, "打开内置启动器：选择文件夹、exe、驱动、D3D 层、运行环境和分辨率，然后按 Play。");
+        add(PcAddTouchControlBrick.class, "添加或替换一个触控控件。按键：'look' 表示鼠标视角，'mouse:0' 表示鼠标按键，'w,a,s,d' 表示摇杆，'space' 或 'ctrl+shift' 表示按键。位置和大小是屏幕的百分比。");
+        add(PcTouchEditorBrick.class, "启用或禁用触控布局的拖动编辑器。修改会保存在项目中。");
+        add(PcChooseGameFolderBrick.class, "打开内置文件浏览器并记住所选游戏文件夹（以及找到的第一个 .exe）。");
+        add(PcChooseDriverPackBrick.class, "打开文件浏览器，将所选 zip 导入为图形驱动包并立即选用。");
+        add(PcChooseD3dPackBrick.class, "将所选 zip 导入为 D3D 层（DXVK / VKD3D-Proton / D8VK）并选用。");
+        add(PcChooseRuntimePackBrick.class, "将所选压缩包（zip/tar/tar.gz/tar.xz/tzst）导入为 Wine + Box64 运行环境并选用。");
+        add(PcChooseRootfsPackBrick.class, "将所选压缩包导入为容器 rootfs，并在下次启动时使用。");
+        add(PcEditEnvBrick.class, "打开环境变量编辑器：添加、修改、删除，以及预设调优组合（Box64、DXVK、Zink、MESA）。");
+        add(PcRequestFileAccessBrick.class, "打开系统的“所有文件访问权限”界面：没有它无法读取沙盒外的游戏文件夹。");
+        add(PcDownloadPackBrick.class, "列出已配置 GitHub 仓库发布的 PC 组件（K11MCH1 的 Turnip 驱动、DXVK、VKD3D、D8VK、Box64、rootfs）：点一项即下载并安装。");
+        add(PcDownloadLinkBrick.class, "从直链下载 PC 组件并安装。类型可留空，将根据压缩包内容自动判断。");
+        add(PcRamValueBrick.class, "把设备内存写入变量（MB）：total 总量、available 当前可用、used 已用、percent 占用百分比、app 本应用的内存上限、low 在系统提示内存不足时为 1。");
+        add(PcRamCheckBrick.class, "如果设备至少有指定的内存，就向变量写入 YES，否则写入 NO。最后一个字段决定比较方式：total（只看硬件）、free（只看当前空闲）或 both（默认）。");
+}
 
     private static <T extends Brick> void add(Class<T> brickClass, String description) {
         brickDescriptions.put(brickClass, description);

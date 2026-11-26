@@ -92,19 +92,26 @@ interface DocumentStore {
  *   per requested path, and the first successful match also records a site
  *   root hint so later requests resolve with a single lookup.
  */
+internal data class PathSuffixMatch(val entry: DocumentEntry, val relativePath: String, val resolution: String)
+
 internal class PathSuffixSearcher(private val store: DocumentStore) {
 
-    private val cache = HashMap<String, DocumentEntry?>()
+    private val cache = HashMap<String, PathSuffixMatch?>()
     private val cacheLock = Any()
 
     @Volatile
     private var siteRootHint: String? = null
 
-    fun find(relativePath: String, maxDepth: Int = 8, maxDirectories: Int = 256): DocumentEntry? {
+    fun find(relativePath: String, maxDepth: Int = 8, maxDirectories: Int = 256): DocumentEntry? =
+        findMatch(relativePath, maxDepth, maxDirectories)?.entry
+
+    /** Returns both the selected entry and its path relative to this store's root. */
+    fun findMatch(relativePath: String, maxDepth: Int = 8, maxDirectories: Int = 256): PathSuffixMatch? {
         // Fast path: a site root discovered by an earlier successful search.
         siteRootHint?.let { hint ->
-            val candidate = store.resolve(if (hint.isEmpty()) relativePath else "$hint/$relativePath")
-            if (candidate != null) return candidate
+            val resolvedPath = if (hint.isEmpty()) relativePath else "$hint/$relativePath"
+            val candidate = store.resolve(resolvedPath)
+            if (candidate != null) return PathSuffixMatch(candidate, resolvedPath, "site-root-hint")
         }
         synchronized(cacheLock) {
             if (cache.containsKey(relativePath)) return cache[relativePath]
@@ -143,7 +150,7 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
         segments: List<String>,
         maxDepth: Int,
         maxDirectories: Int
-    ): Pair<DocumentEntry?, Boolean> {
+    ): Pair<PathSuffixMatch?, Boolean> {
         val firstSegment = segments[0]
         val rest = segments.drop(1).joinToString("/")
         val requested = segments.joinToString("/")
@@ -182,8 +189,9 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
                 if (foundEntry != null) {
                     // foundPath ends with the full requested path; the site root
                     // is what precedes it.
-                    siteRootHint = foundPath!!.removeSuffix(requested).removeSuffix("/")
-                    return foundEntry to true
+                    val matchPath = foundPath!!
+                    siteRootHint = matchPath.removeSuffix(requested).removeSuffix("/")
+                    return PathSuffixMatch(foundEntry!!, matchPath, "anchor-search") to true
                 }
                 return null to true // anchors exist but the rest does not resolve inside
             }
@@ -193,7 +201,7 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
         return null to false // no anchors anywhere within the bounds
     }
 
-    private fun search(relativePath: String, maxDepth: Int, maxDirectories: Int): DocumentEntry? {
+    private fun search(relativePath: String, maxDepth: Int, maxDirectories: Int): PathSuffixMatch? {
         var foundPath: String? = null
         var foundEntry: DocumentEntry? = null
         var visited = 0
@@ -221,8 +229,9 @@ internal class PathSuffixSearcher(private val store: DocumentStore) {
             // Remember the nested site root (matched path minus the suffix).
             val hint = foundPath.removeSuffix(relativePath).removeSuffix("/")
             if (hint.isNotEmpty()) siteRootHint = hint
+            return PathSuffixMatch(foundEntry!!, foundPath!!, "suffix-search")
         }
-        return foundEntry
+        return null
     }
 
     companion object {

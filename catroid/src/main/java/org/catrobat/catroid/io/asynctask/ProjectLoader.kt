@@ -79,5 +79,17 @@ fun loadProject(projectDir: File?, context: Context): Boolean {
         projectDir ?: return false
         Log.e(ProjectLoader.TAG, "Cannot load project in " + projectDir.absolutePath, e)
         false
+    } catch (e: RuntimeException) {
+        // A project whose code.xml names a class the running APK does not have
+        // surfaces as a plain RuntimeException out of the parser, not as a
+        // ProjectException. The caller only understands `false`, and a thrown
+        // RuntimeException would end the start of the app instead of reporting it.
+        Log.e(
+            ProjectLoader.TAG,
+            "Cannot load project in " + (projectDir?.absolutePath ?: "(null)") +
+                ": " + e.javaClass.name,
+            e
+        )
+        false
     }
 }

@@ -918,6 +918,16 @@ public class InternFormulaKeyboardAdapter {
 				return buildSensor(Sensors.INTERNET);
 			case R.string.formula_editor_sensor_architecture:
 				return buildSensor(Sensors.ARCH);
+			case R.string.formula_editor_sensor_ram_total:
+				return buildSensor(Sensors.RAM_TOTAL);
+			case R.string.formula_editor_sensor_ram_available:
+				return buildSensor(Sensors.RAM_AVAILABLE);
+			case R.string.formula_editor_sensor_ram_used_percent:
+				return buildSensor(Sensors.RAM_USED_PERCENT);
+			case R.string.formula_editor_sensor_ram_app_limit:
+				return buildSensor(Sensors.RAM_APP_LIMIT);
+			case R.string.formula_editor_sensor_ram_low:
+				return buildSensor(Sensors.RAM_LOW);
             case R.string.formula_char_to_unicode:
                 return buildSingleParameterFunction(Functions.CHAR_TO_UNICODE, STRING, "A");
             case R.string.formula_unicode_to_char:

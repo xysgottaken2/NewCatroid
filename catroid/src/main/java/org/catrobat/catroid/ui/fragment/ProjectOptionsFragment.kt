@@ -287,8 +287,10 @@ class ProjectOptionsFragment : Fragment() {
         etVersionName.setText("1.0.0")
         etVersionCode.setText("1")
 
-        switchPermInternet.isChecked = scanResult.needsInternet
-        switchPermStorage.isChecked = scanResult.needsStorage
+        // A PC launcher always needs both: the game folder/packs live outside the
+        // sandbox and the pack catalogue downloads from GitHub.
+        switchPermInternet.isChecked = scanResult.needsInternet || scanResult.hasPcGames
+        switchPermStorage.isChecked = scanResult.needsStorage || scanResult.hasPcGames
         switchPermCamera.isChecked = scanResult.needsCamera
         switchPermAudio.isChecked = scanResult.needsAudioRecord
         switchPermLocation.isChecked = scanResult.needsLocation
@@ -370,7 +372,7 @@ class ProjectOptionsFragment : Fragment() {
                 if (availableTemplates.isEmpty()) {
                     ToastUtil.showError(context, getString(R.string.error_fetch_templates))
                 } else {
-                    val templateNames = availableTemplates.map { "${it.tagName} (${it.fileName})" }
+                    val templateNames = availableTemplates.map { it.label() }
                     val templateAdapter = ArrayAdapter(context, android.R.layout.simple_dropdown_item_1line, templateNames)
                     spinnerTemplates.setAdapter(templateAdapter)
 
@@ -417,7 +419,17 @@ class ProjectOptionsFragment : Fragment() {
                         }
                     }
 
-                    val defaultIndex = if (bestMatchIndex != -1) bestMatchIndex else 0
+                    var defaultIndex = if (bestMatchIndex != -1) bestMatchIndex else 0
+                    // A project that uses the PC game blocks needs a template that has
+                    // them; preselect the first one that advertises the support.
+                    if (scanResult.hasPcGames) {
+                        val pcIndex = availableTemplates.indexOfFirst { it.supportsPc }
+                        if (pcIndex >= 0) {
+                            defaultIndex = pcIndex
+                        } else {
+                            ToastUtil.showError(context, getString(R.string.warn_no_pc_template))
+                        }
+                    }
 
                     if (defaultIndex != -1) {
                         spinnerTemplates.setText(templateNames[defaultIndex], false)
@@ -643,8 +655,10 @@ class ProjectOptionsFragment : Fragment() {
                     excludedArches.add("x86_64")
 
                     val useManual = switchCustomizePermissions.isChecked
-                    val internet = if (useManual) switchPermInternet.isChecked else scanResult.needsInternet
-                    val storage = if (useManual) switchPermStorage.isChecked else scanResult.needsStorage
+                    val internet = if (useManual) switchPermInternet.isChecked
+                        else scanResult.needsInternet || scanResult.hasPcGames
+                    val storage = if (useManual) switchPermStorage.isChecked
+                        else scanResult.needsStorage || scanResult.hasPcGames
                     val camera = if (useManual) switchPermCamera.isChecked else scanResult.needsCamera
                     val audio = if (useManual) switchPermAudio.isChecked else scanResult.needsAudioRecord
                     val location = if (useManual) switchPermLocation.isChecked else scanResult.needsLocation
@@ -798,6 +812,46 @@ class ProjectOptionsFragment : Fragment() {
                 return@launch
             }
 
+            // The template is a finished APK: it can only run the bricks of the
+            // source tree it was built from. A brick or script that is not in the
+            // template's dex files cannot be resolved by XStream while `code.xml`
+            // is loaded, and the exported app then shows its splash screen and
+            // closes - so refuse to build instead of shipping that.
+            updateProgressDialogMessage(getString(R.string.verifying_template))
+            val referencedClasses = withContext(Dispatchers.IO) {
+                ProjectScanner.referencedClasses(projectDir)
+            }
+            val missingClasses = withContext(Dispatchers.IO) {
+                TemplateManager.missingClasses(downloadedTemplateApk, referencedClasses)
+            }
+            if (missingClasses.isNotEmpty()) {
+                hideProgressDialog()
+                Log.e(
+                    "BUILD",
+                    "Template ${template.fileName} is missing ${missingClasses.size} of " +
+                        "${referencedClasses.size} project classes: ${missingClasses.joinToString()}"
+                )
+                val needsPcBlocks = missingClasses.any { it.startsWith("Pc") }
+                AlertDialog.Builder(context)
+                    .setTitle(
+                        getString(
+                            if (needsPcBlocks) R.string.error_template_no_pc_title
+                            else R.string.error_template_incomplete_title
+                        )
+                    )
+                    .setMessage(
+                        getString(
+                            if (needsPcBlocks) R.string.error_template_no_pc
+                            else R.string.error_template_incomplete,
+                            template.fileName,
+                            missingClasses.take(8).joinToString(", ")
+                        )
+                    )
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+                return@launch
+            }
+
             updateProgressDialogMessage(getString(R.string.preparing_project))
 
             val projectZipFile = withContext(Dispatchers.IO) {
@@ -879,15 +933,71 @@ class ProjectOptionsFragment : Fragment() {
 
             unsignedApkFile.delete()
 
+            // Verify the finished file, not the template: the export has to produce
+            // an APK whose dex files contain every class of the project and whose
+            // assets/project.zip is readable. Shipping one that does not is what
+            // made the exported app close right after its splash screen.
+            updateProgressDialogMessage(getString(R.string.verifying_export))
+            val exportProblem = withContext(Dispatchers.IO) {
+                if (!signSuccess || !finalApkFile.exists()) {
+                    return@withContext getString(R.string.error_signing_apk)
+                }
+                verifyExportedApk(finalApkFile, referencedClasses)
+            }
+
             hideProgressDialog()
 
-            if (signSuccess && finalApkFile.exists()) {
-                ToastUtil.showSuccess(context, getString(R.string.success_build))
-                shareApkFile(finalApkFile, appName)
-            } else {
-                ToastUtil.showError(context, getString(R.string.error_signing_apk))
+            if (exportProblem != null) {
+                ToastUtil.showError(context, exportProblem)
                 finalApkFile.delete()
+                return@launch
             }
+
+            ToastUtil.showSuccess(context, getString(R.string.success_build))
+            shareApkFile(finalApkFile, appName)
+        }
+    }
+
+    /**
+     * Checks a finished export before it is handed to the user.
+     *
+     * Returns `null` when the APK is usable, or a message describing what is
+     * wrong. Two things are known to break an export completely:
+     *
+     *  - a dex file without one of the bricks of the project (the project cannot
+     *    be parsed when the APK starts), and
+     *  - an `assets/project.zip` that cannot be opened or has no `code.xml`
+     *    (the APK has nothing to run).
+     */
+    private fun verifyExportedApk(apk: File, referencedClasses: List<String>): String? {
+        val missing = TemplateManager.missingClasses(apk, referencedClasses)
+        if (missing.isNotEmpty()) {
+            Log.e("BUILD", "Exported APK lacks ${missing.joinToString()}")
+            return getString(R.string.error_export_missing_classes, missing.take(8).joinToString(", "))
+        }
+        return try {
+            java.util.zip.ZipFile(apk).use { zip ->
+                val projectEntry = zip.getEntry("assets/project.zip")
+                    ?: return getString(R.string.error_export_no_project)
+                val hasCodeXml = zip.getInputStream(projectEntry).use { stream ->
+                    java.util.zip.ZipInputStream(stream).use { projectZip ->
+                        var entry = projectZip.nextEntry
+                        var found = false
+                        while (entry != null) {
+                            if (entry.name == "code.xml") {
+                                found = true
+                                break
+                            }
+                            entry = projectZip.nextEntry
+                        }
+                        found
+                    }
+                }
+                if (hasCodeXml) null else getString(R.string.error_export_no_project)
+            }
+        } catch (e: Exception) {
+            Log.e("BUILD", "Exported APK cannot be read", e)
+            getString(R.string.error_export_unreadable, e.message ?: e.javaClass.simpleName)
         }
     }
 

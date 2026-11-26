@@ -33,4 +33,13 @@ public class LoadingProjectException extends ProjectException {
 	public LoadingProjectException(String message) {
 		super(message);
 	}
+
+	/**
+	 * Keeps the original failure. The message alone loses the class of the cause
+	 * (a brick the running APK does not know, a missing resource, a broken xml),
+	 * and the cause is what makes a crash report actionable.
+	 */
+	public LoadingProjectException(String message, Throwable cause) {
+		super(message, cause);
+	}
 }

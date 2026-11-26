@@ -1,0 +1,6 @@
+{
+  "name": "newcatroid-playgta5-validation",
+  "private": true,
+  "type": "module",
+  "dependencies": { "webgpu": "0.6.2" }
+}

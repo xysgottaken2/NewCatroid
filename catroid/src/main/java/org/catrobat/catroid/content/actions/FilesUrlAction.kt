@@ -1,6 +1,6 @@
 /*
  * Catroid: An on-device visual programming system for Android devices
- * Copyright (C) 2010-2024 The Catrobat Team
+ * Copyright (C) 2010-2026 The Catrobat Team
  * (<http://developer.catrobat.org/credits>)
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,117 +18,29 @@
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.catrobat.catroid.content.actions
 
-import android.widget.Toast
-import android.content.Context
-import com.badlogic.gdx.scenes.scene2d.actions.TemporalAction
-import android.app.Activity
-import android.content.pm.PackageManager
-import android.os.Build
-import org.catrobat.catroid.stage.StageActivity
-import org.catrobat.catroid.stage.StageActivity.IntentListener
-import android.util.Log
-import org.catrobat.catroid.CatroidApplication
-import org.catrobat.catroid.R
-
-import org.catrobat.catroid.content.Scope
-import org.catrobat.catroid.formulaeditor.Formula
-import java.util.ArrayList
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import android.os.Environment
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import okhttp3.Callback
-import okhttp3.Dispatcher
-import okhttp3.RequestBody
-import org.catrobat.paintroid.common.PERMISSION_EXTERNAL_STORAGE_SAVE
-import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.CountDownLatch
-import java.util.jar.Manifest
-import kotlin.concurrent.thread
 
-class FilesUrlAction() : TemporalAction() {
-    var scope: Scope? = null
-    var url: Formula? = null
-    var name: Formula? = null
-
-    override fun update(percent: Float) {
-        val activity = StageActivity.activeStageActivity.get()
-        activity?.runOnUiThread {
-            if (ContextCompat.checkSelfPermission(
-                    CatroidApplication.getAppContext(),
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                )
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    activity,
-                    arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                    PERMISSION_EXTERNAL_STORAGE_SAVE
-                )
-            }
+/** Downloads a URL into the current project's files directory. */
+class FilesUrlAction : DownloadFileAction() {
+    override fun resolveDestination(fileName: String): File {
+        val projectFiles = scope?.project?.filesDir?.canonicalFile
+            ?: throw IllegalStateException("No current project is available for the download")
+        val normalizedName = fileName.replace('\\', '/').trim()
+        if (normalizedName.isEmpty() || normalizedName.startsWith('/')) {
+            throw IllegalArgumentException("The destination must be a relative project file path")
         }
-        val us = url?.interpretString(scope) ?: "http://e95814zx.beget.tech/map.jpg"
-        val fileName = getName(name) ?: "fileFromUrl.jpg"
-        downloadFileFromUrl(us, fileName)
-    }
-
-    fun getName(inputName: Formula?): String? {
-        inputName?.let { inname ->
-            var name = inname.interpretString(scope)
-            val lastDotIndex = name.lastIndexOf('.')
-            if(lastDotIndex <= 0 && lastDotIndex >= name.length - 1) {
-                name += ".jpg"
-            }
-            return name
+        val destination = File(projectFiles, normalizedName).canonicalFile
+        val projectPrefix = projectFiles.path.trimEnd(File.separatorChar) + File.separator
+        if (!destination.path.startsWith(projectPrefix)) {
+            throw IllegalArgumentException("The destination must stay inside the project's files directory")
         }
-        return null
+        return destination
     }
 
-    fun showToast(toast: String) {
-        val params = ArrayList<Any>(listOf(toast))
-        StageActivity.messageHandler.obtainMessage(StageActivity.SHOW_TOAST, params).sendToTarget()
-    }
-
-    fun downloadFileFromUrl(fileUrl: String, newFileName: String) {
-        scope?.project?.let { proj ->
-            CoroutineScope(Dispatchers.IO).launch {
-                val url = URL(fileUrl)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.connect()
-
-                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                    Log.e("DownloadFile", "Ошибка: ${connection.responseCode}")
-                    showToast("Ошибка: ${connection.responseCode}")
-                    return@launch
-                }
-
-                val inputStream = connection.inputStream
-                val downloadsFolder = proj.filesDir
-                downloadsFolder.mkdirs()
-                val destFile = File(downloadsFolder, newFileName)
-
-                val fileOutputStream = FileOutputStream(destFile)
-                inputStream.copyTo(fileOutputStream)
-
-                Log.d("DownloadFile", "Файл скачан: ${destFile.absolutePath}")
-            }
-        }
-    }
+    override fun defaultFileName(): String = "fileFromUrl.jpg"
 }

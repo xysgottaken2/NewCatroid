@@ -20,14 +20,53 @@ object ProjectScanner {
         val needsVibrate: Boolean,
         val needsOverlay: Boolean,
         val needsStorage: Boolean,
-        val needsBackground: Boolean
+        val needsBackground: Boolean,
+        /**
+         * The project uses one of the PC game bricks or one of the RAM sensors,
+         * so the APK template must be built from a tree that has them - otherwise
+         * the exported APK loads the project without those bricks.
+         */
+        val hasPcGames: Boolean = false
     )
+
+    /**
+     * Simple class names of every brick and script the project uses, taken from
+     * `code.xml` (`<brick type="...">`, `<script type="...">`).
+     *
+     * A template APK can only run the classes it was built with, so these are the
+     * names that have to exist inside the template before an export can work -
+     * see [BrickCoverage]. Reading the XML textually keeps this usable from unit
+     * tests and from the build dialog without a full XStream round trip.
+     */
+    fun referencedClasses(projectDir: File): List<String> {
+        val codeXml = File(projectDir, "code.xml")
+        if (!codeXml.exists()) return emptyList()
+        val names = LinkedHashSet<String>()
+        try {
+            codeXml.bufferedReader().use { reader ->
+                reader.forEachLine { line ->
+                    for (match in BRICK_TYPE.findAll(line)) {
+                        names.add(match.groupValues[1])
+                    }
+                    for (match in SCRIPT_TYPE.findAll(line)) {
+                        names.add(match.groupValues[1])
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return names.toList()
+    }
+
+    private val BRICK_TYPE = Regex("""<brick\s+type="([A-Za-z0-9_]+)"""")
+    private val SCRIPT_TYPE = Regex("""<script\s+type="([A-Za-z0-9_]+)"""")
 
     fun scanProject(projectDir: File): ScanResult {
         val codeXml = File(projectDir, "code.xml")
         if (!codeXml.exists()) {
             return ScanResult(false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false)
+                false, false, false, false, false, false, false, false, false, false, false)
         }
 
         var hasQemu = false
@@ -47,6 +86,11 @@ object ProjectScanner {
         var needsOverlay = false
         var needsStorage = false
         var needsBackground = false
+        var hasPcGames = false
+
+        // `Pc...Brick` in code.xml plus the RAM sensors that were added with them.
+        val pcBrickPattern = Regex("Pc[A-Za-z0-9]*Brick")
+        val ramSensors = listOf("RAM_TOTAL", "RAM_AVAILABLE", "RAM_USED_PERCENT", "RAM_APP_LIMIT", "RAM_LOW")
 
         try {
             codeXml.bufferedReader().use { reader ->
@@ -108,6 +152,10 @@ object ProjectScanner {
                     if (line.contains("Background") || line.contains("Service") || line.contains("Foreground")) {
                         needsBackground = true
                     }
+
+                    if (pcBrickPattern.containsMatchIn(line) || ramSensors.any { line.contains(it) }) {
+                        hasPcGames = true
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -117,7 +165,8 @@ object ProjectScanner {
         return ScanResult(
             hasQemu, hasPython, hasCompiler, hasMkit, hasOnnx, hasMnn,
             needsInternet, needsCamera, needsLocation, needsBluetooth, needsNfc,
-            needsAudioRecord, needsVibrate, needsOverlay, needsStorage, needsBackground
+            needsAudioRecord, needsVibrate, needsOverlay, needsStorage, needsBackground,
+            hasPcGames
         )
     }
 }

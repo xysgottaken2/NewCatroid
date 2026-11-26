@@ -213,7 +213,7 @@ class BuildMonitorService : Service() {
                     extractApkFromZip(zipFile, out)
                 }
 
-                FileProvider.getUriForFile(this, "${applicationContext.packageName}.provider", destFile)
+                FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileProvider", destFile)
             } catch (e: Exception) { null }
         }
     }

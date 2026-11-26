@@ -52,8 +52,12 @@ object TrustedDomainManager {
         if (trustListPattern == null) {
             trustListPattern = initializeTrustListPattern()
         }
-        return trustListPattern?.matcher(url)?.matches() ?: false ||
-            userTrustListPattern?.matcher(url)?.matches() ?: false
+        // `?:` binds weaker than `||`, so the parentheses are required: without
+        // them the expression is `builtIn ?: (false || user)` and a URL that is
+        // not in the built-in list never reaches the user list at all.
+        val isBuiltInTrusted = trustListPattern?.matcher(url)?.matches() ?: false
+        val isUserTrusted = userTrustListPattern?.matcher(url)?.matches() ?: false
+        return isBuiltInTrusted || isUserTrusted
     }
 
     fun addToUserTrustList(domain: String): Boolean {

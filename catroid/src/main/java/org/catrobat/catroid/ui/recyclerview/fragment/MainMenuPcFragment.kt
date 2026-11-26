@@ -2,6 +2,7 @@ package org.catrobat.catroid.ui.recyclerview.fragment
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.View
@@ -21,6 +22,7 @@ import org.catrobat.catroid.io.asynctask.ProjectLoader.ProjectLoadListener
 import org.catrobat.catroid.io.asynctask.loadProject
 import org.catrobat.catroid.stage.StageActivity
 import org.catrobat.catroid.ui.CommunityWebViewActivity
+import org.catrobat.catroid.ui.MainMenuActivity
 import org.catrobat.catroid.ui.ProjectActivity
 import org.catrobat.catroid.ui.WebViewActivity
 import org.catrobat.catroid.ui.dialogs.NewProjectDialogFragment
@@ -42,26 +44,50 @@ class MainMenuPcFragment : Fragment(), View.OnClickListener, ProjectLoadListener
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentMainMenuPcBinding.inflate(inflater, container, false)
-        return binding.root
+        Log.i(STARTUP_TAG, "stage.begin=main-menu-pc-fragment.onCreateView")
+        return try {
+            _binding = FragmentMainMenuPcBinding.inflate(inflater, container, false)
+            Log.i(STARTUP_TAG, "stage.complete=main-menu-pc-fragment.onCreateView")
+            binding.root
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "stage.failed=main-menu-pc-fragment.onCreateView", error)
+            throw error
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        Log.i(STARTUP_TAG, "stage.begin=main-menu-pc-fragment.onViewCreated")
+        view.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (view.width <= 0 || view.height <= 0) return
+                Log.i(STARTUP_TAG, "view.first-layout=main-menu-pc-fragment size=${view.width}x${view.height} shown=${view.isShown}")
+                (activity as? MainMenuActivity)?.onStartupMenuFirstLayout("MainMenuPcFragment")
+                try {
+                    view.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                } catch (error: Exception) {
+                    Log.w(STARTUP_TAG, "view.layout-listener-remove-failed=main-menu-pc-fragment", error)
+                }
+            }
+        })
 
+        try {
+            binding.editProject.setOnClickListener(this)
+            binding.projectImageView.setOnClickListener(this)
+            binding.playProject.setOnClickListener(this)
+            binding.btnWeb.setOnClickListener(this)
+            binding.btnCommunity.setOnClickListener(this)
+            binding.btnNewProjectFab.setOnClickListener(this)
 
-        binding.editProject.setOnClickListener(this)
-        binding.projectImageView.setOnClickListener(this)
-        binding.playProject.setOnClickListener(this)
-        binding.btnWeb.setOnClickListener(this)
-        binding.btnCommunity.setOnClickListener(this)
-        binding.btnNewProjectFab.setOnClickListener(this)
-
-
-        if (savedInstanceState == null) {
-            childFragmentManager.beginTransaction()
-                .replace(R.id.pc_project_list_container, ProjectListFragment())
-                .commit()
+            if (savedInstanceState == null) {
+                childFragmentManager.beginTransaction()
+                    .replace(R.id.pc_project_list_container, ProjectListFragment())
+                    .commit()
+            }
+            Log.i(STARTUP_TAG, "stage.complete=main-menu-pc-fragment.onViewCreated")
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "stage.failed=main-menu-pc-fragment.onViewCreated", error)
+            throw error
         }
     }
 
@@ -153,6 +179,7 @@ class MainMenuPcFragment : Fragment(), View.OnClickListener, ProjectLoadListener
 
     companion object {
         val TAG: String = MainMenuPcFragment::class.java.simpleName
+        private const val STARTUP_TAG = "NewCatroidStartup"
         private const val CURRENT_THUMBNAIL_SIZE = 500
     }
 }

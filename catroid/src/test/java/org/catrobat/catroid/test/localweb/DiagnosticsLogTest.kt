@@ -87,8 +87,20 @@ class DiagnosticsLogTest {
         assertTrue(text.contains("GET /play/app.js -> 200"))
         assertTrue(text.contains("mime=text/javascript"))
         assertTrue(text.contains("bytes=1234"))
+        assertTrue(text.contains("rate=") && text.contains("MiB/s"))
         assertTrue(text.contains("size mismatch"))
         assertTrue(text.contains("GET /missing.js -> 404"))
+    }
+
+    @Test
+    fun `request throughput is derived from observed bytes and duration`() {
+        val measured = RequestLogEntry(
+            timestampMs = 0L, method = "GET", path = "/large.bin", status = 200,
+            mimeType = "application/octet-stream", bytesSent = 1024L * 1024L,
+            durationMs = 1000L, detail = null
+        )
+        assertEquals(1.0, measured.mebibytesPerSecond!!, 0.0)
+        assertTrue(entry("/empty", status = 200).copy(bytesSent = 0).mebibytesPerSecond == null)
     }
 
     @Test

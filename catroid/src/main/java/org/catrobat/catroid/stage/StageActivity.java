@@ -31,6 +31,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -167,6 +168,37 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 		PermissionAdaptingActivity {
 
 	public static final String TAG = StageActivity.class.getSimpleName();
+
+	/**
+	 * Shows why a project cannot be opened. In an exported APK this is the only
+	 * feedback before the app closes, so the reason (and the class of the cause)
+	 * goes to both the log and a toast.
+	 */
+	private void reportProjectLoadFailure(Throwable error) {
+		StringBuilder text = new StringBuilder();
+		Throwable current = error;
+		int depth = 0;
+		while (current != null && depth < 4) {
+			if (text.length() > 0) {
+				text.append("\n<- ");
+			}
+			text.append(current.getClass().getSimpleName());
+			if (current.getMessage() != null && !current.getMessage().isEmpty()) {
+				text.append(": ").append(current.getMessage());
+			}
+			current = current.getCause();
+			depth++;
+		}
+		Log.e(TAG, "stage.project-load failed: " + text);
+		try {
+			Toast.makeText(this,
+				"O projeto não pôde ser carregado / project load failed:\n" + text,
+				Toast.LENGTH_LONG).show();
+		} catch (Throwable ignored) {
+			// Nothing else to do: the message is in the log already.
+		}
+	}
+
 	public StageListener stageListener;
 
 	public static final int REQUEST_START_STAGE = 101;
@@ -312,6 +344,17 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 				try {
 					ProjectManager.getInstance().loadProject(projectDir);
 				} catch (ProjectException e) {
+					// An empty catch turns a project that cannot be parsed into a
+					// black window without any explanation, and in an exported APK
+					// the stage is the whole app. Report it, then stop.
+					reportProjectLoadFailure(e);
+					finish();
+					return;
+				} catch (RuntimeException e) {
+					Log.e(TAG, "Failed to load project from " + projectDir.getAbsolutePath(), e);
+					reportProjectLoadFailure(e);
+					finish();
+					return;
 				}
 			}
 		}
@@ -665,7 +708,6 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 		currentVmMouseX = catroidX;
 		currentVmMouseY = catroidY;
 
-		if(!VirtualMachineManager.INSTANCE.isWorking()) return;
 		VncClient client = vncClients.get(DEFAULT_VM_NAME);
 		if (client == null) return;
 		if (stageListener == null) return;
@@ -689,7 +731,6 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 	}
 
 	public void sendVmKeyEvent(int keysym, boolean isDown) {
-		if(!VirtualMachineManager.INSTANCE.isWorking()) return;
 		VncClient client = vncClients.get(DEFAULT_VM_NAME);
 		if (client != null) {
 			client.sendKeyEvent(keysym, 0, isDown);
@@ -702,6 +743,45 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 			attachVMScreen(DEFAULT_VM_NAME);
 			stageListener.setVmDisplayVisible(visible);
 		}
+	}
+
+	/**
+	 * Shows or hides the PC game surface. The game runs inside a container that
+	 * publishes its framebuffer through a VNC bridge, so rendering and input both
+	 * reuse the VNC pipeline the QEMU blocks already use.
+	 *
+	 * @param port port of the VNC bridge inside the container (host loopback)
+	 * @param attempts how often the client tries to connect while the container boots
+	 */
+	public void showPcDisplay(final boolean visible, final int port, final int attempts) {
+		runOnUiThread(() -> {
+			if (stageListener == null) {
+				return;
+			}
+			if (visible) {
+				attachVncDisplay(DEFAULT_VM_NAME, "127.0.0.1", port, attempts);
+			}
+			stageListener.setVmDisplayVisible(visible);
+		});
+	}
+
+	/** Enables or disables the drag-to-move edit mode of the PC touch overlay. */
+	public void setPcTouchEditMode(final boolean enabled) {
+		runOnUiThread(() -> {
+			if (stageListener != null && stageListener.getPcTouchControls() != null) {
+				stageListener.getPcTouchControls().setEditMode(enabled);
+			}
+		});
+	}
+
+	/** Adds (or with {@code null} removes) the touch control overlay of the PC layer. */
+	public void setPcTouchOverlay(final com.badlogic.gdx.scenes.scene2d.Actor actor) {
+		runOnUiThread(() -> {
+			if (stageListener != null) {
+				stageListener.setPcTouchControls(
+						(org.catrobat.catroid.pcgame.PcTouchControlsActor) actor);
+			}
+		});
 	}
 
 
@@ -722,7 +802,18 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 	private boolean captureScheduled = false;
 
 	public void attachVMScreen(String viewId) {
-		if(!VirtualMachineManager.INSTANCE.isWorking()) return;
+		attachVncDisplay(viewId, "127.0.0.1", 5900, 1);
+	}
+
+	/**
+	 * Connects a VNC client for {@code viewId}. Retries the connection so a
+	 * container that is still booting (QEMU or the Wine/Xvfb/x11vnc stack) can be
+	 * attached as soon as its framebuffer is reachable.
+	 */
+	public void attachVncDisplay(final String viewId, final String host, final int port,
+							 final int attempts) {
+		// Also used by the PC game layer (Wine + Xvfb + x11vnc), which runs
+		// without a QEMU VM, so the VM state is not required here.
 		runOnUiThread(() -> {
 
 
@@ -788,7 +879,21 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 					vncClients.put(viewId, vncClient);
 
 					vncClient.configure(0, true, 5, false);
-					vncClient.connect("127.0.0.1", 5900);
+					int remaining = Math.max(1, attempts);
+					boolean connected = false;
+					while (remaining > 0 && !connected) {
+						try {
+							vncClient.connect(host, port);
+							connected = true;
+						} catch (Exception connectError) {
+							remaining--;
+							if (remaining <= 0) {
+								throw connectError;
+							}
+							Log.i(TAG, "VNC connect to " + host + ":" + port + " failed, retrying (" + remaining + ")");
+							Thread.sleep(1000);
+						}
+					}
 
 
 					while (vncClient.getConnected()) {
@@ -1560,50 +1665,57 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 	private void checkAndRequestPermissions() {
 		List<String> permissionsNeeded = new ArrayList<>();
 
-
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-			permissionsNeeded.add(Manifest.permission.CAMERA);
-		}
-
-
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-			permissionsNeeded.add(Manifest.permission.RECORD_AUDIO);
-		}
-
-
-		if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-			permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
-		}
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-			}
-		}
-
+		// Ask only for what the exported APK actually declares. An export strips
+		// every permission the build dialog did not enable, and requesting a
+		// permission that is not in the manifest throws a SecurityException that
+		// kills the stage (and with it the whole app) on the first frame.
+		requestIfDeclared(permissionsNeeded, Manifest.permission.CAMERA);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.RECORD_AUDIO);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.ACCESS_FINE_LOCATION);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.NEARBY_WIFI_DEVICES);
+		requestIfDeclared(permissionsNeeded, Manifest.permission.POST_NOTIFICATIONS);
 
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
-			}
-		}
-
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
-			}
-
+			requestIfDeclared(permissionsNeeded, Manifest.permission.READ_MEDIA_IMAGES);
 		} else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-			if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-				permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
-			}
+			requestIfDeclared(permissionsNeeded, Manifest.permission.READ_EXTERNAL_STORAGE);
 		}
-
 
 		if (!permissionsNeeded.isEmpty()) {
-			ActivityCompat.requestPermissions(this, permissionsNeeded.toArray(new String[0]), 100);
+			try {
+				ActivityCompat.requestPermissions(this, permissionsNeeded.toArray(new String[0]), 100);
+			} catch (RuntimeException e) {
+				// A permission the system does not know (a new one on an older
+				// device, a manifest the export edited) must not stop the project.
+				Log.w(TAG, "stage.permissions.request failed: " + permissionsNeeded + " " + e);
+			}
 		}
+	}
+
+	private void requestIfDeclared(List<String> permissionsNeeded, String permission) {
+		if (!isPermissionDeclared(permission)) {
+			return;
+		}
+		if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+			permissionsNeeded.add(permission);
+		}
+	}
+
+	private boolean isPermissionDeclared(String permission) {
+		try {
+			PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_PERMISSIONS);
+			if (info.requestedPermissions == null) {
+				return false;
+			}
+			for (String declared : info.requestedPermissions) {
+				if (permission.equals(declared)) {
+					return true;
+				}
+			}
+		} catch (Exception e) {
+			Log.w(TAG, "stage.permissions.query failed: " + permission + " " + e);
+		}
+		return false;
 	}
 
 	@Override
@@ -1690,6 +1802,21 @@ public class StageActivity extends AndroidApplication implements ContextProvider
 		// the stage is destroyed so no sockets, threads or WebViews leak.
 		LocalHttpServer.INSTANCE.stop();
 		EmbeddedWebViewManager.INSTANCE.close();
+
+		// A PC game keeps running in its own process, so stop it together with
+		// the stage and forget this activity.
+		Thread stopPcGame = new Thread(() -> {
+			try {
+				org.catrobat.catroid.pcgame.PcGameManager.INSTANCE.stop();
+			} catch (Exception ignored) {
+				// stopping must never crash the stage shutdown
+			}
+		}, "pcgame-shutdown");
+		stopPcGame.setDaemon(true);
+		stopPcGame.start();
+		if (activeStageActivity != null && activeStageActivity.get() == this) {
+			activeStageActivity = null;
+		}
 	}
 
 	AndroidGraphics getGdxGraphics() {

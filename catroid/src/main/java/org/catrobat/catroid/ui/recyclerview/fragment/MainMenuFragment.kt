@@ -24,6 +24,7 @@ package org.catrobat.catroid.ui.recyclerview.fragment
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -50,6 +51,7 @@ import org.catrobat.catroid.io.asynctask.ProjectLoader.ProjectLoadListener
 import org.catrobat.catroid.io.asynctask.loadProject
 import org.catrobat.catroid.stage.StageActivity
 import org.catrobat.catroid.ui.CommunityWebViewActivity
+import org.catrobat.catroid.ui.MainMenuActivity
 import org.catrobat.catroid.ui.PROJECT_DIR
 import org.catrobat.catroid.ui.ProjectActivity
 import org.catrobat.catroid.ui.ProjectListActivity
@@ -95,9 +97,33 @@ class MainMenuFragment : Fragment(),
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        viewModel.setIsLoading(true)
-        _binding = FragmentMainMenuBinding.inflate(inflater, container, false)
-        return binding.root
+        Log.i(STARTUP_TAG, "stage.begin=main-menu-fragment.onCreateView")
+        return try {
+            viewModel.setIsLoading(true)
+            _binding = FragmentMainMenuBinding.inflate(inflater, container, false)
+            Log.i(STARTUP_TAG, "stage.complete=main-menu-fragment.onCreateView layout=${binding.root.javaClass.simpleName}")
+            binding.root
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "stage.failed=main-menu-fragment.onCreateView", error)
+            throw error
+        }
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        Log.i(STARTUP_TAG, "stage.complete=main-menu-fragment.onViewCreated")
+        view.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (view.width <= 0 || view.height <= 0) return
+                Log.i(STARTUP_TAG, "view.first-layout=main-menu-fragment size=${view.width}x${view.height} visibility=${view.visibility} shown=${view.isShown}")
+                (activity as? MainMenuActivity)?.onStartupMenuFirstLayout("MainMenuFragment")
+                try {
+                    view.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                } catch (error: Exception) {
+                    Log.w(STARTUP_TAG, "view.layout-listener-remove-failed=main-menu-fragment", error)
+                }
+            }
+        })
     }
 
     override fun onDestroyView() {
@@ -107,33 +133,38 @@ class MainMenuFragment : Fragment(),
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)
-
+        Log.i(STARTUP_TAG, "stage.begin=main-menu-fragment.onActivityCreated")
         try {
-            progressBar = requireActivity().findViewById<LinearLayout?>(R.id.progress_bar)
-            viewModel.isLoading().observe(viewLifecycleOwner, Observer { show ->
-                progressBar?.setVisibleOrGone(show)
-            })
-        } catch (e: Exception) {
-            e.printStackTrace()
+            try {
+                progressBar = requireActivity().findViewById<LinearLayout?>(R.id.progress_bar)
+                viewModel.isLoading().observe(viewLifecycleOwner, Observer { show ->
+                    progressBar?.setVisibleOrGone(show)
+                })
+            } catch (error: Exception) {
+                Log.e(STARTUP_TAG, "main-menu-fragment.progress-observer-failed", error)
+            }
+
+            setupFeaturedProjectsRV()
+            setupCategoriesRV()
+            setupViewVisibility()
+
+            binding.editProject.setOnClickListener(this)
+            //binding.uploadProject.setOnClickListener(this)
+            binding.newProjectFloatingActionButton.setOnClickListener(this)
+            binding.myProjectsTextView.setOnClickListener(this)
+            binding.projectImageView.setOnClickListener(this)
+            binding.playProject.setOnClickListener(this)
+            binding.featuredProjectsTextView.setOnClickListener(this)
+            binding.featuredProjectsTextView2.setOnClickListener(this)
+
+            setFragment(this)
+            setupProjectsRV()
+            viewModel.setIsLoading(false)
+            Log.i(STARTUP_TAG, "stage.complete=main-menu-fragment.onActivityCreated")
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "stage.failed=main-menu-fragment.onActivityCreated", error)
+            throw error
         }
-
-        setupFeaturedProjectsRV()
-        setupCategoriesRV()
-        setupViewVisibility()
-
-        binding.editProject.setOnClickListener(this)
-        //binding.uploadProject.setOnClickListener(this)
-        binding.newProjectFloatingActionButton.setOnClickListener(this)
-        binding.myProjectsTextView.setOnClickListener(this)
-        binding.projectImageView.setOnClickListener(this)
-        binding.playProject.setOnClickListener(this)
-        binding.featuredProjectsTextView.setOnClickListener(this)
-        binding.featuredProjectsTextView2.setOnClickListener(this)
-
-        setFragment(this)
-
-        setupProjectsRV()
-        viewModel.setIsLoading(false)
     }
 
     private fun setupCategoriesRV() {
@@ -200,18 +231,24 @@ class MainMenuFragment : Fragment(),
 
     override fun onResume() {
         super.onResume()
+        Log.i(STARTUP_TAG, "stage.begin=main-menu-fragment.onResume")
+        try {
+            (activity as? androidx.appcompat.app.AppCompatActivity)?.supportActionBar?.setTitle(R.string.app_name)
 
-        (activity as? androidx.appcompat.app.AppCompatActivity)?.supportActionBar?.setTitle(R.string.app_name)
-
-        viewModel.registerNetworkCallback()
-        viewModel.setIsLoading(false)
-        viewModel.update()
-        val projectName = requireActivity().intent.getStringExtra(Constants.EXTRA_PROJECT_NAME)
-        if (projectName != null) {
-            requireActivity().intent.removeExtra(Constants.EXTRA_PROJECT_NAME)
-            loadDownloadedProject(projectName)
+            viewModel.registerNetworkCallback()
+            viewModel.setIsLoading(false)
+            viewModel.update()
+            val projectName = requireActivity().intent.getStringExtra(Constants.EXTRA_PROJECT_NAME)
+            if (projectName != null) {
+                requireActivity().intent.removeExtra(Constants.EXTRA_PROJECT_NAME)
+                loadDownloadedProject(projectName)
+            }
+            refreshData()
+            Log.i(STARTUP_TAG, "stage.complete=main-menu-fragment.onResume")
+        } catch (error: Throwable) {
+            Log.e(STARTUP_TAG, "stage.failed=main-menu-fragment.onResume", error)
+            throw error
         }
-        refreshData()
     }
 
     override fun onPause() {
@@ -381,6 +418,7 @@ class MainMenuFragment : Fragment(),
 
     companion object {
         val TAG: String = MainMenuFragment::class.java.simpleName
+        private const val STARTUP_TAG = "NewCatroidStartup"
         private const val CURRENT_THUMBNAIL_SIZE = 500
         private const val MAX_PROJECTS_NUMBER = 10
     }
